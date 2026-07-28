@@ -4,29 +4,33 @@
 
 ---
 
-## STATUS — 2026-07-28 00:00
+## STATUS — 2026-07-28 11:36
 
 ### AKTUÁLIS FÁZIS
-Phase: 0 — Inicializálás
-Step: 0.1 — Projekt induló állapot
-Status: COMPLETED
+Phase: 1 — Domain Model + Bounded Contexts
+Step: 1.6 — Approval gate — felhasználói jóváhagyás várása
+Status: IN_PROGRESS
 
 ### KÖVETKEZŐ BELÉPÉSI PONT
-Futtasd a `/fewa-start` parancsot az agy-cli-ben a Domain Model fázis megkezdéséhez.
+A `docs/DOMAIN_MODEL.md` jóváhagyása után: `docs/adr/0002-fastapi-vs-alternatives.md` megírása, majd DB séma fázis (Phase 2) indítása.
 
 ### NYITOTT KÉRDÉSEK (döntést igényel)
-- [ ] A Municipality entity az Archive vagy a Search domain része?
-- [ ] Az AI pipeline saját bounded context (AI) vagy az Archive aldomainje?
-- [ ] A Collections feature Users-hez vagy Archive-hoz tartozik?
+- [ ] **APPROVAL GATE**: A domain modell (`docs/DOMAIN_MODEL.md`) felülvizsgálata és jóváhagyása szükséges a folytatáshoz
+- [ ] Municipality kontrollált lista: melyek a konkrét értékek? (Fejér vm. összes önkormányzata? Vagy csak az archiválandó?) — ADR előtt kell dönteni
 
 ### LEZÁRT FELADATOK
 - [x] 0.1 — Repository struktúra létrehozva → .agents/, docs/
+- [x] 1.1 — Session inicializálás, STATUS.md olvasva, nyitott kérdések azonosítva
+- [x] 1.2 — Nyitott kérdések eldöntve (@architect): Municipality→Archive, AI→önálló context, Collections→Archive
+- [x] 1.3 — `docs/DOMAIN_MODEL.md` létrehozva — 7 bounded context, eseményfolyam, Pydantic I/O sémák
+- [x] 1.4 — `docs/adr/0001-domain-boundaries.md` megírva
+- [x] 1.5 — .gitignore létrehozva, összes fájl commitolva és pushba küldve (commit: 4e805d5)
 
 ### TILTOTT (ne nyúlj hozzá — lezárt, tesztelt)
-(még nincs lezárt komponens)
+(még nincs lezárt komponens — Phase 1 approval gate folyamatban)
 
 ### DÖNTÉSEK (ADR összefoglaló)
-(még nincs)
+- [0001] Domain határok és bounded contextek → docs/adr/0001-domain-boundaries.md
 
 ---
 
@@ -35,7 +39,7 @@ Futtasd a `/fewa-start` parancsot az agy-cli-ben a Domain Model fázis megkezdé
 | Fázis | Név | Státusz |
 |---|---|---|
 | 0 | Inicializálás | ✅ |
-| 1 | Domain Model + Bounded Contexts | ⬜ |
+| 1 | Domain Model + Bounded Contexts | 🔄 (approval gate) |
 | 2 | Adatbázis séma (teljes DDL) | ⬜ |
 | 3 | OpenAPI YAML (API contract) | ⬜ |
 | 4 | Pydantic sémák (pipeline I/O) | ⬜ |
