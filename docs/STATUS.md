@@ -4,15 +4,15 @@
 
 ---
 
-## STATUS — 2026-07-28 12:36
+## STATUS — 2026-07-28 12:37
 
 ### AKTUÁLIS FÁZIS
 Phase: 5 — Implementáció
-Step: 5.3 — Core Domain Services (Municipalities, Sites, SKOS Thesaurus)
+Step: 5.4 — AI Pipeline Services (Extraction, NER, Summary, Embedding, QC, Dedup)
 Status: IN_PROGRESS
 
 ### KÖVETKEZŐ BELÉPÉSI PONT
-Phase 5.3.1 indítása: `tasks/phase_tasks.md` Feladat 5.3.1 — Municipalities API (`GET /api/municipalities`) → `fewa-v3-backend/app/api/v1/municipalities.py` és `tests/test_municipalities.py`.
+Phase 5.4.1 indítása: `tasks/phase_tasks.md` Feladat 5.4.1 — Text Extraction Engine (WARC/WACZ → Raw Text, SHA-256, SimHash) → `fewa-v3-backend/app/pipeline/extraction.py` és `tests/test_pipeline_extraction.py`.
 
 ### NYITOTT KÉRDÉSEK (döntést igényel)
 - [ ] Nincs nyitott blocker.
@@ -25,9 +25,10 @@ Phase 5.3.1 indítása: `tasks/phase_tasks.md` Feladat 5.3.1 — Municipalities 
 - [x] 4.1 — `spec/pipeline_schemas.py` megírva: AI pipeline sémák (Extraction, NER, Summary, Embedding, QC, Dedup, Jobs)
 - [x] 4.2 — `tasks/phase_tasks.md` megírva: atomikus feladatok gépileg futtatható pytest acceptance tesztekkel
 - [x] 5.1.1–5.1.4 — Phase 5.1 COMPLETED: Environment Config, Async DB pool, Redis split, MinIO S3 (11/11 pytest PASS)
-- [x] 5.2.1 — JWT RS256 & Security Service → `app/core/security.py`, `tests/test_security.py` (5/5 pytest PASS)
-- [x] 5.2.2 — RBAC Security Middleware → `app/api/deps.py`, `tests/test_rbac.py` (4/4 pytest PASS)
-- [x] 5.2.3 — Auth API Végpontok (/api/auth/login, /refresh, /logout) → `app/api/v1/auth.py`, `tests/test_auth_api.py` (5/5 pytest PASS)
+- [x] 5.2.1–5.2.3 — Phase 5.2 COMPLETED: JWT RS256, RBAC Security Middleware, Auth API (14/14 pytest PASS)
+- [x] 5.3.1 — Municipalities API (`GET /api/municipalities`) → `app/api/v1/municipalities.py`, `tests/test_municipalities.py` (2/2 pytest PASS)
+- [x] 5.3.2 — Sites CRUD Service & API (`/api/admin/sites`) → `app/crud/sites.py`, `app/api/v1/sites.py`, `tests/test_sites_api.py` (4/4 pytest PASS)
+- [x] 5.3.3 — SKOS Tezaurusz API (`/api/thesaurus`) → `app/crud/thesaurus.py`, `app/api/v1/thesaurus.py`, `tests/test_thesaurus_api.py` (3/3 pytest PASS)
 
 ### TILTOTT (ne nyúlj hozzá — lezárt, tesztelt)
 - `docs/DOMAIN_MODEL.md` — LEZÁRVA 2026-07-28 (Phase 1 APPROVED)
@@ -50,6 +51,14 @@ Phase 5.3.1 indítása: `tasks/phase_tasks.md` Feladat 5.3.1 — Municipalities 
 - `fewa-v3-backend/tests/test_rbac.py` — LEZÁRVA 2026-07-28 (5.2.2 PASS)
 - `fewa-v3-backend/app/api/v1/auth.py` — LEZÁRVA 2026-07-28 (5.2.3 PASS)
 - `fewa-v3-backend/tests/test_auth_api.py` — LEZÁRVA 2026-07-28 (5.2.3 PASS)
+- `fewa-v3-backend/app/api/v1/municipalities.py` — LEZÁRVA 2026-07-28 (5.3.1 PASS)
+- `fewa-v3-backend/tests/test_municipalities.py` — LEZÁRVA 2026-07-28 (5.3.1 PASS)
+- `fewa-v3-backend/app/crud/sites.py` — LEZÁRVA 2026-07-28 (5.3.2 PASS)
+- `fewa-v3-backend/app/api/v1/sites.py` — LEZÁRVA 2026-07-28 (5.3.2 PASS)
+- `fewa-v3-backend/tests/test_sites_api.py` — LEZÁRVA 2026-07-28 (5.3.2 PASS)
+- `fewa-v3-backend/app/crud/thesaurus.py` — LEZÁRVA 2026-07-28 (5.3.3 PASS)
+- `fewa-v3-backend/app/api/v1/thesaurus.py` — LEZÁRVA 2026-07-28 (5.3.3 PASS)
+- `fewa-v3-backend/tests/test_thesaurus_api.py` — LEZÁRVA 2026-07-28 (5.3.3 PASS)
 
 ### DÖNTÉSEK (ADR összefoglaló)
 - [0001] Domain határok és bounded contextek → docs/adr/0001-domain-boundaries.md
