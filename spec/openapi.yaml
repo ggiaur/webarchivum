@@ -1,0 +1,1923 @@
+openapi: "3.1.0"
+
+info:
+  title: FEWA API — Fejér Vármegyei Webarchívum
+  version: "3.1.0"
+  description: |
+    REST API a FEWA (Fejér Vármegyei Webarchívum) rendszerhez.
+    Nyilvános végpontok autentikáció nélkül elérhetők.
+    Admin végpontok JWT RS256 Bearer tokennel védve (RBAC).
+  contact:
+    name: Vörösmarty Mihály Könyvtár
+    email: fewa@vmk.hu
+  license:
+    name: Apache 2.0
+
+servers:
+  - url: https://archivum.vmk.hu
+    description: Production
+  - url: https://staging.archivum.vmk.hu
+    description: Staging
+  - url: http://localhost:8000
+    description: Development
+
+# =============================================================================
+# Security
+# =============================================================================
+
+security: []  # default: public
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT RS256 token. Szerepkörök (növekvő jogosultság sorrend):
+        guest < viewer < indexer < curator < archivist < admin
+
+  # ===========================================================================
+  # Schemas
+  # ===========================================================================
+  schemas:
+
+    # -------------------------------------------------------------------------
+    # Alap típusok
+    # -------------------------------------------------------------------------
+
+    UUID:
+      type: string
+      format: uuid
+      example: "550e8400-e29b-41d4-a716-446655440000"
+
+    PID:
+      type: string
+      pattern: '^fewa:\d{4}:\d{6}$'
+      example: "fewa:2026:000042"
+      description: Perzisztens azonosító. Csak published snapshot-okon van.
+
+    Timestamp:
+      type: string
+      format: date-time
+      example: "2026-07-28T10:00:00+02:00"
+
+    # -------------------------------------------------------------------------
+    # Municipality
+    # -------------------------------------------------------------------------
+
+    Municipality:
+      type: object
+      required: [id, name, slug, county, is_active, sort_order]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        name:
+          type: string
+          example: "Székesfehérvár"
+        slug:
+          type: string
+          example: "szekesfehervar"
+          description: URL-safe azonosító, szűrőparaméterként használható
+        county:
+          type: string
+          example: "Fejér"
+        is_active:
+          type: boolean
+        sort_order:
+          type: integer
+
+    # -------------------------------------------------------------------------
+    # Site
+    # -------------------------------------------------------------------------
+
+    SiteSummary:
+      type: object
+      required: [id, domain, display_name, priority, category, is_active_collection]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        domain:
+          type: string
+          example: "alba.hu"
+        base_url:
+          type: string
+          format: uri
+          example: "https://alba.hu"
+        display_name:
+          type: string
+          example: "Alba Regia Portál"
+        priority:
+          $ref: '#/components/schemas/CrawlPriority'
+        category:
+          $ref: '#/components/schemas/SiteCategory'
+        crawl_frequency:
+          $ref: '#/components/schemas/CrawlFrequency'
+        municipality:
+          $ref: '#/components/schemas/Municipality'
+        oszk_status:
+          $ref: '#/components/schemas/OszkStatus'
+        is_active_collection:
+          type: boolean
+        total_snapshots:
+          type: integer
+        last_crawled_at:
+          $ref: '#/components/schemas/Timestamp'
+          nullable: true
+
+    SiteDetail:
+      allOf:
+        - $ref: '#/components/schemas/SiteSummary'
+        - type: object
+          properties:
+            curator_notes:
+              type: string
+              nullable: true
+            requires_js:
+              type: boolean
+            robots_txt_respect:
+              type: boolean
+            scope_restriction:
+              type: string
+              nullable: true
+            crawl_policies:
+              type: array
+              items:
+                $ref: '#/components/schemas/CrawlPolicy'
+            created_at:
+              $ref: '#/components/schemas/Timestamp'
+            updated_at:
+              $ref: '#/components/schemas/Timestamp'
+
+    SiteCreate:
+      type: object
+      required: [domain, base_url, priority, category, crawl_frequency]
+      properties:
+        domain:
+          type: string
+          example: "alba.hu"
+        base_url:
+          type: string
+          format: uri
+        display_name:
+          type: string
+        priority:
+          $ref: '#/components/schemas/CrawlPriority'
+        category:
+          $ref: '#/components/schemas/SiteCategory'
+        crawl_frequency:
+          $ref: '#/components/schemas/CrawlFrequency'
+        municipality_id:
+          $ref: '#/components/schemas/UUID'
+          nullable: true
+        curator_notes:
+          type: string
+          nullable: true
+        oszk_status:
+          $ref: '#/components/schemas/OszkStatus'
+        robots_txt_respect:
+          type: boolean
+          default: true
+        requires_js:
+          type: boolean
+          default: false
+
+    SiteUpdate:
+      type: object
+      properties:
+        display_name:
+          type: string
+        priority:
+          $ref: '#/components/schemas/CrawlPriority'
+        category:
+          $ref: '#/components/schemas/SiteCategory'
+        crawl_frequency:
+          $ref: '#/components/schemas/CrawlFrequency'
+        municipality_id:
+          $ref: '#/components/schemas/UUID'
+          nullable: true
+        curator_notes:
+          type: string
+          nullable: true
+        oszk_status:
+          $ref: '#/components/schemas/OszkStatus'
+        is_active_collection:
+          type: boolean
+        robots_txt_respect:
+          type: boolean
+        requires_js:
+          type: boolean
+
+    # -------------------------------------------------------------------------
+    # CrawlPolicy
+    # -------------------------------------------------------------------------
+
+    CrawlPolicy:
+      type: object
+      required: [id, site_id, depth, max_pages, cron_schedule, llm_profile]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        site_id:
+          $ref: '#/components/schemas/UUID'
+        name:
+          type: string
+          example: "default"
+        depth:
+          type: integer
+          minimum: 1
+          maximum: 5
+          example: 3
+        max_pages:
+          type: integer
+          minimum: 1
+          example: 5000
+        page_limit:
+          type: integer
+          minimum: 1
+          example: 500
+        cron_schedule:
+          type: string
+          example: "0 2 * * 0"
+          description: Standard cron expression (TZ Europe/Budapest)
+        llm_profile:
+          $ref: '#/components/schemas/LLMProfile'
+        include_patterns:
+          type: array
+          items:
+            type: string
+          nullable: true
+          example: ["/hirek/*", "/archivum/*"]
+        exclude_patterns:
+          type: array
+          items:
+            type: string
+          nullable: true
+          example: ["/admin/*", "/login"]
+        is_active:
+          type: boolean
+
+    CrawlPolicyCreate:
+      type: object
+      required: [depth, cron_schedule, llm_profile]
+      properties:
+        name:
+          type: string
+          default: "default"
+        depth:
+          type: integer
+          minimum: 1
+          maximum: 5
+        max_pages:
+          type: integer
+          minimum: 1
+          default: 5000
+        cron_schedule:
+          type: string
+          example: "0 2 * * 0"
+        llm_profile:
+          $ref: '#/components/schemas/LLMProfile'
+        include_patterns:
+          type: array
+          items:
+            type: string
+          nullable: true
+        exclude_patterns:
+          type: array
+          items:
+            type: string
+          nullable: true
+
+    # -------------------------------------------------------------------------
+    # Snapshot
+    # -------------------------------------------------------------------------
+
+    SnapshotSummary:
+      type: object
+      required: [id, lifecycle_status, seed_url, crawl_timestamp]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        pid:
+          $ref: '#/components/schemas/PID'
+          nullable: true
+        lifecycle_status:
+          $ref: '#/components/schemas/LifecycleStatus'
+        dc_title:
+          type: string
+          nullable: true
+        dc_description:
+          type: string
+          nullable: true
+        seed_url:
+          type: string
+          format: uri
+        crawl_timestamp:
+          $ref: '#/components/schemas/Timestamp'
+          nullable: true
+        municipality:
+          $ref: '#/components/schemas/Municipality'
+          nullable: true
+        qc_score:
+          type: integer
+          minimum: 0
+          maximum: 100
+          nullable: true
+        site:
+          type: object
+          properties:
+            id:
+              $ref: '#/components/schemas/UUID'
+            domain:
+              type: string
+            display_name:
+              type: string
+
+    SnapshotDetail:
+      allOf:
+        - $ref: '#/components/schemas/SnapshotSummary'
+        - type: object
+          properties:
+            dc_creator:
+              type: string
+              nullable: true
+            dc_publisher:
+              type: string
+              nullable: true
+            dc_subject:
+              type: array
+              items:
+                type: string
+            dc_language:
+              type: string
+              example: "hu"
+            dc_coverage:
+              type: string
+              nullable: true
+            dc_rights:
+              type: string
+              nullable: true
+            ai_summary:
+              type: string
+              nullable: true
+            ai_keywords:
+              type: array
+              items:
+                type: string
+              nullable: true
+            wacz_filesize_bytes:
+              type: integer
+              nullable: true
+            wacz_page_count:
+              type: integer
+              nullable: true
+            embedding_model:
+              type: string
+              nullable: true
+            embedding_version:
+              type: string
+              nullable: true
+            created_at:
+              $ref: '#/components/schemas/Timestamp'
+            updated_at:
+              $ref: '#/components/schemas/Timestamp'
+
+    # -------------------------------------------------------------------------
+    # Search
+    # -------------------------------------------------------------------------
+
+    SearchResult:
+      type: object
+      required: [id, score, seed_url, crawl_timestamp]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        pid:
+          $ref: '#/components/schemas/PID'
+          nullable: true
+        score:
+          type: number
+          format: float
+          description: RRF (Reciprocal Rank Fusion) relevancia score
+          example: 0.87
+        dc_title:
+          type: string
+          nullable: true
+        snippet:
+          type: string
+          description: Kiemelés a találat szövegéből (highlight)
+          nullable: true
+        seed_url:
+          type: string
+          format: uri
+        crawl_timestamp:
+          $ref: '#/components/schemas/Timestamp'
+        municipality:
+          $ref: '#/components/schemas/Municipality'
+          nullable: true
+        site:
+          type: object
+          properties:
+            domain:
+              type: string
+            display_name:
+              type: string
+
+    SearchResponse:
+      type: object
+      required: [results, total, page, page_size, search_type, query_time_ms]
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/SearchResult'
+        total:
+          type: integer
+          description: Összes találat (lapozáshoz)
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 100
+        search_type:
+          type: string
+          enum: [fulltext, vector, hybrid]
+          description: Ténylegesen alkalmazott keresési módszer
+        query_time_ms:
+          type: integer
+          description: Backend feldolgozási idő milliszekundumban
+
+    # -------------------------------------------------------------------------
+    # RAG
+    # -------------------------------------------------------------------------
+
+    RAGRequest:
+      type: object
+      required: [question]
+      properties:
+        question:
+          type: string
+          minLength: 5
+          maxLength: 500
+          example: "Mikor nyílt meg a Vörösmarty Mihály Könyvtár jelenlegi épülete?"
+        municipality_slug:
+          type: string
+          nullable: true
+          description: Szűkítés egy önkormányzatra
+          example: "szekesfehervar"
+        date_from:
+          type: string
+          format: date
+          nullable: true
+        date_to:
+          type: string
+          format: date
+          nullable: true
+        top_k:
+          type: integer
+          minimum: 1
+          maximum: 10
+          default: 3
+          description: Hány chunk alapján válaszoljon (guardrail max=3 publikus API-n)
+
+    RAGResponse:
+      type: object
+      required: [answer, confidence_score, sources, is_sufficient]
+      properties:
+        answer:
+          type: string
+          description: LLM válasz, vagy "Nincs elegendő bizonyíték az archívumban."
+        confidence_score:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          example: 0.82
+        is_sufficient:
+          type: boolean
+          description: false ha confidence_score < 0.6 (guardrail)
+        sources:
+          type: array
+          items:
+            type: object
+            required: [snapshot_id, seed_url, crawl_timestamp, chunk_excerpt]
+            properties:
+              snapshot_id:
+                $ref: '#/components/schemas/UUID'
+              pid:
+                $ref: '#/components/schemas/PID'
+                nullable: true
+              seed_url:
+                type: string
+                format: uri
+              crawl_timestamp:
+                $ref: '#/components/schemas/Timestamp'
+              chunk_excerpt:
+                type: string
+                description: A releváns szövegrész
+              relevance_score:
+                type: number
+                format: float
+        warning:
+          type: string
+          example: "Kísérleti AI-válasz — ellenőrizze az eredeti forrást"
+        trace_id:
+          $ref: '#/components/schemas/UUID'
+          description: ai_traces rekord azonosítója (feedback küldéshez)
+
+    RAGFeedback:
+      type: object
+      required: [trace_id, feedback]
+      properties:
+        trace_id:
+          $ref: '#/components/schemas/UUID'
+        feedback:
+          type: string
+          enum: [helpful, unhelpful, wrong]
+        note:
+          type: string
+          maxLength: 500
+          nullable: true
+
+    # -------------------------------------------------------------------------
+    # Admin — Queue
+    # -------------------------------------------------------------------------
+
+    QueueItem:
+      type: object
+      required: [id, lifecycle_status, seed_url, site, created_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        lifecycle_status:
+          $ref: '#/components/schemas/LifecycleStatus'
+        dc_title:
+          type: string
+          nullable: true
+        seed_url:
+          type: string
+          format: uri
+        qc_score:
+          type: integer
+          nullable: true
+        site:
+          type: object
+          properties:
+            id:
+              $ref: '#/components/schemas/UUID'
+            domain:
+              type: string
+            priority:
+              $ref: '#/components/schemas/CrawlPriority'
+            category:
+              $ref: '#/components/schemas/SiteCategory'
+            municipality:
+              $ref: '#/components/schemas/Municipality'
+              nullable: true
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        created_by:
+          type: string
+          nullable: true
+
+    QueueActionRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          maxLength: 500
+          nullable: true
+          description: Opcionális kurátori megjegyzés (elutasítás esetén ajánlott)
+
+    # -------------------------------------------------------------------------
+    # Admin — Jobs
+    # -------------------------------------------------------------------------
+
+    Job:
+      type: object
+      required: [id, job_type, status, queued_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        job_type:
+          type: string
+          enum: [crawl, enrich, reindex, export_oaipmh, reembed]
+        status:
+          type: string
+          enum: [queued, running, completed, failed, dead_lettered]
+        snapshot_id:
+          $ref: '#/components/schemas/UUID'
+          nullable: true
+        site_id:
+          $ref: '#/components/schemas/UUID'
+          nullable: true
+        retry_count:
+          type: integer
+        max_retries:
+          type: integer
+        error_message:
+          type: string
+          nullable: true
+        queued_at:
+          $ref: '#/components/schemas/Timestamp'
+        started_at:
+          $ref: '#/components/schemas/Timestamp'
+          nullable: true
+        completed_at:
+          $ref: '#/components/schemas/Timestamp'
+          nullable: true
+        duration_ms:
+          type: integer
+          nullable: true
+
+    IngestRequest:
+      type: object
+      required: [site_id]
+      properties:
+        site_id:
+          $ref: '#/components/schemas/UUID'
+          description: Melyik site-ot kell azonnal crawlolni
+        policy_id:
+          $ref: '#/components/schemas/UUID'
+          nullable: true
+          description: Melyik crawl_policy-t használja (null = default)
+        llm_profile_override:
+          $ref: '#/components/schemas/LLMProfile'
+          nullable: true
+          description: Felülírja a policy LLM profilját
+
+    # -------------------------------------------------------------------------
+    # Admin — Audit
+    # -------------------------------------------------------------------------
+
+    AuditLogEntry:
+      type: object
+      required: [id, action, resource_type, occurred_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        action:
+          type: string
+          example: "snapshot.approved"
+        resource_type:
+          type: string
+          example: "snapshot"
+        resource_id:
+          $ref: '#/components/schemas/UUID'
+          nullable: true
+        user:
+          type: object
+          nullable: true
+          properties:
+            id:
+              $ref: '#/components/schemas/UUID'
+            full_name:
+              type: string
+        old_value:
+          type: object
+          nullable: true
+        new_value:
+          type: object
+          nullable: true
+        occurred_at:
+          $ref: '#/components/schemas/Timestamp'
+
+    # -------------------------------------------------------------------------
+    # SKOS Thesaurus
+    # -------------------------------------------------------------------------
+
+    SKOSConcept:
+      type: object
+      required: [id, uri, pref_label_hu]
+      properties:
+        id:
+          $ref: '#/components/schemas/UUID'
+        uri:
+          type: string
+          format: uri
+          example: "http://fewa.vmk.hu/thesaurus/helyi-politika"
+        pref_label_hu:
+          type: string
+          example: "helyi politika"
+        pref_label_en:
+          type: string
+          nullable: true
+        alt_labels:
+          type: array
+          items:
+            type: string
+          nullable: true
+        definition:
+          type: string
+          nullable: true
+        scope_note:
+          type: string
+          nullable: true
+        notation:
+          type: string
+          nullable: true
+        broader:
+          type: object
+          nullable: true
+          properties:
+            id:
+              $ref: '#/components/schemas/UUID'
+            pref_label_hu:
+              type: string
+        narrower:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                $ref: '#/components/schemas/UUID'
+              pref_label_hu:
+                type: string
+        is_deprecated:
+          type: boolean
+
+    SKOSConceptCreate:
+      type: object
+      required: [pref_label_hu]
+      properties:
+        pref_label_hu:
+          type: string
+          minLength: 2
+          maxLength: 200
+        pref_label_en:
+          type: string
+          nullable: true
+        alt_labels:
+          type: array
+          items:
+            type: string
+          nullable: true
+        definition:
+          type: string
+          nullable: true
+        scope_note:
+          type: string
+          nullable: true
+        notation:
+          type: string
+          nullable: true
+        broader_id:
+          $ref: '#/components/schemas/UUID'
+          nullable: true
+
+    # -------------------------------------------------------------------------
+    # Statistics
+    # -------------------------------------------------------------------------
+
+    Statistics:
+      type: object
+      required: [total_snapshots, total_sites, total_chunks, last_updated]
+      properties:
+        total_snapshots:
+          type: integer
+          description: Összes published snapshot
+        total_sites:
+          type: integer
+          description: Összes aktív site
+        total_chunks:
+          type: integer
+          description: Összes indexelt szövegdarab
+        total_wacz_size_gb:
+          type: number
+          format: float
+          description: Összes WACZ fájlméret GB-ban
+        snapshots_by_category:
+          type: object
+          additionalProperties:
+            type: integer
+          example:
+            közintézmény: 312
+            média: 89
+            civil: 45
+        snapshots_by_municipality:
+          type: array
+          items:
+            type: object
+            properties:
+              municipality:
+                type: string
+              count:
+                type: integer
+        recent_activity:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+                format: date
+              crawled:
+                type: integer
+              published:
+                type: integer
+        last_updated:
+          $ref: '#/components/schemas/Timestamp'
+
+    # -------------------------------------------------------------------------
+    # Enum sémák
+    # -------------------------------------------------------------------------
+
+    LifecycleStatus:
+      type: string
+      enum:
+        - candidate
+        - approved
+        - crawling
+        - archived
+        - indexed
+        - published
+        - deprecated
+        - withdrawn
+
+    CrawlPriority:
+      type: string
+      enum: [critical, high, medium, low, on_hold]
+
+    SiteCategory:
+      type: string
+      enum: [közintézmény, civil, média, vállalkozás, kulturális, egyéb]
+
+    CrawlFrequency:
+      type: string
+      enum: [daily, weekly, monthly, quarterly, event_driven, once]
+
+    OszkStatus:
+      type: string
+      enum: [yes, no, unknown, partial]
+
+    LLMProfile:
+      type: string
+      enum: [fast, balanced, high_quality]
+      description: |
+        fast = qwen2.5:3b (4096 ctx)
+        balanced = qwen2.5:7b (8192 ctx)
+        high_quality = gemma3:12b (12288 ctx)
+
+    # -------------------------------------------------------------------------
+    # Hibaválaszok
+    # -------------------------------------------------------------------------
+
+    Error:
+      type: object
+      required: [detail]
+      properties:
+        detail:
+          type: string
+          example: "Az erőforrás nem található."
+
+    ValidationError:
+      type: object
+      required: [detail]
+      properties:
+        detail:
+          type: array
+          items:
+            type: object
+            required: [loc, msg, type]
+            properties:
+              loc:
+                type: array
+                items:
+                  oneOf:
+                    - type: string
+                    - type: integer
+                example: ["body", "q"]
+              msg:
+                type: string
+                example: "String should have at least 2 characters"
+              type:
+                type: string
+                example: "string_too_short"
+
+    PaginatedResponse:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items:
+          type: array
+          items: {}
+        total:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
+
+  # ===========================================================================
+  # Reusable Responses
+  # ===========================================================================
+  responses:
+    Unauthorized:
+      description: Hiányzó vagy érvénytelen token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            detail: "Érvénytelen vagy lejárt token."
+
+    Forbidden:
+      description: Nincs megfelelő jogosultság
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            detail: "Ehhez a művelethez curator jogosultság szükséges."
+
+    NotFound:
+      description: Az erőforrás nem található
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            detail: "A snapshot nem található."
+
+    ValidationError:
+      description: Érvénytelen kérés (Pydantic validáció sikertelen)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationError'
+
+  # ===========================================================================
+  # Parameters
+  # ===========================================================================
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+
+    PageSizeParam:
+      name: page_size
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+# =============================================================================
+# Paths
+# =============================================================================
+
+paths:
+
+  # ---------------------------------------------------------------------------
+  # Health
+  # ---------------------------------------------------------------------------
+
+  /api/health:
+    get:
+      operationId: health_check
+      summary: Rendszer állapot
+      description: Ellenőrzi a backend, adatbázis és Redis elérhetőségét.
+      tags: [System]
+      responses:
+        '200':
+          description: Minden rendszer él
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, version, checks]
+                properties:
+                  status:
+                    type: string
+                    enum: [ok, degraded]
+                  version:
+                    type: string
+                    example: "3.1.0"
+                  checks:
+                    type: object
+                    properties:
+                      database:
+                        type: string
+                        enum: [ok, error]
+                      redis_queue:
+                        type: string
+                        enum: [ok, error]
+                      redis_cache:
+                        type: string
+                        enum: [ok, error]
+                      minio:
+                        type: string
+                        enum: [ok, error]
+                      ollama:
+                        type: string
+                        enum: [ok, unavailable]
+        '503':
+          description: Kritikus függőség nem elérhető
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ---------------------------------------------------------------------------
+  # Municipalities
+  # ---------------------------------------------------------------------------
+
+  /api/municipalities:
+    get:
+      operationId: list_municipalities
+      summary: Önkormányzati egységek listája
+      description: Fejér vm. önkormányzatok kontrollált listája. Kurátori lenyílóhoz.
+      tags: [Reference]
+      responses:
+        '200':
+          description: Sikeres
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Municipality'
+
+  # ---------------------------------------------------------------------------
+  # Statistics
+  # ---------------------------------------------------------------------------
+
+  /api/statistics:
+    get:
+      operationId: get_statistics
+      summary: Archívum statisztikák
+      tags: [Public]
+      responses:
+        '200':
+          description: Sikeres
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Statistics'
+
+  # ---------------------------------------------------------------------------
+  # Search
+  # ---------------------------------------------------------------------------
+
+  /api/search:
+    get:
+      operationId: search_snapshots
+      summary: Hibrid keresés az archívumban
+      description: |
+        Fulltext (tsvector BM25) + vektor (pgvector cosine) + Reciprocal Rank Fusion.
+        Csak published státuszú snapshot-okat ad vissza.
+      tags: [Public]
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Keresési kifejezés
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 500
+          example: "városháza felújítás"
+        - name: search_type
+          in: query
+          schema:
+            type: string
+            enum: [fulltext, vector, hybrid]
+            default: hybrid
+        - name: municipality_slug
+          in: query
+          schema:
+            type: string
+          example: "szekesfehervar"
+          description: Szűrés önkormányzatra (municipalities.slug)
+        - name: category
+          in: query
+          schema:
+            $ref: '#/components/schemas/SiteCategory'
+        - name: from_date
+          in: query
+          schema:
+            type: string
+            format: date
+          example: "2024-01-01"
+        - name: to_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+      responses:
+        '200':
+          description: Keresési eredmények
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  # ---------------------------------------------------------------------------
+  # Documents
+  # ---------------------------------------------------------------------------
+
+  /api/documents/{id}:
+    get:
+      operationId: get_snapshot
+      summary: Egyedi archív rekord lekérése
+      tags: [Public]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            oneOf:
+              - $ref: '#/components/schemas/UUID'
+              - $ref: '#/components/schemas/PID'
+          description: Snapshot UUID vagy PID (fewa:2026:000042)
+      responses:
+        '200':
+          description: Sikeres
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SnapshotDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ---------------------------------------------------------------------------
+  # Collections
+  # ---------------------------------------------------------------------------
+
+  /api/collections:
+    get:
+      operationId: list_collections
+      summary: Publikus gyűjtemények
+      tags: [Public]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+      responses:
+        '200':
+          description: Sikeres
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          $ref: '#/components/schemas/UUID'
+                        name:
+                          type: string
+                        description:
+                          type: string
+                          nullable: true
+                        snapshot_count:
+                          type: integer
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  page_size:
+                    type: integer
+
+  # ---------------------------------------------------------------------------
+  # RAG
+  # ---------------------------------------------------------------------------
+
+  /api/rag:
+    post:
+      operationId: rag_query
+      summary: AI-alapú kérdezés az archívum tartalmából
+      description: |
+        Retrieval-Augmented Generation. Guardrail szabályok:
+        - Csak top-3 chunk alapján válaszol
+        - confidence_score < 0.6 → "Nincs elegendő bizonyíték az archívumban."
+        - Minden válasz mellé forrás URL + crawl_timestamp kötelező
+        - Rate limit: 10 kérés/perc/IP
+      tags: [Public]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RAGRequest'
+      responses:
+        '200':
+          description: Sikeres (alacsony confidence esetén is 200, is_sufficient=false)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RAGResponse'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          description: Rate limit túllépve
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                detail: "Túl sok kérés. Kérlek várd meg az 1 perces ablak végét."
+
+  /api/rag/feedback:
+    post:
+      operationId: rag_feedback
+      summary: Felhasználói visszajelzés az AI válaszra
+      description: RLHF-light feedback a trace_id alapján.
+      tags: [Public]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RAGFeedback'
+      responses:
+        '204':
+          description: Visszajelzés rögzítve
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  # ---------------------------------------------------------------------------
+  # OAI-PMH
+  # ---------------------------------------------------------------------------
+
+  /oai:
+    get:
+      operationId: oai_pmh
+      summary: OAI-PMH 2.0 provider végpont
+      description: |
+        Mind a 6 OAI-PMH ige támogatott: Identify, ListSets,
+        ListMetadataFormats, ListIdentifiers, ListRecords, GetRecord.
+        Formátumok: oai_dc, mets, mods.
+        Kompatibilis: DSpace, Omeka, Koha, AtoM, OSZK.
+      tags: [OAI-PMH]
+      parameters:
+        - name: verb
+          in: query
+          required: true
+          schema:
+            type: string
+            enum:
+              - Identify
+              - ListSets
+              - ListMetadataFormats
+              - ListIdentifiers
+              - ListRecords
+              - GetRecord
+        - name: metadataPrefix
+          in: query
+          schema:
+            type: string
+            enum: [oai_dc, mets, mods]
+        - name: identifier
+          in: query
+          schema:
+            type: string
+          description: OAI identifier (GetRecord-hoz)
+        - name: set
+          in: query
+          schema:
+            type: string
+          description: Set specifier (ListRecords/ListIdentifiers-hez)
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: until
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: resumptionToken
+          in: query
+          schema:
+            type: string
+          description: Lapozási token (keyset pagination alapú)
+      responses:
+        '200':
+          description: W3C valid OAI-PMH XML válasz
+          content:
+            application/xml:
+              schema:
+                type: string
+                description: OAI-PMH XML (lxml generált)
+
+  # ---------------------------------------------------------------------------
+  # Admin — Queue (Curator+)
+  # ---------------------------------------------------------------------------
+
+  /api/admin/queue:
+    get:
+      operationId: list_queue
+      summary: Kurátori várólista
+      description: candidate és approved státuszú snapshot-ok listája.
+      tags: [Admin]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [candidate, approved]
+        - name: priority
+          in: query
+          schema:
+            $ref: '#/components/schemas/CrawlPriority'
+        - name: municipality_slug
+          in: query
+          schema:
+            type: string
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+      responses:
+        '200':
+          description: Sikeres
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/QueueItem'
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  page_size:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/admin/queue/{id}/approve:
+    post:
+      operationId: approve_snapshot
+      summary: Snapshot jóváhagyása (candidate → approved)
+      tags: [Admin]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueueActionRequest'
+      responses:
+        '200':
+          description: Jóváhagyva
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SnapshotSummary'
+        '400':
+          description: Érvénytelen életciklus-átmenet
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/admin/queue/{id}/reject:
+    post:
+      operationId: reject_snapshot
+      summary: Snapshot elutasítása (candidate → withdrawn)
+      tags: [Admin]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueueActionRequest'
+      responses:
+        '200':
+          description: Elutasítva
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SnapshotSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ---------------------------------------------------------------------------
+  # Admin — Sites (Archivist+)
+  # ---------------------------------------------------------------------------
+
+  /api/admin/sites:
+    get:
+      operationId: list_sites
+      summary: Összes site listázása
+      tags: [Admin]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: priority
+          in: query
+          schema:
+            $ref: '#/components/schemas/CrawlPriority'
+        - name: category
+          in: query
+          schema:
+            $ref: '#/components/schemas/SiteCategory'
+        - name: is_active_collection
+          in: query
+          schema:
+            type: boolean
+        - name: municipality_slug
+          in: query
+          schema:
+            type: string
+        - name: oszk_status
+          in: query
+          schema:
+            $ref: '#/components/schemas/OszkStatus'
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+      responses:
+        '200':
+          description: Sikeres
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SiteSummary'
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  page_size:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      operationId: create_site
+      summary: Új site hozzáadása
+      tags: [Admin]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SiteCreate'
+      responses:
+        '201':
+          description: Site létrehozva
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SiteDetail'
+        '409':
+          description: Domain már bejegyezve
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/admin/sites/{id}:
+    get:
+      operationId: get_site
+      summary: Site részletes adatai
+      tags: [Admin]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      responses:
+        '200':
+          description: Sikeres
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SiteDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      operationId: update_site
+      summary: Site adatok frissítése (prioritás, kategória, frekvencia, stb.)
+      tags: [Admin]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SiteUpdate'
+      responses:
+        '200':
+          description: Frissítve
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SiteDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  # ---------------------------------------------------------------------------
+  # Admin — Crawl Policies (Archivist+)
+  # ---------------------------------------------------------------------------
+
+  /api/admin/sites/{site_id}/policies:
+    get:
+      operationId: list_crawl_policies
+      summary: Site crawl policy-jainak listája
+      tags: [Admin]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: site_id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      responses:
+        '200':
+          description: Sikeres
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CrawlPolicy'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    post:
+      operationId: create_crawl_policy
+      summary: Új crawl policy létrehozása
+      tags: [Admin]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: site_id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CrawlPolicyCreate'
+      responses:
+        '201':
+          description: Policy létrehozva
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CrawlPolicy'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  # ---------------------------------------------------------------------------
+  # Admin — Ingest / Jobs (Archivist+)
+  # ---------------------------------------------------------------------------
+
+  /api/admin/ingest:
+    post:
+      operationId: trigger_ingest
+      summary: Azonnali crawl indítása (manuális trigger)
+      tags: [Admin]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IngestRequest'
+      responses:
+        '202':
+          description: Job elküldve az Arq queue-ba
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Site nem található
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/admin/jobs:
+    get:
+      operationId: list_jobs
+      summary: Aszinkron feladatok listája
+      tags: [Admin]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [queued, running, completed, failed, dead_lettered]
+        - name: job_type
+          in: query
+          schema:
+            type: string
+            enum: [crawl, enrich, reindex, export_oaipmh, reembed]
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+      responses:
+        '200':
+          description: Sikeres
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Job'
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  page_size:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ---------------------------------------------------------------------------
+  # Admin — Audit (Archivist+)
+  # ---------------------------------------------------------------------------
+
+  /api/admin/audit:
+    get:
+      operationId: list_audit_logs
+      summary: Audit napló
+      description: PREMIS kompatibilis audit log. IP-k 1 év után anonimizálva.
+      tags: [Admin]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: resource_type
+          in: query
+          schema:
+            type: string
+            example: "snapshot"
+        - name: resource_id
+          in: query
+          schema:
+            $ref: '#/components/schemas/UUID'
+        - name: action
+          in: query
+          schema:
+            type: string
+            example: "snapshot.approved"
+        - name: from_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+      responses:
+        '200':
+          description: Sikeres
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AuditLogEntry'
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  page_size:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ---------------------------------------------------------------------------
+  # Thesaurus (SKOS)
+  # ---------------------------------------------------------------------------
+
+  /api/thesaurus:
+    get:
+      operationId: list_thesaurus
+      summary: SKOS tezaurusz fogalmak
+      tags: [Thesaurus]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+            minLength: 1
+          description: Fulltext keresés a pref_label_hu és alt_labels mezőkben
+        - name: broader_id
+          in: query
+          schema:
+            $ref: '#/components/schemas/UUID'
+          description: Szűkítés szülőfogalomra
+        - name: include_deprecated
+          in: query
+          schema:
+            type: boolean
+            default: false
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PageSizeParam'
+      responses:
+        '200':
+          description: Sikeres
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SKOSConcept'
+                  total:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      operationId: create_thesaurus_concept
+      summary: Új SKOS fogalom létrehozása (Curator+)
+      tags: [Thesaurus]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SKOSConceptCreate'
+      responses:
+        '201':
+          description: Fogalom létrehozva
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SKOSConcept'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/thesaurus/{id}:
+    patch:
+      operationId: update_thesaurus_concept
+      summary: SKOS fogalom módosítása (Curator+)
+      tags: [Thesaurus]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SKOSConceptCreate'
+      responses:
+        '200':
+          description: Frissítve
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SKOSConcept'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+# =============================================================================
+# Tags
+# =============================================================================
+
+tags:
+  - name: System
+    description: Rendszer állapot és metaadatok
+  - name: Public
+    description: Nyilvános végpontok — autentikáció nélkül elérhetők
+  - name: Reference
+    description: Referencia adatok (municipalities, stb.)
+  - name: OAI-PMH
+    description: OAI-PMH 2.0 provider — könyvtári rendszerek integrációja
+  - name: Admin
+    description: Admin végpontok — minimum Curator jogosultság szükséges
+  - name: Thesaurus
+    description: SKOS tezaurusz kezelés — minimum Viewer olvasáshoz, Curator íráshoz

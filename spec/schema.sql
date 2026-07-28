@@ -162,7 +162,30 @@ CREATE TABLE collections (
 CREATE INDEX idx_collections_tenant ON collections (tenant_id);
 
 -- ---------------------------------------------------------------------------
--- 4. SITES — Domain-szintű bejegyzések + kurátori prioritizálás
+-- 4. MUNICIPALITIES — Fejér vm. önkormányzati egységek lookup táblája
+-- ---------------------------------------------------------------------------
+-- Kurátori felületen lenyíló listaként jelenik meg.
+-- Bővíthető: új önkormányzat hozzáadása nem igényel séma-változtatást.
+
+CREATE TABLE municipalities (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name        VARCHAR(150) NOT NULL UNIQUE,   -- pl. 'Székesfehérvár'
+    slug        VARCHAR(100) NOT NULL UNIQUE,   -- pl. 'szekesfehervar' (URL-safe)
+    county      VARCHAR(100) NOT NULL DEFAULT 'Fejér',
+    is_active   BOOLEAN NOT NULL DEFAULT TRUE,  -- inaktív: nem jelenik meg a lenyílóban
+    sort_order  SMALLINT NOT NULL DEFAULT 100,  -- sorrend a lenyílóban (kisebb = előbb)
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_municipalities_active ON municipalities (is_active, sort_order)
+    WHERE is_active = TRUE;
+
+COMMENT ON TABLE municipalities IS 'Fejér vm. önkormányzati egységek kontrolált listája. Kurátori felületen lenyílóként jelenik meg.';
+COMMENT ON COLUMN municipalities.slug IS 'URL-safe, ékezet nélküli azonosító. API szűrőparaméterként is használható.';
+COMMENT ON COLUMN municipalities.is_active IS 'FALSE: megőrizzük a régi rekordokat, de az UI nem mutatja új bejegyzésnél.';
+
+-- ---------------------------------------------------------------------------
+-- 5. SITES — Domain-szintű bejegyzések + kurátori prioritizálás
 -- ---------------------------------------------------------------------------
 -- Ez a tábla lett kibővítve a Phase 2 kontextus alapján:
 -- priority, category, frequency, curator_notes, oszk_status, is_active_collection
@@ -191,7 +214,7 @@ CREATE TABLE sites (
     scope_restriction       TEXT,                               -- ha csak aldomain archiválandó
 
     -- Metaadatok
-    municipality            VARCHAR(100),                       -- Fejér vm. önkormányzati egység
+    municipality_id         UUID REFERENCES municipalities(id) ON DELETE SET NULL,  -- FK lookup táblára
     added_by                UUID REFERENCES users(id) ON DELETE SET NULL,
     last_crawled_at         TIMESTAMPTZ,
     created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -206,12 +229,12 @@ COMMENT ON COLUMN sites.crawl_frequency IS 'Tervezett gyűjtési frekvencia. Az 
 COMMENT ON COLUMN sites.curator_notes IS 'Szabad szöveges kurátori megjegyzés — pl. "csak a /hirek aloldalt archivájuk".';
 COMMENT ON COLUMN sites.oszk_status IS 'Az OSZK webarchívuma gyűjti-e ezt az oldalt? Duplikáció-elkerülés.';
 COMMENT ON COLUMN sites.is_active_collection IS 'FALSE: a site bejegyezve, de gyűjtés szünetel (pl. oldal megszűnt).';
-COMMENT ON COLUMN sites.municipality IS 'Fejér vm. önkormányzati egység neve. Kontrollált lista az alkalmazás szintjén.';
+COMMENT ON COLUMN sites.municipality_id IS 'FK a municipalities táblára. Kurátori felületen lenyílóból választható.';
 
 CREATE INDEX idx_sites_tenant ON sites (tenant_id);
 CREATE INDEX idx_sites_collection ON sites (collection_id);
 CREATE INDEX idx_sites_priority ON sites (tenant_id, priority) WHERE is_active_collection = TRUE;
-CREATE INDEX idx_sites_municipality ON sites (municipality);
+CREATE INDEX idx_sites_municipality ON sites (municipality_id);
 CREATE INDEX idx_sites_category ON sites (category);
 CREATE INDEX idx_sites_active ON sites (tenant_id, is_active_collection);
 
@@ -292,7 +315,7 @@ CREATE TABLE archived_snapshots (
     dc_type             TEXT DEFAULT 'Website',
 
     -- Keresési metaadatok
-    municipality        VARCHAR(100),           -- Fejér vm. önkormányzati egység
+    municipality_id     UUID REFERENCES municipalities(id) ON DELETE SET NULL,  -- FK lookup
     crawl_timestamp     TIMESTAMPTZ,            -- mikor archivált
     crawl_duration_s    INTEGER,
     seed_url            TEXT NOT NULL,          -- archívum kiindulópontja
@@ -329,7 +352,7 @@ COMMENT ON COLUMN archived_snapshots.premis_event_log IS 'JSONB tömb: minden é
 CREATE INDEX idx_snapshots_tenant ON archived_snapshots (tenant_id);
 CREATE INDEX idx_snapshots_site ON archived_snapshots (site_id);
 CREATE INDEX idx_snapshots_lifecycle ON archived_snapshots (lifecycle_status);
-CREATE INDEX idx_snapshots_municipality ON archived_snapshots (municipality);
+CREATE INDEX idx_snapshots_municipality ON archived_snapshots (municipality_id);
 CREATE INDEX idx_snapshots_crawl_ts ON archived_snapshots (crawl_timestamp DESC);
 CREATE INDEX idx_snapshots_collection ON archived_snapshots (collection_id);
 CREATE INDEX idx_snapshots_qc ON archived_snapshots (qc_score) WHERE qc_score IS NOT NULL;
@@ -340,7 +363,7 @@ CREATE INDEX idx_snapshots_dc_subject ON archived_snapshots USING GIN (dc_subjec
 CREATE INDEX idx_snapshots_ai_keywords ON archived_snapshots USING GIN (ai_keywords);
 
 -- Partial index: csak publikus snapshot-ok
-CREATE INDEX idx_snapshots_published ON archived_snapshots (crawl_timestamp DESC, municipality)
+CREATE INDEX idx_snapshots_published ON archived_snapshots (crawl_timestamp DESC, municipality_id)
     WHERE lifecycle_status = 'published';
 
 -- ---------------------------------------------------------------------------
@@ -695,7 +718,9 @@ SELECT
     s.dc_description,
     s.ai_summary,
     s.dc_subject,
-    s.municipality,
+    s.municipality_id,
+    m.name AS municipality_name,
+    m.slug AS municipality_slug,
     s.crawl_timestamp,
     s.qc_score,
     s.search_vector,
@@ -706,6 +731,7 @@ SELECT
     si.oszk_status
 FROM archived_snapshots s
 JOIN sites si ON si.id = s.site_id
+LEFT JOIN municipalities m ON m.id = s.municipality_id
 WHERE s.lifecycle_status = 'published';
 
 COMMENT ON VIEW v_published_snapshots IS 'Csak published snapshot-ok — Next.js SSR és API /search végpont használja.';
@@ -722,9 +748,11 @@ SELECT
     si.domain,
     si.priority,
     si.category,
+    m.name AS municipality_name,
     u.full_name AS created_by_name
 FROM archived_snapshots s
 JOIN sites si ON si.id = s.site_id
+LEFT JOIN municipalities m ON m.id = s.municipality_id
 LEFT JOIN users u ON u.id = s.created_by
 WHERE s.lifecycle_status IN ('candidate', 'approved')
 ORDER BY si.priority DESC, s.created_at ASC;
@@ -740,16 +768,18 @@ SELECT
     si.crawl_frequency,
     si.oszk_status,
     si.is_active_collection,
-    si.municipality,
+    m.name AS municipality_name,
+    m.slug AS municipality_slug,
     COUNT(sn.id) AS total_snapshots,
     COUNT(sn.id) FILTER (WHERE sn.lifecycle_status = 'published') AS published_count,
     MAX(sn.crawl_timestamp) AS last_crawled_at,
     si.curator_notes
 FROM sites si
+LEFT JOIN municipalities m ON m.id = si.municipality_id
 LEFT JOIN archived_snapshots sn ON sn.site_id = si.id
 GROUP BY si.id, si.domain, si.display_name, si.priority, si.category,
          si.crawl_frequency, si.oszk_status, si.is_active_collection,
-         si.municipality, si.curator_notes;
+         m.name, m.slug, si.curator_notes;
 
 COMMENT ON VIEW v_site_collection_status IS 'Admin dashboard: minden site gyűjtési állapota egy helyen.';
 
