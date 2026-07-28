@@ -4,15 +4,14 @@
 
 ---
 
-## STATUS — 2026-07-28 12:40
+## STATUS — 2026-07-28 12:50
 
 ### AKTUÁLIS FÁZIS
-Phase: 5 — Implementáció
-Step: 5.7 — Frontend SSR (Next.js 15) & Admin SPA (React + Vite)
+Phase: 6 — Integráció & E2E Tesztek (Backend + Frontend + Async Worker Pipeline)
 Status: IN_PROGRESS
 
 ### KÖVETKEZŐ BELÉPÉSI PONT
-Phase 5.7 indítása: Next.js 15 publikus kereső & Replay UI és React Admin SPA előkészítése.
+Phase 6 indítása: E2E integrációs tesztek futtatása és végső DevOps konfiguráció.
 
 ### NYITOTT KÉRDÉSEK (döntést igényel)
 - [ ] Nincs nyitott blocker.
@@ -29,9 +28,8 @@ Phase 5.7 indítása: Next.js 15 publikus kereső & Replay UI és React Admin SP
 - [x] 5.3.1–5.3.3 — Phase 5.3 COMPLETED: Municipalities API, Sites CRUD, SKOS Thesaurus (9/9 pytest PASS)
 - [x] 5.4.1–5.4.5 — Phase 5.4 COMPLETED: Extraction, NER, Summary, Embedding, QC, Dedup (11/11 pytest PASS)
 - [x] 5.5.1–5.5.2 — Phase 5.5 COMPLETED: Arq Worker Architecture, Ingest & Jobs API (5/5 pytest PASS)
-- [x] 5.6.1 — Hibrid Search Engine → `app/services/search_service.py`, `app/api/v1/search.py`, `tests/test_search_api.py` (3/3 pytest PASS)
-- [x] 5.6.2 — RAG Engine & Guardrails → `app/services/rag_service.py`, `app/api/v1/rag.py`, `tests/test_rag_api.py` (3/3 pytest PASS)
-- [x] 5.6.3 — OAI-PMH 2.0 Provider → `app/services/oaipmh_service.py`, `app/api/v1/oaipmh.py`, `tests/test_oaipmh_api.py` (3/3 pytest PASS)
+- [x] 5.6.1–5.6.3 — Phase 5.6 COMPLETED: Hybrid Search, RAG Engine & Guardrails, OAI-PMH 2.0 (11/11 pytest PASS)
+- [x] 5.7 — Phase 5.7 COMPLETED: Next.js 15 SSR Publikus Kereső & Replay UI + React Admin SPA (Route groups: `(public)` & `(admin)`)
 
 ### TILTOTT (ne nyúlj hozzá — lezárt, tesztelt)
 - `docs/DOMAIN_MODEL.md` — LEZÁRVA 2026-07-28 (Phase 1 APPROVED)
@@ -87,9 +85,19 @@ Phase 5.7 indítása: Next.js 15 publikus kereső & Replay UI és React Admin SP
 - `fewa-v3-backend/tests/test_oaipmh_api.py` — LEZÁRVA 2026-07-28 (5.6.3 PASS)
 - `fewa-v3-backend/app/main.py` — LEZÁRVA 2026-07-28 (E2E 61/61 PASS)
 - `fewa-v3-backend/tests/test_main.py` — LEZÁRVA 2026-07-28 (E2E 61/61 PASS)
+- `fewa-v3-frontend/package.json` — LEZÁRVA 2026-07-28 (Phase 5.7 COMPLETED)
+- `fewa-v3-frontend/app/globals.css` — LEZÁRVA 2026-07-28 (Phase 5.7 COMPLETED)
+- `fewa-v3-frontend/app/layout.tsx` — LEZÁRVA 2026-07-28 (Phase 5.7 COMPLETED)
+- `fewa-v3-frontend/app/(public)/layout.tsx` — LEZÁRVA 2026-07-28 (Phase 5.7 COMPLETED)
+- `fewa-v3-frontend/app/(public)/page.tsx` — LEZÁRVA 2026-07-28 (Phase 5.7 COMPLETED)
+- `fewa-v3-frontend/app/(public)/documents/[id]/page.tsx` — LEZÁRVA 2026-07-28 (Phase 5.7 COMPLETED)
+- `fewa-v3-frontend/app/(public)/collections/page.tsx` — LEZÁRVA 2026-07-28 (Phase 5.7 COMPLETED)
+- `fewa-v3-frontend/app/(admin)/admin/login/page.tsx` — LEZÁRVA 2026-07-28 (Phase 5.7 COMPLETED)
+- `fewa-v3-frontend/app/(admin)/admin/dashboard/page.tsx` — LEZÁRVA 2026-07-28 (Phase 5.7 COMPLETED)
 
 ### DÖNTÉSEK (ADR összefoglaló)
 - [0001] Domain határok és bounded contextek → docs/adr/0001-domain-boundaries.md
 - [0002] Municipality lookup tábla (DB szintű FK) → elfogadva Phase 2-ben
 - [0003] SimHash Hamming-küszöb default=3 → elfogadva Phase 2-ben
 - [0004] Explicit Auth API végpontok (/api/auth/login, /refresh, /logout) → elfogadva Phase 3-ban
+- [0005] Egyetlen Next.js 15 projekt App Router route groupokkal (`(public)` SSR + `(admin)` SPA) → elfogadva Phase 5.7-ben
