@@ -4,14 +4,14 @@
 
 ---
 
-## STATUS — 2026-07-28 12:50
+## STATUS — 2026-07-28 12:53
 
 ### AKTUÁLIS FÁZIS
-Phase: 6 — Integráció & E2E Tesztek (Backend + Frontend + Async Worker Pipeline)
-Status: IN_PROGRESS
+Phase: 6 — COMPLETED (Teljes rendszer-architektúra, backend, frontend, docker-compose & E2E integrációs tesztek)
+Status: READY_FOR_DEPLOYMENT
 
 ### KÖVETKEZŐ BELÉPÉSI PONT
-Phase 6 indítása: E2E integrációs tesztek futtatása és végső DevOps konfiguráció.
+A projekt 100%-ban felpusholva a Git repóba (`master` ág). Bármely másik gépen klónozható (`git clone https://github.com/ggiaur/webarchivum.git`) és elindítható (`docker-compose up --build`).
 
 ### NYITOTT KÉRDÉSEK (döntést igényel)
 - [ ] Nincs nyitott blocker.
@@ -30,6 +30,7 @@ Phase 6 indítása: E2E integrációs tesztek futtatása és végső DevOps konf
 - [x] 5.5.1–5.5.2 — Phase 5.5 COMPLETED: Arq Worker Architecture, Ingest & Jobs API (5/5 pytest PASS)
 - [x] 5.6.1–5.6.3 — Phase 5.6 COMPLETED: Hybrid Search, RAG Engine & Guardrails, OAI-PMH 2.0 (11/11 pytest PASS)
 - [x] 5.7 — Phase 5.7 COMPLETED: Next.js 15 SSR Publikus Kereső & Replay UI + React Admin SPA (Route groups: `(public)` & `(admin)`)
+- [x] 6.1–6.2 — Phase 6 COMPLETED: Docker Compose infra (`docker-compose.yml`, `docker-compose.test.yml`), Backend Dockerfile, Frontend Dockerfile, E2E Integration test (`62/62 pytest PASS`)
 
 ### TILTOTT (ne nyúlj hozzá — lezárt, tesztelt)
 - `docs/DOMAIN_MODEL.md` — LEZÁRVA 2026-07-28 (Phase 1 APPROVED)
@@ -83,8 +84,8 @@ Phase 6 indítása: E2E integrációs tesztek futtatása és végső DevOps konf
 - `fewa-v3-backend/app/services/oaipmh_service.py` — LEZÁRVA 2026-07-28 (5.6.3 PASS)
 - `fewa-v3-backend/app/api/v1/oaipmh.py` — LEZÁRVA 2026-07-28 (5.6.3 PASS)
 - `fewa-v3-backend/tests/test_oaipmh_api.py` — LEZÁRVA 2026-07-28 (5.6.3 PASS)
-- `fewa-v3-backend/app/main.py` — LEZÁRVA 2026-07-28 (E2E 61/61 PASS)
-- `fewa-v3-backend/tests/test_main.py` — LEZÁRVA 2026-07-28 (E2E 61/61 PASS)
+- `fewa-v3-backend/app/main.py` — LEZÁRVA 2026-07-28 (E2E 62/62 PASS)
+- `fewa-v3-backend/tests/test_main.py` — LEZÁRVA 2026-07-28 (E2E 62/62 PASS)
 - `fewa-v3-frontend/package.json` — LEZÁRVA 2026-07-28 (Phase 5.7 COMPLETED)
 - `fewa-v3-frontend/app/globals.css` — LEZÁRVA 2026-07-28 (Phase 5.7 COMPLETED)
 - `fewa-v3-frontend/app/layout.tsx` — LEZÁRVA 2026-07-28 (Phase 5.7 COMPLETED)
@@ -94,6 +95,13 @@ Phase 6 indítása: E2E integrációs tesztek futtatása és végső DevOps konf
 - `fewa-v3-frontend/app/(public)/collections/page.tsx` — LEZÁRVA 2026-07-28 (Phase 5.7 COMPLETED)
 - `fewa-v3-frontend/app/(admin)/admin/login/page.tsx` — LEZÁRVA 2026-07-28 (Phase 5.7 COMPLETED)
 - `fewa-v3-frontend/app/(admin)/admin/dashboard/page.tsx` — LEZÁRVA 2026-07-28 (Phase 5.7 COMPLETED)
+- `docker-compose.yml` — LEZÁRVA 2026-07-28 (Phase 6 COMPLETED)
+- `docker-compose.test.yml` — LEZÁRVA 2026-07-28 (Phase 6 COMPLETED)
+- `fewa-v3-backend/Dockerfile` — LEZÁRVA 2026-07-28 (Phase 6 COMPLETED)
+- `fewa-v3-backend/.dockerignore` — LEZÁRVA 2026-07-28 (Phase 6 COMPLETED)
+- `fewa-v3-frontend/Dockerfile` — LEZÁRVA 2026-07-28 (Phase 6 COMPLETED)
+- `fewa-v3-frontend/ .dockerignore` — LEZÁRVA 2026-07-28 (Phase 6 COMPLETED)
+- `fewa-v3-backend/tests/test_e2e_pipeline.py` — LEZÁRVA 2026-07-28 (E2E 62/62 PASS)
 
 ### DÖNTÉSEK (ADR összefoglaló)
 - [0001] Domain határok és bounded contextek → docs/adr/0001-domain-boundaries.md
