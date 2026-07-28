@@ -1,0 +1,98 @@
+# =============================================================================
+# FEWA — Python Project .gitignore
+# =============================================================================
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.whl
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.env.local
+.env.*.local
+
+# Environment / Secrets — SOHA nem kerülhet repo-ba
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+
+# pytest / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.coveragerc
+
+# mypy / type checkers
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyright/
+
+# Node.js (frontend)
+node_modules/
+.next/
+.nuxt/
+dist/
+.cache/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Docker
+*.override.yml
+docker-compose.override.yml
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# OS
+Desktop.ini
+ehthumbs.db
+
+# Alembic
+alembic/versions/*.pyc
+
+# Temporary / scratch
+*.tmp
+*.bak
+*.orig
+scratch/
+
+# Logs
+logs/
+*.log
+
+# MinIO local data (dev)
+minio-data/
+
+# Ollama models (ezeket ne pusholjuk)
+models/
+
+# pgvector / postgres local volumes
+postgres-data/
+redis-data/
