@@ -85,6 +85,8 @@ Phase 5.7 indítása: Next.js 15 publikus kereső & Replay UI és React Admin SP
 - `fewa-v3-backend/app/services/oaipmh_service.py` — LEZÁRVA 2026-07-28 (5.6.3 PASS)
 - `fewa-v3-backend/app/api/v1/oaipmh.py` — LEZÁRVA 2026-07-28 (5.6.3 PASS)
 - `fewa-v3-backend/tests/test_oaipmh_api.py` — LEZÁRVA 2026-07-28 (5.6.3 PASS)
+- `fewa-v3-backend/app/main.py` — LEZÁRVA 2026-07-28 (E2E 61/61 PASS)
+- `fewa-v3-backend/tests/test_main.py` — LEZÁRVA 2026-07-28 (E2E 61/61 PASS)
 
 ### DÖNTÉSEK (ADR összefoglaló)
 - [0001] Domain határok és bounded contextek → docs/adr/0001-domain-boundaries.md
