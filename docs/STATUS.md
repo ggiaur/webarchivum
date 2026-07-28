@@ -4,15 +4,15 @@
 
 ---
 
-## STATUS — 2026-07-28 12:35
+## STATUS — 2026-07-28 12:36
 
 ### AKTUÁLIS FÁZIS
 Phase: 5 — Implementáció
-Step: 5.2 — Authentication & RBAC (JWT RS256, Security Middleware, Auth endpoints)
+Step: 5.3 — Core Domain Services (Municipalities, Sites, SKOS Thesaurus)
 Status: IN_PROGRESS
 
 ### KÖVETKEZŐ BELÉPÉSI PONT
-Phase 5.2.1 indítása: `tasks/phase_tasks.md` Feladat 5.2.1 — JWT RS256 kulcspár & Security szolgáltatás (`fewa-v3-backend/app/core/security.py` és `tests/test_security.py`).
+Phase 5.3.1 indítása: `tasks/phase_tasks.md` Feladat 5.3.1 — Municipalities API (`GET /api/municipalities`) → `fewa-v3-backend/app/api/v1/municipalities.py` és `tests/test_municipalities.py`.
 
 ### NYITOTT KÉRDÉSEK (döntést igényel)
 - [ ] Nincs nyitott blocker.
@@ -24,10 +24,10 @@ Phase 5.2.1 indítása: `tasks/phase_tasks.md` Feladat 5.2.1 — JWT RS256 kulcs
 - [x] 3.1–3.3 — Phase 3 APPROVED: OpenAPI 3.1.0 contract (25 endpoint, /api/auth/login, /refresh, /logout)
 - [x] 4.1 — `spec/pipeline_schemas.py` megírva: AI pipeline sémák (Extraction, NER, Summary, Embedding, QC, Dedup, Jobs)
 - [x] 4.2 — `tasks/phase_tasks.md` megírva: atomikus feladatok gépileg futtatható pytest acceptance tesztekkel
-- [x] 5.1.1 — Environment Config & Pydantic Settings → `app/core/config.py`, `tests/test_config.py` (4/4 pytest PASS)
-- [x] 5.1.2 — PostgreSQL asyncpg pool & healthcheck → `app/core/db.py`, `tests/test_db.py` (2/2 pytest PASS)
-- [x] 5.1.3 — Redis szétválasztás (db=0 queue, db=1 cache) → `app/core/redis.py`, `tests/test_redis.py` (2/2 pytest PASS)
-- [x] 5.1.4 — MinIO S3 client & WACZ stream SHA-256 → `app/core/minio_client.py`, `tests/test_minio.py` (3/3 pytest PASS)
+- [x] 5.1.1–5.1.4 — Phase 5.1 COMPLETED: Environment Config, Async DB pool, Redis split, MinIO S3 (11/11 pytest PASS)
+- [x] 5.2.1 — JWT RS256 & Security Service → `app/core/security.py`, `tests/test_security.py` (5/5 pytest PASS)
+- [x] 5.2.2 — RBAC Security Middleware → `app/api/deps.py`, `tests/test_rbac.py` (4/4 pytest PASS)
+- [x] 5.2.3 — Auth API Végpontok (/api/auth/login, /refresh, /logout) → `app/api/v1/auth.py`, `tests/test_auth_api.py` (5/5 pytest PASS)
 
 ### TILTOTT (ne nyúlj hozzá — lezárt, tesztelt)
 - `docs/DOMAIN_MODEL.md` — LEZÁRVA 2026-07-28 (Phase 1 APPROVED)
@@ -44,6 +44,12 @@ Phase 5.2.1 indítása: `tasks/phase_tasks.md` Feladat 5.2.1 — JWT RS256 kulcs
 - `fewa-v3-backend/tests/test_redis.py` — LEZÁRVA 2026-07-28 (5.1.3 PASS)
 - `fewa-v3-backend/app/core/minio_client.py` — LEZÁRVA 2026-07-28 (5.1.4 PASS)
 - `fewa-v3-backend/tests/test_minio.py` — LEZÁRVA 2026-07-28 (5.1.4 PASS)
+- `fewa-v3-backend/app/core/security.py` — LEZÁRVA 2026-07-28 (5.2.1 PASS)
+- `fewa-v3-backend/tests/test_security.py` — LEZÁRVA 2026-07-28 (5.2.1 PASS)
+- `fewa-v3-backend/app/api/deps.py` — LEZÁRVA 2026-07-28 (5.2.2 PASS)
+- `fewa-v3-backend/tests/test_rbac.py` — LEZÁRVA 2026-07-28 (5.2.2 PASS)
+- `fewa-v3-backend/app/api/v1/auth.py` — LEZÁRVA 2026-07-28 (5.2.3 PASS)
+- `fewa-v3-backend/tests/test_auth_api.py` — LEZÁRVA 2026-07-28 (5.2.3 PASS)
 
 ### DÖNTÉSEK (ADR összefoglaló)
 - [0001] Domain határok és bounded contextek → docs/adr/0001-domain-boundaries.md
