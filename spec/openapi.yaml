@@ -62,6 +62,69 @@ components:
       example: "2026-07-28T10:00:00+02:00"
 
     # -------------------------------------------------------------------------
+    # Authentication
+    # -------------------------------------------------------------------------
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: "curator@vmk.hu"
+        password:
+          type: string
+          format: password
+          example: "SecretPassword123!"
+
+    TokenResponse:
+      type: object
+      required: [access_token, refresh_token, token_type, expires_in, user]
+      properties:
+        access_token:
+          type: string
+          description: JWT RS256 Bearer access token
+        refresh_token:
+          type: string
+          description: Opaque / signed refresh token
+        token_type:
+          type: string
+          example: "bearer"
+        expires_in:
+          type: integer
+          description: Access token érvényessége másodpercben (pl. 3600 = 1 óra)
+          example: 3600
+        user:
+          type: object
+          required: [id, email, role, full_name]
+          properties:
+            id:
+              $ref: '#/components/schemas/UUID'
+            email:
+              type: string
+              format: email
+            role:
+              type: string
+              enum: [admin, archivist, curator, indexer, viewer, guest]
+            full_name:
+              type: string
+
+    RefreshTokenRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token:
+          type: string
+
+    LogoutRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token:
+          type: string
+
+    # -------------------------------------------------------------------------
     # Municipality
     # -------------------------------------------------------------------------
 
@@ -1025,6 +1088,86 @@ paths:
                 $ref: '#/components/schemas/Error'
 
   # ---------------------------------------------------------------------------
+  # Authentication
+  # ---------------------------------------------------------------------------
+
+  /api/auth/login:
+    post:
+      operationId: auth_login
+      summary: Felhasználói bejelentkezés
+      description: Email + jelszó alapján JWT access token és refresh token generálása.
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Sikeres bejelentkezés
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Érvénytelen email vagy jelszó
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                detail: "Érvénytelen email vagy jelszó."
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/auth/refresh:
+    post:
+      operationId: auth_refresh
+      summary: Access token frissítése
+      description: Érvényes refresh token alapján új access token igénylése.
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: Új token sikeresen kibocsátva
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/auth/logout:
+    post:
+      operationId: auth_logout
+      summary: Kijelentkezés / Refresh token invalidálása
+      description: A megadott refresh token visszavonása/blacklisting-je.
+      tags: [Auth]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+      responses:
+        '204':
+          description: Sikeres kijelentkezés
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  # ---------------------------------------------------------------------------
   # Municipalities
   # ---------------------------------------------------------------------------
 
@@ -1911,6 +2054,8 @@ paths:
 tags:
   - name: System
     description: Rendszer állapot és metaadatok
+  - name: Auth
+    description: Autentikáció és token kezelés (login, refresh, logout)
   - name: Public
     description: Nyilvános végpontok — autentikáció nélkül elérhetők
   - name: Reference

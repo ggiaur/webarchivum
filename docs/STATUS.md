@@ -4,35 +4,37 @@
 
 ---
 
-## STATUS — 2026-07-28 11:52
+## STATUS — 2026-07-28 12:04
 
 ### AKTUÁLIS FÁZIS
-Phase: 3 — OpenAPI YAML contract
-Step: 3.3 — Approval gate — felhasználói jóváhagyás várása
-Status: IN_PROGRESS
+Phase: 4 — Pydantic sémák & Atomikus feladatlista
+Step: 4.2 — Spec-first fázis lezárva, implementációra kész
+Status: COMPLETED
 
 ### KÖVETKEZŐ BELÉPÉSI PONT
-`spec/openapi.yaml` jóváhagyása után: Phase 4 — `spec/pipeline_schemas.py` Pydantic I/O sémák minden AI pipeline lépésre.
+Phase 5.1 indítása: `tasks/phase_tasks.md` Feladat 5.1.1 — `fewa-v3-backend/app/core/config.py` és `.env.example` létrehozása.
 
 ### NYITOTT KÉRDÉSEK (döntést igényel)
-- [ ] **APPROVAL GATE**: Az OpenAPI contract (`spec/openapi.yaml`) felülvizsgálata szükséges
-- [ ] Auth végpont: szükséges-e `/api/auth/login` és `/api/auth/refresh` endpoint a spec-ben? (jelenleg nincs, JWT generálást a FastAPI security modul kezeli)
+- [ ] Nincs nyitott blocker. A specifikáció (Domain Model, DDL schema, OpenAPI YAML, Pydantic sémák, feladatlista) hiánytalan és jóváhagyott.
 
 ### LEZÁRT FELADATOK
 - [x] 0.1 — Repository struktúra létrehozva → .agents/, docs/
-- [x] 1.1–1.5 — Domain Model fázis minden lépése
-- [x] 1.6 — Phase 1 APPROVED: Municipality→Archive, AI önálló context, Collections→Archive
-- [x] 2.1 — `spec/` könyvtár létrehozva
-- [x] 2.2 — `spec/schema.sql` megírva: 15 tábla (+ municipalities), 3 trigger, 3 nézet
-- [x] 2.3 — Phase 2 APPROVED: municipalities lookup tábla + FK, simhash_threshold=3 default
-- [x] 2.4 — `spec/schema.sql` frissítve: municipality VARCHAR → municipality_id UUID FK
-- [x] 3.1 — `spec/openapi.yaml` megírva: OpenAPI 3.1.0, 22 endpoint, teljes schema-könyvtár
+- [x] 1.1–1.6 — Phase 1 APPROVED: Domain Model (7 bounded context, eseményfolyam, ADR-0001)
+- [x] 2.1–2.4 — Phase 2 APPROVED: PostgreSQL DDL schema (15 tábla, 3 trigger, 3 nézet, municipalities FK)
+- [x] 3.1–3.3 — Phase 3 APPROVED: OpenAPI 3.1.0 contract (25 endpoint, /api/auth/login, /refresh, /logout)
+- [x] 4.1 — `spec/pipeline_schemas.py` megírva: AI pipeline sémák (Extraction, NER, Summary, Embedding, QC, Dedup, Jobs)
+- [x] 4.2 — `tasks/phase_tasks.md` megírva: atomikus feladatok gépileg futtatható pytest acceptance tesztekkel
 
 ### TILTOTT (ne nyúlj hozzá — lezárt, tesztelt)
 - `docs/DOMAIN_MODEL.md` — LEZÁRVA 2026-07-28 (Phase 1 APPROVED)
 - `docs/adr/0001-domain-boundaries.md` — LEZÁRVA 2026-07-28
+- `spec/schema.sql` — LEZÁRVA 2026-07-28 (Phase 2 APPROVED)
+- `spec/openapi.yaml` — LEZÁRVA 2026-07-28 (Phase 3 APPROVED)
+- `spec/pipeline_schemas.py` — LEZÁRVA 2026-07-28 (Phase 4 COMPLETED)
+- `tasks/phase_tasks.md` — LEZÁRVA 2026-07-28 (Phase 4 COMPLETED)
 
 ### DÖNTÉSEK (ADR összefoglaló)
 - [0001] Domain határok és bounded contextek → docs/adr/0001-domain-boundaries.md
-- [0002] Municipality lookup tábla (DB szintű FK, nem VARCHAR) → elfogadva Phase 2 APPROVED-ban
-- [0003] SimHash Hamming-küszöb default=3, éles adatokon hangolható → elfogadva Phase 2 APPROVED-ban
+- [0002] Municipality lookup tábla (DB szintű FK) → elfogadva Phase 2-ben
+- [0003] SimHash Hamming-küszöb default=3 → elfogadva Phase 2-ben
+- [0004] Explicit Auth API végpontok (/api/auth/login, /refresh, /logout) → elfogadva Phase 3-ban
