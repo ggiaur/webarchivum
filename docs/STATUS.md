@@ -4,15 +4,15 @@
 
 ---
 
-## STATUS — 2026-07-28 12:37
+## STATUS — 2026-07-28 12:38
 
 ### AKTUÁLIS FÁZIS
 Phase: 5 — Implementáció
-Step: 5.4 — AI Pipeline Services (Extraction, NER, Summary, Embedding, QC, Dedup)
+Step: 5.5 — Arq Worker Engine & Async Job Handlers (Crawl, Enrich, Reembed)
 Status: IN_PROGRESS
 
 ### KÖVETKEZŐ BELÉPÉSI PONT
-Phase 5.4.1 indítása: `tasks/phase_tasks.md` Feladat 5.4.1 — Text Extraction Engine (WARC/WACZ → Raw Text, SHA-256, SimHash) → `fewa-v3-backend/app/pipeline/extraction.py` és `tests/test_pipeline_extraction.py`.
+Phase 5.5.1 indítása: `tasks/phase_tasks.md` Feladat 5.5.1 — Arq Worker Architecture & Job Registry → `fewa-v3-backend/app/workers/arq_worker.py` és `tests/test_arq_worker.py`.
 
 ### NYITOTT KÉRDÉSEK (döntést igényel)
 - [ ] Nincs nyitott blocker.
@@ -26,9 +26,12 @@ Phase 5.4.1 indítása: `tasks/phase_tasks.md` Feladat 5.4.1 — Text Extraction
 - [x] 4.2 — `tasks/phase_tasks.md` megírva: atomikus feladatok gépileg futtatható pytest acceptance tesztekkel
 - [x] 5.1.1–5.1.4 — Phase 5.1 COMPLETED: Environment Config, Async DB pool, Redis split, MinIO S3 (11/11 pytest PASS)
 - [x] 5.2.1–5.2.3 — Phase 5.2 COMPLETED: JWT RS256, RBAC Security Middleware, Auth API (14/14 pytest PASS)
-- [x] 5.3.1 — Municipalities API (`GET /api/municipalities`) → `app/api/v1/municipalities.py`, `tests/test_municipalities.py` (2/2 pytest PASS)
-- [x] 5.3.2 — Sites CRUD Service & API (`/api/admin/sites`) → `app/crud/sites.py`, `app/api/v1/sites.py`, `tests/test_sites_api.py` (4/4 pytest PASS)
-- [x] 5.3.3 — SKOS Tezaurusz API (`/api/thesaurus`) → `app/crud/thesaurus.py`, `app/api/v1/thesaurus.py`, `tests/test_thesaurus_api.py` (3/3 pytest PASS)
+- [x] 5.3.1–5.3.3 — Phase 5.3 COMPLETED: Municipalities API, Sites CRUD, SKOS Thesaurus (9/9 pytest PASS)
+- [x] 5.4.1 — Text Extraction Engine → `app/pipeline/extraction.py`, `tests/test_pipeline_extraction.py` (3/3 pytest PASS)
+- [x] 5.4.2 — NER & Entity Extraction → `app/pipeline/ner.py`, `tests/test_pipeline_ner.py` (1/1 pytest PASS)
+- [x] 5.4.3 — Ollama Summarization & AI Cache → `app/pipeline/summarization.py`, `tests/test_pipeline_summary.py` (1/1 pytest PASS)
+- [x] 5.4.4 — Chunking & pgvector Embedding → `app/pipeline/embedding.py`, `tests/test_pipeline_embedding.py` (2/2 pytest PASS)
+- [x] 5.4.5 — Quality Control & SimHash Dedup → `app/pipeline/qc_dedup.py`, `tests/test_pipeline_qc_dedup.py` (4/4 pytest PASS)
 
 ### TILTOTT (ne nyúlj hozzá — lezárt, tesztelt)
 - `docs/DOMAIN_MODEL.md` — LEZÁRVA 2026-07-28 (Phase 1 APPROVED)
@@ -59,6 +62,16 @@ Phase 5.4.1 indítása: `tasks/phase_tasks.md` Feladat 5.4.1 — Text Extraction
 - `fewa-v3-backend/app/crud/thesaurus.py` — LEZÁRVA 2026-07-28 (5.3.3 PASS)
 - `fewa-v3-backend/app/api/v1/thesaurus.py` — LEZÁRVA 2026-07-28 (5.3.3 PASS)
 - `fewa-v3-backend/tests/test_thesaurus_api.py` — LEZÁRVA 2026-07-28 (5.3.3 PASS)
+- `fewa-v3-backend/app/pipeline/extraction.py` — LEZÁRVA 2026-07-28 (5.4.1 PASS)
+- `fewa-v3-backend/tests/test_pipeline_extraction.py` — LEZÁRVA 2026-07-28 (5.4.1 PASS)
+- `fewa-v3-backend/app/pipeline/ner.py` — LEZÁRVA 2026-07-28 (5.4.2 PASS)
+- `fewa-v3-backend/tests/test_pipeline_ner.py` — LEZÁRVA 2026-07-28 (5.4.2 PASS)
+- `fewa-v3-backend/app/pipeline/summarization.py` — LEZÁRVA 2026-07-28 (5.4.3 PASS)
+- `fewa-v3-backend/tests/test_pipeline_summary.py` — LEZÁRVA 2026-07-28 (5.4.3 PASS)
+- `fewa-v3-backend/app/pipeline/embedding.py` — LEZÁRVA 2026-07-28 (5.4.4 PASS)
+- `fewa-v3-backend/tests/test_pipeline_embedding.py` — LEZÁRVA 2026-07-28 (5.4.4 PASS)
+- `fewa-v3-backend/app/pipeline/qc_dedup.py` — LEZÁRVA 2026-07-28 (5.4.5 PASS)
+- `fewa-v3-backend/tests/test_pipeline_qc_dedup.py` — LEZÁRVA 2026-07-28 (5.4.5 PASS)
 
 ### DÖNTÉSEK (ADR összefoglaló)
 - [0001] Domain határok és bounded contextek → docs/adr/0001-domain-boundaries.md
