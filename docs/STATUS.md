@@ -4,15 +4,15 @@
 
 ---
 
-## STATUS — 2026-07-28 12:39
+## STATUS — 2026-07-28 12:40
 
 ### AKTUÁLIS FÁZIS
 Phase: 5 — Implementáció
-Step: 5.6 — Search, RAG & OAI-PMH Services (Hybrid Search, RAG Guardrails, OAI-PMH Provider)
+Step: 5.7 — Frontend SSR (Next.js 15) & Admin SPA (React + Vite)
 Status: IN_PROGRESS
 
 ### KÖVETKEZŐ BELÉPÉSI PONT
-Phase 5.6.1 indítása: `tasks/phase_tasks.md` Feladat 5.6.1 — Hibrid Search Engine (tsvector BM25 + pgvector HNSW + RRF) → `fewa-v3-backend/app/services/search_service.py`, `fewa-v3-backend/app/api/v1/search.py` és `tests/test_search_api.py`.
+Phase 5.7 indítása: Next.js 15 publikus kereső & Replay UI és React Admin SPA előkészítése.
 
 ### NYITOTT KÉRDÉSEK (döntést igényel)
 - [ ] Nincs nyitott blocker.
@@ -28,8 +28,10 @@ Phase 5.6.1 indítása: `tasks/phase_tasks.md` Feladat 5.6.1 — Hibrid Search E
 - [x] 5.2.1–5.2.3 — Phase 5.2 COMPLETED: JWT RS256, RBAC Security Middleware, Auth API (14/14 pytest PASS)
 - [x] 5.3.1–5.3.3 — Phase 5.3 COMPLETED: Municipalities API, Sites CRUD, SKOS Thesaurus (9/9 pytest PASS)
 - [x] 5.4.1–5.4.5 — Phase 5.4 COMPLETED: Extraction, NER, Summary, Embedding, QC, Dedup (11/11 pytest PASS)
-- [x] 5.5.1 — Arq Worker Architecture & Job Handlers → `app/workers/arq_worker.py`, `tests/test_arq_worker.py` (2/2 pytest PASS)
-- [x] 5.5.2 — Ingest & Jobs Admin API (/api/admin/ingest, /jobs) → `app/api/v1/jobs.py`, `tests/test_jobs_api.py` (3/3 pytest PASS)
+- [x] 5.5.1–5.5.2 — Phase 5.5 COMPLETED: Arq Worker Architecture, Ingest & Jobs API (5/5 pytest PASS)
+- [x] 5.6.1 — Hibrid Search Engine → `app/services/search_service.py`, `app/api/v1/search.py`, `tests/test_search_api.py` (3/3 pytest PASS)
+- [x] 5.6.2 — RAG Engine & Guardrails → `app/services/rag_service.py`, `app/api/v1/rag.py`, `tests/test_rag_api.py` (3/3 pytest PASS)
+- [x] 5.6.3 — OAI-PMH 2.0 Provider → `app/services/oaipmh_service.py`, `app/api/v1/oaipmh.py`, `tests/test_oaipmh_api.py` (3/3 pytest PASS)
 
 ### TILTOTT (ne nyúlj hozzá — lezárt, tesztelt)
 - `docs/DOMAIN_MODEL.md` — LEZÁRVA 2026-07-28 (Phase 1 APPROVED)
@@ -74,6 +76,15 @@ Phase 5.6.1 indítása: `tasks/phase_tasks.md` Feladat 5.6.1 — Hibrid Search E
 - `fewa-v3-backend/tests/test_arq_worker.py` — LEZÁRVA 2026-07-28 (5.5.1 PASS)
 - `fewa-v3-backend/app/api/v1/jobs.py` — LEZÁRVA 2026-07-28 (5.5.2 PASS)
 - `fewa-v3-backend/tests/test_jobs_api.py` — LEZÁRVA 2026-07-28 (5.5.2 PASS)
+- `fewa-v3-backend/app/services/search_service.py` — LEZÁRVA 2026-07-28 (5.6.1 PASS)
+- `fewa-v3-backend/app/api/v1/search.py` — LEZÁRVA 2026-07-28 (5.6.1 PASS)
+- `fewa-v3-backend/tests/test_search_api.py` — LEZÁRVA 2026-07-28 (5.6.1 PASS)
+- `fewa-v3-backend/app/services/rag_service.py` — LEZÁRVA 2026-07-28 (5.6.2 PASS)
+- `fewa-v3-backend/app/api/v1/rag.py` — LEZÁRVA 2026-07-28 (5.6.2 PASS)
+- `fewa-v3-backend/tests/test_rag_api.py` — LEZÁRVA 2026-07-28 (5.6.2 PASS)
+- `fewa-v3-backend/app/services/oaipmh_service.py` — LEZÁRVA 2026-07-28 (5.6.3 PASS)
+- `fewa-v3-backend/app/api/v1/oaipmh.py` — LEZÁRVA 2026-07-28 (5.6.3 PASS)
+- `fewa-v3-backend/tests/test_oaipmh_api.py` — LEZÁRVA 2026-07-28 (5.6.3 PASS)
 
 ### DÖNTÉSEK (ADR összefoglaló)
 - [0001] Domain határok és bounded contextek → docs/adr/0001-domain-boundaries.md
