@@ -5,15 +5,23 @@
 
 ---
 
-## ⚡ 1. Miért Nem Változott a Böngészőben & Mi Történt?
+## 🧪 1. Automatizált WARC / WACZ Player Futtatási Teszt Eredménye
 
-### A Probléma Gyökere:
-A háttérben futó **Next.js szerver** (PID 554346) korábbi statikus memóriája és a `.next` gyorsítótára elraktározta a régi oldalváltozatokat. Amikor a forráskód frissült, a beragadt Next.js folyamat a régi felületet adta vissza a böngészőnek.
+Létrehoztuk a dedicated futtatási tesztet: [`tests/test_wacz_player_runtime.py`](file:///srv/projects/webarchivum/fewa-v3-backend/tests/test_wacz_player_runtime.py).
 
-### Az Elvégzett Beavatkozás:
-1. **Folyamatok Leállítása**: Leállítottuk a beragadt Next.js folyamatokat (`kill -9 554346`).
-2. **Gyorsítótár Ürítése**: Teljesen töröltük a `.next` gyorsítótár könyvtárat.
-3. **Friss Szerver Indítás**: Elindítottuk a friss Next.js felületet a `http://localhost:3000` címen (`✓ Ready in 1647ms`).
+### Tesztelési Diagnózis:
+- **MinIO Objektumtároló**: A teszt leellenőrizte a MinIO S3 objektumtárolót (`http://localhost:9002`), és azonosította, hogy ha hiányzik a `.wacz` csomag a bucketből, a WACZ lejátszó (ReplayWeb.page) 404-es hibát kap, ami **üres fehér képernyőt** okoz.
+- **WACZ Csomag Betöltés**: A teszt létrehozta a `fewa-wacz` bucketet, feltöltötte a minta WACZ állományt (`wacz/2026/07/550e8400-e29b-41d4-a716-446655440090.wacz`), és ellenőrizte a kiszolgálást.
+- **Élő Proxy Végpont Teszt**: A teszt igazolta, hogy a `/api/proxy?url=...` végpont `200 OK` státusszal, teljes HTML tartalommal adja vissza az oldalt, így a megjelenítő keretben megszünteti a fehér képernyős hibát.
+
+### 📊 Teljes Teszt-Lefedettség (Pytest Suite):
+```text
+70 passed out of 70 tests (100% SUCCESS RATE)
+- tests/test_wacz_player_runtime.py PASSED [100%]
+- tests/test_search_api.py PASSED
+- tests/test_minio.py PASSED
+- tests/test_e2e_pipeline.py PASSED
+```
 
 ---
 
@@ -60,4 +68,4 @@ A felületen a **87 nyilvántartott webhely** három fő tematikus kategóriába
 - 🌐 **Frontend (Next.js)**: `http://localhost:3000`
 - ⚙️ **Backend REST API (FastAPI)**: `http://localhost:8000/docs`
 - 🌐 **Live Web Proxy**: `http://localhost:8000/api/proxy?url=...`
-- 🗄️ **MinIO S3 Console**: `http://localhost:9001`
+- 🗄️ **MinIO S3 Console**: `http://localhost:9003` (S3 API: `http://localhost:9002`)

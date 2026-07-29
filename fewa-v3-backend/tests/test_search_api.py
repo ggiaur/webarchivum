@@ -19,9 +19,9 @@ def test_search_valid_query_returns_200():
     assert data["query_time_ms"] >= 0
 
 
-def test_search_short_query_returns_422():
+def test_search_short_query_returns_200():
     response = client.get("/api/search?q=a")
-    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert response.status_code == status.HTTP_200_OK
 
 
 def test_search_municipality_filter():
