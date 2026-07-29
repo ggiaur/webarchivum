@@ -1,16 +1,16 @@
 id: WP-001
 sprint_id: SPRINT-001
-goal: 'Implement features: FR-001'
+goal: 'Implement features: FR-002'
 allowed_paths:
 - src/
 - tests/
 tasks:
 - task_id: TASK-001
-  description: 'Implement Fő funkciók implementálása: Alapvető CRUD és üzleti logika
-    megvalósítása'
-  requirement_ref: FR-001
+  description: 'Implement Autentikáció és biztonsági javítások: Kódbázis biztonsági
+    kockázatok és secret leakek kezeése'
+  requirement_ref: FR-002
 max_execution_time_minutes: 30
 tests_required: true
 coverage_mapping:
-  FR-001:
-  - test_fő_funkciók_implementálása
+  FR-002:
+  - test_autentikáció_és_biztonsági_javítások

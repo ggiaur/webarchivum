@@ -1,12 +1,17 @@
 project_name: webarchivum
 version: 1.0.0
-goal: Build awesome application for webarchivum
+goal: monolith
 tech_stack:
 - python
-- fastapi
+- standard
 requirements:
 - id: FR-001
-  title: Fő funkciók implementálása
-  description: Alapvető CRUD és üzleti logika megvalósítása
+  title: Alapfunkciók stabilizálása
+  description: Meglévő kód felmérése és alaptesztek biztosítása
+  priority: HIGH
+  status: SATISFIED
+- id: FR-002
+  title: Autentikáció és biztonsági javítások
+  description: Kódbázis biztonsági kockázatok és secret leakek kezeése
   priority: HIGH
   status: PENDING
