@@ -1,7 +1,7 @@
 import logging
 from typing import Optional
 from fastapi import APIRouter, Query, status
-from app.services.search_service import execute_hybrid_search
+from app.services.search_service import execute_hybrid_search, get_document_by_id
 
 logger = logging.getLogger(__name__)
 

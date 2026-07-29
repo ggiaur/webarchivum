@@ -1,0 +1,49 @@
+states:
+  DISCOVERY:
+    allowed_next: [VISION]
+    rollback_to: NONE
+  VISION:
+    allowed_next: [SPEC]
+    rollback_to: DISCOVERY
+  SPEC:
+    allowed_next: [ARCHITECTURE]
+    rollback_to: VISION
+  ARCHITECTURE:
+    allowed_next: [ROADMAP]
+    rollback_to: SPEC
+  ROADMAP:
+    allowed_next: [BOOTSTRAP]
+    rollback_to: ARCHITECTURE
+  BOOTSTRAP:
+    allowed_next: [SPRINT_ACTIVE]
+    rollback_to: ROADMAP
+  SPRINT_ACTIVE:
+    allowed_next: [REVIEW, HUMAN_REQUIRED, SPRINT_ABORTED]
+    rollback_to: SPRINT_ACTIVE # Belső retry
+  REVIEW:
+    allowed_next: [RELEASE, SPRINT_ACTIVE]
+    rollback_to: SPRINT_ACTIVE # Re-work törzse
+  RELEASE:
+    allowed_next: [SPRINT_ACTIVE, DISCOVERY]
+    rollback_to: SPRINT_ACTIVE
+  HUMAN_REQUIRED:
+    allowed_next: [SPEC, ARCHITECTURE, SPRINT_ACTIVE, DISCOVERY]
+    rollback_to: NONE
+  SPRINT_ABORTED:
+    allowed_next: [SPEC, ARCHITECTURE, DISCOVERY]
+    rollback_to: NONE
+
+transition_rules:
+  ARCHITECTURE_TO_SPEC_ROLLBACK:
+    condition: STATUS == "ARCH_UNVIABLE" OR STATUS == "SPEC_GAP_DETECTED"
+    action:
+      - CREATE_INCIDENT_LOG
+      - RESTORE_CHECKPOINT(target_state="SPEC")
+      - UPDATE_STATE_CHANGE_LOG(from="ARCHITECTURE", to="SPEC")
+
+  REVIEW_TO_SPRINT_ACTIVE_RETRY:
+    condition: STATUS == "TEST_FAILED" OR STATUS == "REWORK_REQUIRED"
+    action:
+      - INCREMENT_FAILURE_COUNTER
+      - TRIGGER_ESCALATION_LEVEL
+      - UPDATE_STATE_CHANGE_LOG(from="REVIEW", to="SPRINT_ACTIVE")

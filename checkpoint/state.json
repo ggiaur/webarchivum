@@ -1,0 +1,13 @@
+{
+  "checkpoint_id": "CHK-001",
+  "timestamp": "2026-07-29T15:45:00Z",
+  "pipeline_state": "DISCOVERY",
+  "active_sprint": "SPRINT_001",
+  "active_work_package": "WP-001",
+  "git_commit_sha": "unknown-commit-sha",
+  "token_consumption_total": 0,
+  "circuit_breaker_counters": {
+    "consecutive_failures": 0,
+    "total_retries": 0
+  }
+}

@@ -1,0 +1,12 @@
+project_name: webarchivum
+version: 1.0.0
+goal: Build awesome application for webarchivum
+tech_stack:
+- python
+- fastapi
+requirements:
+- id: FR-001
+  title: Fő funkciók implementálása
+  description: Alapvető CRUD és üzleti logika megvalósítása
+  priority: HIGH
+  status: PENDING

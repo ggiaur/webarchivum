@@ -1,0 +1,11 @@
+work_package_ref: WP-001
+criteria:
+- id: DOD-001
+  description: Minden coverage_mapping teszt lefut és zöld
+  automated_check: true
+- id: DOD-002
+  description: Nincs lint hiba és a kódszerkezet tiszta
+  automated_check: true
+- id: DOD-003
+  description: README vagy kód dokumentáció frissítve ha szükséges
+  automated_check: false

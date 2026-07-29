@@ -1,0 +1,24 @@
+rollback_graph:
+  REVIEW:
+    on_failure: SPRINT_ACTIVE
+    strategy: REWORK
+    preserve_artifacts: true
+  SPRINT_ACTIVE:
+    on_failure: SPRINT_ACTIVE
+    strategy: SELF_HEAL
+    max_retries: 3
+  BOOTSTRAP:
+    on_failure: ROADMAP
+    strategy: REGENERATE_CONFIG
+  ROADMAP:
+    on_failure: ARCHITECTURE
+    strategy: REVISIT_ADR
+  ARCHITECTURE:
+    on_failure: SPEC
+    strategy: REVISIT_SPEC
+  SPEC:
+    on_failure: VISION
+    strategy: REVISIT_VISION
+  VISION:
+    on_failure: DISCOVERY
+    strategy: RESTART_DISCOVERY
