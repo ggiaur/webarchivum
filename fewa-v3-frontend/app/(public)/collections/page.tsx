@@ -44,7 +44,7 @@ export default function CollectionsPage() {
               <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem' }}>{col.description}</p>
             </div>
             <div style={{ marginTop: '1.5rem' }}>
-              <a href={`/?category=${col.name}`} className="btn-secondary" style={{ width: '100%', textAlign: 'center', display: 'block', padding: '0.5rem' }}>
+              <a href={`/?category=${encodeURIComponent(col.name)}`} className="btn-secondary" style={{ width: '100%', textAlign: 'center', display: 'block', padding: '0.5rem' }}>
                 Gyűjtemény böngészése ➔
               </a>
             </div>

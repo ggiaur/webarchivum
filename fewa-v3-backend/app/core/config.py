@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     )
 
     # Application
-    ENVIRONMENT: Literal["development", "staging", "production"] = "development"
+    ENVIRONMENT: Literal["development", "staging", "production", "testing"] = "development"
     LOG_LEVEL: str = "INFO"
     SECRET_KEY: str = Field(
         default="development-secret-key-change-this-in-production-32-chars-min",

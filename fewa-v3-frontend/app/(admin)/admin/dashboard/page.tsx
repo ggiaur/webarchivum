@@ -10,7 +10,7 @@ interface SiteItem {
   category: string;
   crawl_frequency: string;
   oszk_status: string;
-  is_active_collection: bool;
+  is_active_collection: boolean;
 }
 
 interface SKOSConcept {

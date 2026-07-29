@@ -1,13 +1,14 @@
 import io
 import pytest
 from unittest.mock import MagicMock, patch
+from app.core.config import settings
 from app.core.minio_client import MinIOClient
 
 
 def test_minio_client_init():
     with patch("boto3.client") as mock_boto:
         client = MinIOClient()
-        assert client.bucket_wacz == "fewa-wacz"
+        assert client.bucket_wacz == settings.MINIO_BUCKET_WACZ
         mock_boto.assert_called_once()
 
 
