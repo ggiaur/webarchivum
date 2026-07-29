@@ -5,22 +5,28 @@
 
 ---
 
-## 🌐 1. Miért Volt Fehér / Üres Az Oldal & Mi a Megoldás? (Élő Proxy Végpont)
+## ⚡ 1. Miért Nem Változott a Böngészőben & Mi Történt?
 
 ### A Probléma Gyökere:
-Az iframe korábban a böngészők szigorú biztonsági szabályai (**X-Frame-Options: SAMEORIGIN** és **Content-Security-Policy**) miatt blokkolta a külső webhelyek (pl. `szekesfehervar.hu`, `vmk.hu`, `feol.hu`) közvetlen beágyazását, így a böngésző egy **üres fehér vagy blokkolott felületet** jelenített meg.
+A háttérben futó **Next.js szerver** (PID 554346) korábbi statikus memóriája és a `.next` gyorsítótára elraktározta a régi oldalváltozatokat. Amikor a forráskód frissült, a beragadt Next.js folyamat a régi felületet adta vissza a böngészőnek.
 
-### A Megoldás: Élő FastAPI Proxy Végpont (`/api/proxy`)
-Létrehoztunk egy dedikált HTTP Proxy végpontot a backendben (`fewa-v3-backend/app/api/v1/search.py`):
-- **Cím**: `http://localhost:8000/api/proxy?url={TARGET_URL}`
-- **Funkció**: Lekéri a cél weboldal valódi HTML tartalmát, elhajítja a blokkoló X-Frame-Options/CSP fejléceket, beilleszti a `<base href="...">` gyökeret (így a képek, CSS-ek és JS-ek hibátlanul betöltenek), majd átadja az iframe-nek.
-- **Eredmény**: Az iframe-ben mostantól **100%-ban látható a VALÓDI WEBOLDAL** minden eleme, képe és stílusa!
+### Az Elvégzett Beavatkozás:
+1. **Folyamatok Leállítása**: Leállítottuk a beragadt Next.js folyamatokat (`kill -9 554346`).
+2. **Gyorsítótár Ürítése**: Teljesen töröltük a `.next` gyorsítótár könyvtárat.
+3. **Friss Szerver Indítás**: Elindítottuk a friss Next.js felületet a `http://localhost:3000` címen (`✓ Ready in 1647ms`).
 
 ---
 
-## 📌 2. Elérhető Archivált Oldalak és Közvetlen URL-ek
+## 🌐 2. Élő FastAPI Web Proxy (`/api/proxy`)
 
-Az alábbi hivatkozásokon keresztül közvetlenül megtekinthetők a megőrzött digitális pillanatképek a működő proxy kerettel:
+- **Cím**: `http://localhost:8000/api/proxy?url={TARGET_URL}`
+- **Működés**: Lekéri a megtekintett weboldal valódi HTML-jét, elhajítja a böngészőt blokkoló X-Frame-Options/CSP fejléceket, beilleszti a `<base href="...">` bejegyzést, így a képek, CSS-ek és JS-ek hibátlanul megjelennek az iframe keretben.
+
+---
+
+## 📌 3. Elérhető Archivált Oldalak és Közvetlen URL-ek
+
+Az alábbi hivatkozásokon keresztül közvetlenül megtekinthetők a megőrzött digitális pillanatképek a frissített szerveren:
 
 | # | Megnevezés / Cím | Domain | Kategória | Közvetlen Elérhetőség (URL) |
 |---|---|---|---|---|
@@ -34,7 +40,7 @@ Az alábbi hivatkozásokon keresztül közvetlenül megtekinthetők a megőrzöt
 
 ---
 
-## 🏛️ 3. Kurátori Tematikus Gyűjtemények
+## 🏛️ 4. Kurátori Tematikus Gyűjtemények
 
 A felületen a **87 nyilvántartott webhely** három fő tematikus kategóriába rendezve böngészhető:
 
@@ -49,7 +55,7 @@ A felületen a **87 nyilvántartott webhely** három fő tematikus kategóriába
 
 ---
 
-## 💻 4. Rendszer Címek & Portok
+## 💻 5. Rendszer Címek & Portok
 
 - 🌐 **Frontend (Next.js)**: `http://localhost:3000`
 - ⚙️ **Backend REST API (FastAPI)**: `http://localhost:8000/docs`
