@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { getApiBaseUrl } from '../../../utils/apiConfig';
 
 export default function AdminLoginPage() {
   const [email, setEmail] = useState('curator@vmk.hu');
@@ -14,7 +15,7 @@ export default function AdminLoginPage() {
     setIsLoading(true);
 
     try {
-      const res = await fetch('http://localhost:8000/api/auth/login', {
+      const res = await fetch(`${getApiBaseUrl()}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),

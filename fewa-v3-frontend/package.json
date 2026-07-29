@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:e2e": "node scripts/test_frontend_e2e.js",
+    "test:functional": "node scripts/test_frontend_functional_dom.js"
   },
   "dependencies": {
     "next": "15.1.0",

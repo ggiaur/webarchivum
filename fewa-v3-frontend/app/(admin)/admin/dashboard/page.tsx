@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { getApiBaseUrl } from '../../../utils/apiConfig';
 
 interface SiteItem {
   id: string;
@@ -23,7 +24,18 @@ interface SKOSConcept {
 
 export default function AdminDashboardPage() {
   const [activeTab, setActiveTab] = useState<'sites' | 'thesaurus' | 'jobs'>('sites');
-  const [sites, setSites] = useState<SiteItem[]>([]);
+  const [sites, setSites] = useState<SiteItem[]>(() => [
+    {
+      id: '550e8400-e29b-41d4-a716-446655440001',
+      domain: 'alba.hu',
+      display_name: 'Alba Regia Portál',
+      priority: 'high',
+      category: 'közintézmény',
+      crawl_frequency: 'monthly',
+      oszk_status: 'approved',
+      is_active_collection: true,
+    },
+  ]);
   const [thesaurus, setThesaurus] = useState<SKOSConcept[]>([]);
   const [user, setUser] = useState<any>(null);
 
@@ -45,7 +57,7 @@ export default function AdminDashboardPage() {
   const fetchSites = async () => {
     const token = localStorage.getItem('fewa_access_token');
     try {
-      const res = await fetch('http://localhost:8000/api/admin/sites', {
+      const res = await fetch(`${getApiBaseUrl()}/api/admin/sites`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -69,7 +81,7 @@ export default function AdminDashboardPage() {
   const fetchThesaurus = async () => {
     const token = localStorage.getItem('fewa_access_token');
     try {
-      const res = await fetch('http://localhost:8000/api/thesaurus', {
+      const res = await fetch(`${getApiBaseUrl()}/api/thesaurus`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -91,7 +103,7 @@ export default function AdminDashboardPage() {
     e.preventDefault();
     const token = localStorage.getItem('fewa_access_token');
     try {
-      await fetch('http://localhost:8000/api/admin/sites', {
+      await fetch(`${getApiBaseUrl()}/api/admin/sites`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

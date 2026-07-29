@@ -25,10 +25,10 @@ Létrehoztuk a dedicated futtatási tesztet: [`tests/test_wacz_player_runtime.py
 
 ---
 
-## 🌐 2. Élő FastAPI Web Proxy (`/api/proxy`)
+## ⚡ 2. Next.js Termelési Build & Szerver Működés
 
-- **Cím**: `http://localhost:8000/api/proxy?url={TARGET_URL}`
-- **Működés**: Lekéri a megtekintett weboldal valódi HTML-jét, elhajítja a böngészőt blokkoló X-Frame-Options/CSP fejléceket, beilleszti a `<base href="...">` bejegyzést, így a képek, CSS-ek és JS-ek hibátlanul megjelennek az iframe keretben.
+- **Build Állapot**: Sikeres Next.js termelési fordítás (`npm run build`, `7/7 static pages generated`).
+- **Szerver Indítás**: A termelési Next.js webszerver fut a `http://localhost:3000` porton, így nincsenek törölt gyorsítótárból adódó 500-as vagy fehér képernyős hibák.
 
 ---
 
@@ -48,22 +48,7 @@ Az alábbi hivatkozásokon keresztül közvetlenül megtekinthetők a megőrzöt
 
 ---
 
-## 🏛️ 4. Kurátori Tematikus Gyűjtemények
-
-A felületen a **87 nyilvántartott webhely** három fő tematikus kategóriába rendezve böngészhető:
-
-1. 🏛️ **Önkormányzatok & Hivatalok (42 webhely)**  
-   *Közvetlen böngészés*: [http://localhost:3000/?category=%C3%96nkorm%C3%A1nyzatok%20%26%20Hivatalok](http://localhost:3000/?category=%C3%96nkorm%C3%A1nyzatok%20%26%20Hivatalok)
-
-2. 📰 **Helyi Sajtó & Média (18 webhely)**  
-   *Közvetlen böngészés*: [http://localhost:3000/?category=Helyi%20Sajt%C3%B3%20%26%20M%C3%A9dia](http://localhost:3000/?category=Helyi%20Sajt%C3%B3%20%26%20M%C3%A9dia)
-
-3. 📚 **Kulturális & Könyvtári Örökség (27 webhely)**  
-   *Közvetlen böngészés*: [http://localhost:3000/?category=Kultur%C3%A1lis%20%26%20K%C3%B6nyvt%C3%A1ri%20%C3%96r%C3%B6ks%C3%A9g](http://localhost:3000/?category=Kultur%C3%A1lis%20%26%20K%C3%B6nyvt%C3%A1ri%20%C3%96r%C3%B6ks%C3%A9g)
-
----
-
-## 💻 5. Rendszer Címek & Portok
+## 💻 4. Rendszer Címek & Portok
 
 - 🌐 **Frontend (Next.js)**: `http://localhost:3000`
 - ⚙️ **Backend REST API (FastAPI)**: `http://localhost:8000/docs`

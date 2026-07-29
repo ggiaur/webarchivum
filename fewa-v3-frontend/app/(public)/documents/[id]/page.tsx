@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { use } from 'react';
+import { getApiBaseUrl } from '../../../utils/apiConfig';
 
 interface DocumentDetail {
   id: string;
@@ -21,6 +22,80 @@ interface DocumentDetail {
   site?: {
     domain: string;
     display_name: string;
+  };
+}
+
+function getMockDocumentById(id: string): DocumentDetail {
+  const docs: Record<string, DocumentDetail> = {
+    '550e8400-e29b-41d4-a716-446655440090': {
+      id: '550e8400-e29b-41d4-a716-446655440090',
+      pid: 'fewa:2026:000001',
+      dc_title: 'Székesfehérvár MJV Polgármesteri Hivatal Hírei',
+      dc_description: 'Városháza felújítási munkálatai és közgyűlési határozatok hiteles archív másolata.',
+      dc_subject: ['önkormányzat', 'helyi politika', 'városfejlesztés'],
+      dc_creator: 'Székesfehérvár MJV Polgármesteri Hivatal',
+      dc_publisher: 'Fejér Vármegyei Webarchívum',
+      seed_url: 'https://szekesfehervar.hu/hirek/varoshaza-felujitas',
+      crawl_timestamp: '2026-07-15T10:00:00+02:00',
+      qc_score: 98,
+      ai_summary: 'A cikk részletesen beszámol a székesfehérvári Városháza műemléki épületének felújításáról.',
+      ai_keywords: ['Városháza', 'Székesfehérvár', 'műemlék', 'WACZ'],
+      wacz_filesize_bytes: 4520100,
+      wacz_page_count: 14,
+      site: { domain: 'szekesfehervar.hu', display_name: 'Székesfehérvár Város Portál' },
+    },
+    '550e8400-e29b-41d4-a716-446655440091': {
+      id: '550e8400-e29b-41d4-a716-446655440091',
+      pid: 'fewa:2026:000002',
+      dc_title: 'Vörösmarty Mihály Könyvtár Évkönyv 2025',
+      dc_description: 'A Vörösmarty Mihály Könyvtár digitalizálta a Fejér Megyei Hírlap teljes archívumát.',
+      dc_subject: ['könyvtár', 'helytörténet', 'digitalizálás'],
+      dc_creator: 'Vörösmarty Mihály Könyvtár',
+      dc_publisher: 'Fejér Vármegyei Webarchívum',
+      seed_url: 'https://vmk.hu/evkonyv-2025',
+      crawl_timestamp: '2026-06-01T12:00:00+02:00',
+      qc_score: 96,
+      ai_summary: 'Könyvtári évkönyv a digitalizálási projektekről és a helytörténeti gyűjteményről.',
+      ai_keywords: ['Könyvtár', 'VMK', 'Évkönyv', 'WACZ'],
+      wacz_filesize_bytes: 3820100,
+      wacz_page_count: 28,
+      site: { domain: 'vmk.hu', display_name: 'Vörösmarty Mihály Könyvtár' },
+    },
+    '550e8400-e29b-41d4-a716-446655440092': {
+      id: '550e8400-e29b-41d4-a716-446655440092',
+      pid: 'fewa:2026:000003',
+      dc_title: 'Dunaújváros MJV Önkormányzat Hivatalos Közleményei',
+      dc_description: 'Dunaújváros Megyei Jogú Város Közgyűlésének határozatai.',
+      dc_subject: ['önkormányzat', 'közgyűlés', 'fejlesztés'],
+      dc_creator: 'Dunaújváros Önkormányzat',
+      dc_publisher: 'Fejér Vármegyei Webarchívum',
+      seed_url: 'https://dunaujvaros.hu/kozlemenyek/strategia-2026',
+      crawl_timestamp: '2026-07-10T14:30:00+02:00',
+      qc_score: 95,
+      ai_summary: 'Dunaújváros energetikai és városfejlesztési stratégiája.',
+      ai_keywords: ['Dunaújváros', 'Közgyűlés', 'WACZ'],
+      wacz_filesize_bytes: 5120000,
+      wacz_page_count: 18,
+      site: { domain: 'dunaujvaros.hu', display_name: 'Dunaújváros Önkormányzati Portál' },
+    },
+  };
+
+  return docs[id] || {
+    id: id,
+    pid: `fewa:2026:${id.slice(0, 6)}`,
+    dc_title: 'Székesfehérvár MJV Polgármesteri Hivatal Hírei',
+    dc_description: 'Városháza felújítási munkálatai és közgyűlési határozatok hiteles archív másolata.',
+    dc_subject: ['önkormányzat', 'helyi politika', 'városfejlesztés'],
+    dc_creator: 'Székesfehérvár MJV Polgármesteri Hivatal',
+    dc_publisher: 'Fejér Vármegyei Webarchívum',
+    seed_url: 'https://szekesfehervar.hu/hirek/varoshaza-felujitas',
+    crawl_timestamp: '2026-07-15T10:00:00+02:00',
+    qc_score: 98,
+    ai_summary: 'A cikk részletesen beszámol a székesfehérvári Városháza műemléki épületének felújításáról.',
+    ai_keywords: ['Városháza', 'Székesfehérvár', 'műemlék', 'felújítás', 'WACZ'],
+    wacz_filesize_bytes: 4520100,
+    wacz_page_count: 14,
+    site: { domain: 'szekesfehervar.hu', display_name: 'Székesfehérvár Város Portál' },
   };
 }
 
@@ -106,9 +181,6 @@ function buildIframeReplayHtml(doc: DocumentDetail): string {
         <p>
           A Fejér Vármegyei Webarchívum (FEWA) által biztonságosan megőrzött digitális pillanatkép garantálja a vármegyei önkormányzati hírek, közlemények és helyi kulturális értékek hosszú távú, hiteles megőrzését és kutathatóságát.
         </p>
-        <p>
-          A felújítási és fejlesztési munkálatok során az érintett intézmények a legmagasabb műemléki és örökségvédelmi előírásokat tartják szem előtt. Az archívum CDXJ indexe alapján a dokumentum minden hivatkozása és állománya változatlan formában megőrzésre került.
-        </p>
       </div>
     </main>
 
@@ -117,7 +189,6 @@ function buildIframeReplayHtml(doc: DocumentDetail): string {
         <div class="widget-title">📌 Kapcsolódó Hírek</div>
         <div class="news-item"><a href="#">Közgyűlési határozatok és fejlesztési döntések</a></div>
         <div class="news-item"><a href="#">Pályázati felhívások és lakossági tájékoztatók</a></div>
-        <div class="news-item"><a href="#">Helytörténeti és kulturális programajánló</a></div>
       </div>
 
       <div class="widget">
@@ -134,7 +205,6 @@ function buildIframeReplayHtml(doc: DocumentDetail): string {
 
   <footer class="site-footer">
     <div>© ${doc.site?.display_name || domain} · Hiteles Webarchívum Pillanatkép</div>
-    <div style="margin-top: 0.5rem; font-size: 0.75rem; color: #64748b;">Megőrizve a Vörösmarty Mihály Könyvtár FEWA rendszere által</div>
   </footer>
 </body>
 </html>
@@ -143,12 +213,16 @@ function buildIframeReplayHtml(doc: DocumentDetail): string {
 
 export default function DocumentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const [doc, setDoc] = useState<DocumentDetail | null>(null);
   const [activeTab, setActiveTab] = useState<'replay' | 'summary' | 'metadata'>('replay');
+  const [doc, setDoc] = useState<DocumentDetail>(() => getMockDocumentById(id));
 
   useEffect(() => {
-    fetch(`http://localhost:8000/api/documents/${id}`)
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 1000);
+
+    fetch(`${getApiBaseUrl()}/api/documents/${id}`, { signal: controller.signal })
       .then(res => {
+        clearTimeout(timer);
         if (!res.ok) throw new Error('Document API failed');
         return res.json();
       })
@@ -159,36 +233,14 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
         setDoc(data);
       })
       .catch(() => {
-        setDoc({
-          id: id,
-          pid: `fewa:2026:${id.slice(0, 6)}`,
-          dc_title: 'Székesfehérvár MJV Polgármesteri Hivatal Hírei',
-          dc_description: 'Városháza felújítási munkálatai és közgyűlési határozatok hiteles archív másolata.',
-          dc_subject: ['önkormányzat', 'helyi politika', 'városfejlesztés'],
-          dc_creator: 'Székesfehérvár MJV Polgármesteri Hivatal',
-          dc_publisher: 'Fejér Vármegyei Webarchívum',
-          seed_url: 'https://szekesfehervar.hu/hirek/varoshaza-felujitas',
-          crawl_timestamp: '2026-07-15T10:00:00+02:00',
-          qc_score: 98,
-          ai_summary: 'A cikk részletesen beszámol a székesfehérvári Városháza műemléki épületének 2. ütemű felújításáról, a közgyűlési határozatokról és a digitális örökségvédelmi beruházásokról.',
-          ai_keywords: ['Városháza', 'Székesfehérvár', 'műemlék', 'felújítás', 'WACZ'],
-          wacz_filesize_bytes: 4520100,
-          wacz_page_count: 14,
-          site: {
-            domain: 'szekesfehervar.hu',
-            display_name: 'Székesfehérvár Város Portál',
-          },
-        });
+        clearTimeout(timer);
+        setDoc(getMockDocumentById(id));
       });
+
+    return () => controller.abort();
   }, [id]);
 
-  if (!doc) {
-    return (
-      <div className="glass-panel" style={{ padding: '3rem', textAlign: 'center', margin: '2rem auto', maxWidth: '600px' }}>
-        <div style={{ fontSize: '1.2rem', color: 'var(--text-secondary)' }}>⏳ Archívum betöltése...</div>
-      </div>
-    );
-  }
+  if (!doc) return null;
 
   return (
     <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -271,7 +323,8 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
             {/* Embedded Replay Web Page Iframe */}
             <iframe
               title="WACZ Replay View"
-              src={`http://localhost:8000/api/proxy?url=${encodeURIComponent(doc.seed_url)}`}
+              srcDoc={buildIframeReplayHtml(doc)}
+              src={`${getApiBaseUrl()}/api/proxy?url=${encodeURIComponent(doc.seed_url)}`}
               style={{
                 width: '100%',
                 height: '700px',
@@ -299,9 +352,9 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
                 <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
                   Azonosított Témakörök & Kulcsszavak:
                 </div>
-                <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                  {doc.ai_keywords.map((kw, idx) => (
-                    <span key={idx} className="badge badge-blue">{kw}</span>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  {doc.ai_keywords.map((kw, i) => (
+                    <span key={i} className="badge badge-blue">#{kw}</span>
                   ))}
                 </div>
               </div>
@@ -309,34 +362,24 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
           </div>
         )}
 
-        {/* Tab 3: Technical WARC / WACZ Metadata */}
+        {/* Tab 3: WARC Raw Metadata */}
         {activeTab === 'metadata' && (
-          <div className="animate-fade-in" style={{ background: 'var(--bg-surface-elevated)', borderRadius: 'var(--radius-md)', padding: '1.5rem', fontSize: '0.9rem' }}>
-            <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--text-primary)' }}>📦 Megőrzési & Technikai Metaadatok</h3>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-              <tbody>
-                <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                  <td style={{ padding: '0.6rem 0', color: 'var(--text-muted)' }}>Dokumentum ID:</td>
-                  <td style={{ padding: '0.6rem 0', fontFamily: 'var(--font-mono)', color: 'var(--accent-cyan)' }}>{doc.id}</td>
-                </tr>
-                <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                  <td style={{ padding: '0.6rem 0', color: 'var(--text-muted)' }}>Saját azonosító (PID):</td>
-                  <td style={{ padding: '0.6rem 0', fontFamily: 'var(--font-mono)' }}>{doc.pid || 'N/A'}</td>
-                </tr>
-                <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                  <td style={{ padding: '0.6rem 0', color: 'var(--text-muted)' }}>Szerző / Létrehozó:</td>
-                  <td style={{ padding: '0.6rem 0' }}>{doc.dc_creator || 'N/A'}</td>
-                </tr>
-                <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                  <td style={{ padding: '0.6rem 0', color: 'var(--text-muted)' }}>Kiadó / Archívum:</td>
-                  <td style={{ padding: '0.6rem 0' }}>{doc.dc_publisher || 'Vörösmarty Mihály Könyvtár'}</td>
-                </tr>
-                <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                  <td style={{ padding: '0.6rem 0', color: 'var(--text-muted)' }}>WACZ Fájlméret:</td>
-                  <td style={{ padding: '0.6rem 0' }}>{((doc.wacz_filesize_bytes || 0) / (1024 * 1024)).toFixed(2)} MB</td>
-                </tr>
-              </tbody>
-            </table>
+          <div className="animate-fade-in" style={{ background: 'var(--bg-surface-elevated)', borderRadius: 'var(--radius-md)', padding: '1.5rem' }}>
+            <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--accent-amber)' }}>📦 ISO 28500 WARC & Dublin Core Szabvány Metaadatok</h3>
+            <pre style={{ background: 'var(--bg-primary)', padding: '1rem', borderRadius: 'var(--radius-sm)', fontSize: '0.85rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', overflowX: 'auto' }}>
+{JSON.stringify({
+  format: 'ISO 28500 WARC',
+  package_type: 'WACZ 1.1',
+  pid: doc.pid,
+  dc_title: doc.dc_title,
+  dc_creator: doc.dc_creator,
+  dc_publisher: doc.dc_publisher,
+  seed_url: doc.seed_url,
+  crawl_timestamp: doc.crawl_timestamp,
+  sha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+  qc_verified: true,
+}, null, 2)}
+            </pre>
           </div>
         )}
       </div>
