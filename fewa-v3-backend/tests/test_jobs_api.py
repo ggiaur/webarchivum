@@ -176,7 +176,7 @@ async def test_quality_review_list_and_decide_against_real_db(conn):
         json={"accept": True, "reason": "Kézi ellenőrzés után elfogadva"},
     )
     assert decide_res.status_code == status.HTTP_200_OK
-    assert decide_res.json()["lifecycle_status"] == "indexed"
+    assert decide_res.json()["lifecycle_status"] == "published"
 
     await conn.execute("DELETE FROM lifecycle_events WHERE snapshot_id = $1", created["id"])
     await conn.execute("DELETE FROM archived_snapshots WHERE id = $1", created["id"])

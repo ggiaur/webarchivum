@@ -139,7 +139,7 @@ async def test_qc_result_above_threshold_auto_accepts(conn, site_id):
         qc_detail={"screenshotMatch": 0.99, "textMatch": 0.97},
         auto_accept_threshold=96,
     )
-    assert result["lifecycle_status"] == "indexed"
+    assert result["lifecycle_status"] == "published"
 
 
 @pytest.mark.asyncio
@@ -165,7 +165,7 @@ async def test_qc_result_below_threshold_stays_archived_for_human_review(conn, s
 
 
 @pytest.mark.asyncio
-async def test_decide_quality_review_accept_moves_to_indexed(conn, site_id):
+async def test_decide_quality_review_accept_moves_to_published(conn, site_id):
     created = await archive.create_candidate_snapshot(
         conn, site_id=site_id, seed_url="https://example.hu/",
         dc_title="T", discovery_reason="r", discovery_metadata={},
@@ -180,7 +180,7 @@ async def test_decide_quality_review_accept_moves_to_indexed(conn, site_id):
     result = await archive.decide_quality_review(
         conn, created["id"], accept=True, user_id=None, reason="Manually reviewed, acceptable",
     )
-    assert result["lifecycle_status"] == "indexed"
+    assert result["lifecycle_status"] == "published"
 
 
 @pytest.mark.asyncio

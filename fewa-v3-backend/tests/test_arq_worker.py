@@ -137,7 +137,7 @@ async def test_run_crawl_job_failure_leaves_snapshot_in_crawling_and_reports_err
 
 
 @pytest.mark.asyncio
-async def test_run_enrich_job_above_threshold_auto_indexes(db_pool, approved_snapshot, monkeypatch, tmp_path):
+async def test_run_enrich_job_above_threshold_auto_publishes(db_pool, approved_snapshot, monkeypatch, tmp_path):
     async with db_pool.acquire() as conn:
         await archive.mark_crawling(conn, approved_snapshot["snapshot_id"])
         await archive.record_crawl_result(
@@ -165,7 +165,7 @@ async def test_run_enrich_job_above_threshold_auto_indexes(db_pool, approved_sna
 
     assert res["status"] == "completed"
     assert res["qc_score"] == 98  # round(min(0.99, 0.98) * 100) — real computation, not hardcoded
-    assert res["lifecycle_status"] == "indexed"
+    assert res["lifecycle_status"] == "published"
 
 
 @pytest.mark.asyncio

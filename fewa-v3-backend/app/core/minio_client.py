@@ -68,6 +68,22 @@ class MinIOClient:
             "bucket": self.bucket_wacz,
         }
 
+    def generate_presigned_wacz_url(self, key: str, expires_in: int = 3600) -> str:
+        """A browser-fetchable URL for a real WACZ object, for ReplayWeb.page's
+        `source` attribute to load directly (Browsertrix's own recommended
+        pattern — see fewa-automation/README.md). Not proxied through the API
+        server: ReplayWeb.page fetches this URL itself, client-side.
+
+        NOTE: MINIO_ENDPOINT must be resolvable from the end user's browser,
+        not just from the backend container, for this to work outside of
+        local dev — a real deployment concern to configure at swap time, not
+        something to paper over here."""
+        return self.client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": self.bucket_wacz, "Key": key},
+            ExpiresIn=expires_in,
+        )
+
     def check_health(self) -> bool:
         try:
             self.client.list_buckets()

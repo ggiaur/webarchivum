@@ -152,15 +152,36 @@ async def record_crawl_result(
     return dict(row)
 
 
+async def _publish(conn: asyncpg.Connection, snapshot_id: str, reason: str) -> Dict[str, Any]:
+    """indexed -> published: the only thing gating public visibility is a
+    passing QC score (auto or human-reviewed) — the schema defines no
+    further approval gate before 'published', so this always follows
+    immediately after a snapshot reaches 'indexed'. See spec/schema.sql's
+    valid_transitions and v_published_snapshots (what GET /api/search
+    actually queries — app/services/search_service.py)."""
+    row = await conn.fetchrow(
+        """
+        UPDATE archived_snapshots
+        SET lifecycle_status = 'published', lifecycle_reason = $2
+        WHERE id = $1 AND lifecycle_status = 'indexed'
+        RETURNING id, lifecycle_status, qc_score
+        """,
+        snapshot_id, reason,
+    )
+    if row is None:
+        raise ValueError(f"Snapshot {snapshot_id} not found or not in 'indexed' status.")
+    return dict(row)
+
+
 async def record_qc_result(
     conn: asyncpg.Connection, snapshot_id: str,
     qc_score: int, qc_detail: Dict[str, Any], auto_accept_threshold: int,
 ) -> Dict[str, Any]:
     """Records the real QA score/detail. If qc_score meets the threshold,
-    auto-transitions archived -> indexed (the content was already approved
-    at the candidate stage — no second human gate needed for a passing
-    score). Below threshold, the row stays 'archived' and becomes visible
-    in the quality-review queue for a human decision."""
+    auto-transitions archived -> indexed -> published (the content was
+    already approved at the candidate stage — no second human gate needed
+    for a passing score). Below threshold, the row stays 'archived' and
+    becomes visible in the quality-review queue for a human decision."""
     async with conn.transaction():
         await conn.execute(
             "UPDATE archived_snapshots SET qc_score = $2, qc_detail = $3 WHERE id = $1",
@@ -177,6 +198,9 @@ async def record_qc_result(
                 """,
                 snapshot_id, f"Auto-accepted: qc_score {qc_score} >= threshold {auto_accept_threshold}",
             )
+            if row is None:
+                raise ValueError(f"Snapshot {snapshot_id} not found.")
+            row = await _publish(conn, snapshot_id, "Auto-published after auto-accepted QC")
         else:
             row = await conn.fetchrow(
                 "SELECT id, lifecycle_status, qc_score FROM archived_snapshots WHERE id = $1",
@@ -210,15 +234,18 @@ async def decide_quality_review(
     direct option from 'archived', so a hard reject goes through candidate
     first, same path a human curator would use to withdraw it later)."""
     new_status = "indexed" if accept else "candidate"
-    row = await conn.fetchrow(
-        """
-        UPDATE archived_snapshots
-        SET lifecycle_status = $2, lifecycle_reason = $3, approved_by = $4
-        WHERE id = $1 AND lifecycle_status = 'archived'
-        RETURNING id, lifecycle_status
-        """,
-        snapshot_id, new_status, reason, user_id,
-    )
-    if row is None:
-        raise ValueError(f"Snapshot {snapshot_id} not found or not in 'archived' status.")
-    return dict(row)
+    async with conn.transaction():
+        row = await conn.fetchrow(
+            """
+            UPDATE archived_snapshots
+            SET lifecycle_status = $2, lifecycle_reason = $3, approved_by = $4
+            WHERE id = $1 AND lifecycle_status = 'archived'
+            RETURNING id, lifecycle_status
+            """,
+            snapshot_id, new_status, reason, user_id,
+        )
+        if row is None:
+            raise ValueError(f"Snapshot {snapshot_id} not found or not in 'archived' status.")
+        if accept:
+            row = await _publish(conn, snapshot_id, "Published after human quality-review acceptance")
+        return dict(row)

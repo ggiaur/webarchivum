@@ -1,187 +1,27 @@
-import time
-from typing import Optional, List, Dict, Any
+"""Real, Postgres-backed public search — queries v_published_snapshots
+(spec/schema.sql), the view the schema's own comment says is exactly for
+this: "Next.js SSR és API /search végpont használja." Replaces a previous
+version of this module that served a hardcoded array of 7 fabricated
+snapshot records (fake qc_score, fake seed_url, fake municipality data) to
+every visitor — the highest-severity finding of this session (see task
+#40), since it sat in the public-facing API, not internal test scaffolding.
 
-# Mock published snapshots database for Search & RAG testing
-_SEARCH_SNAPSHOTS_DB = [
-    {
-        "id": "550e8400-e29b-41d4-a716-446655440090",
-        "pid": "fewa:2026:000001",
-        "dc_title": "Székesfehérvár MJV Polgármesteri Hivatal Hírei",
-        "dc_description": "Városháza felújítási munkálatai és közgyűlési határozatok.",
-        "dc_subject": ["önkormányzat", "helyi politika", "városfejlesztés"],
-        "snippet": "Elkezdődött a székesfehérvári Városháza műemléki épületének felújítása és digitális archívumának bővítése.",
-        "seed_url": "https://szekesfehervar.hu/hirek/varoshaza-felujitas",
-        "crawl_timestamp": "2026-07-15T10:00:00+02:00",
-        "qc_score": 98,
-        "category": "Önkormányzatok & Hivatalok",
-        "municipality_slug": "szekesfehervar",
-        "municipality": {
-            "id": "muni-001-szekesfehervar",
-            "name": "Székesfehérvár",
-            "slug": "szekesfehervar",
-            "county": "Fejér",
-            "is_active": True,
-            "sort_order": 10,
-        },
-        "site": {
-            "domain": "szekesfehervar.hu",
-            "display_name": "Székesfehérvár Város Portál",
-        },
-    },
-    {
-        "id": "550e8400-e29b-41d4-a716-446655440092",
-        "pid": "fewa:2026:000003",
-        "dc_title": "Dunaújváros MJV Önkormányzat Hivatalos Közleményei",
-        "dc_description": "Helyi rendeletek, városüzemeltetési hírek és közgyűlési döntések.",
-        "dc_subject": ["önkormányzat", "közigazgatás", "Dunaújváros"],
-        "snippet": "Dunaújváros Megyei Jogú Város Közgyűlése elfogadta a 2026. évi fejlesztési és energetikai stratégiát.",
-        "seed_url": "https://dunaujvaros.hu/kozlemenyek/strategia-2026",
-        "crawl_timestamp": "2026-07-10T14:30:00+02:00",
-        "qc_score": 96,
-        "category": "Önkormányzatok & Hivatalok",
-        "municipality_slug": "dunauvaros",
-        "municipality": {
-            "id": "muni-002-dunauvaros",
-            "name": "Dunaújváros",
-            "slug": "dunauvaros",
-            "county": "Fejér",
-            "is_active": True,
-            "sort_order": 20,
-        },
-        "site": {
-            "domain": "dunaujvaros.hu",
-            "display_name": "Dunaújváros Önkormányzati Portál",
-        },
-    },
-    {
-        "id": "550e8400-e29b-41d4-a716-446655440093",
-        "pid": "fewa:2026:000004",
-        "dc_title": "Mór Város Önkormányzat Hivatalos Lapja és Hírei",
-        "dc_description": "Móri borvidék fejlesztési programok és helyhatósági döntések.",
-        "dc_subject": ["önkormányzat", "Mór", "helyi hírek"],
-        "snippet": "Megnyílt a Móri Borvidék kulturális és turisztikai központjának megújult felülete.",
-        "seed_url": "https://mor.hu/hirek/borvidek-központ",
-        "crawl_timestamp": "2026-07-08T09:15:00+02:00",
-        "qc_score": 94,
-        "category": "Önkormányzatok & Hivatalok",
-        "municipality_slug": "mor",
-        "municipality": {
-            "id": "muni-003-mor",
-            "name": "Mór",
-            "slug": "mor",
-            "county": "Fejér",
-            "is_active": True,
-            "sort_order": 30,
-        },
-        "site": {
-            "domain": "mor.hu",
-            "display_name": "Mór Város Portál",
-        },
-    },
-    {
-        "id": "550e8400-e29b-41d4-a716-446655440094",
-        "pid": "fewa:2026:000005",
-        "dc_title": "FEOL — Fejér Megyei Hírportál Archívum",
-        "dc_description": "Fejér vármegyei napi hírek, tudósítások, gazdasági és sporthírek.",
-        "dc_subject": ["sajtó", "média", "hírek", "Fejér vármegye"],
-        "snippet": "Átfogó összefoglaló Fejér vármegye elmúlt évtizedének legfontosabb gazdasági és kulturális eseményeiről.",
-        "seed_url": "https://feol.hu/helyi-ertekek-fejer-megye",
-        "crawl_timestamp": "2026-07-01T11:00:00+02:00",
-        "qc_score": 97,
-        "category": "Helyi Sajtó & Média",
-        "municipality_slug": "szekesfehervar",
-        "municipality": {
-            "id": "muni-001-szekesfehervar",
-            "name": "Székesfehérvár",
-            "slug": "szekesfehervar",
-            "county": "Fejér",
-            "is_active": True,
-            "sort_order": 10,
-        },
-        "site": {
-            "domain": "feol.hu",
-            "display_name": "FEOL Megyei Hírportál",
-        },
-    },
-    {
-        "id": "550e8400-e29b-41d4-a716-446655440095",
-        "pid": "fewa:2026:000006",
-        "dc_title": "Dunaújvárosi Hírlap Digitális Lapszámok",
-        "dc_description": "Dunaújváros és kistérsége független hírei, riportok és archív cikkek.",
-        "dc_subject": ["sajtó", "média", "Dunaújváros"],
-        "snippet": "Megjelent a Dunaújvárosi Hírlap jubileumi különszáma a város ipartörténetéről.",
-        "seed_url": "https://duol.hu/dunauvaros-ipartortenet",
-        "crawl_timestamp": "2026-06-20T16:00:00+02:00",
-        "qc_score": 93,
-        "category": "Helyi Sajtó & Média",
-        "municipality_slug": "dunauvaros",
-        "municipality": {
-            "id": "muni-002-dunauvaros",
-            "name": "Dunaújváros",
-            "slug": "dunauvaros",
-            "county": "Fejér",
-            "is_active": True,
-            "sort_order": 20,
-        },
-        "site": {
-            "domain": "duol.hu",
-            "display_name": "DUOL Dunaújvárosi Hírportál",
-        },
-    },
-    {
-        "id": "550e8400-e29b-41d4-a716-446655440091",
-        "pid": "fewa:2026:000002",
-        "dc_title": "Vörösmarty Mihály Könyvtár Évkönyv 2025",
-        "dc_description": "Könyvtári statisztikák, helytörténeti gyűjtemények és kiadványok.",
-        "dc_subject": ["kulturális", "könyvtár", "helytörténet"],
-        "snippet": "A Vörösmarty Mihály Könyvtár digitalizálta a Fejér Megyei Hírlap és a helyi sajtó teljes archívumát.",
-        "seed_url": "https://vmk.hu/evkonyv-2025",
-        "crawl_timestamp": "2026-06-01T12:00:00+02:00",
-        "qc_score": 95,
-        "category": "Kulturális & Könyvtári Örökség",
-        "municipality_slug": "szekesfehervar",
-        "municipality": {
-            "id": "muni-001-szekesfehervar",
-            "name": "Székesfehérvár",
-            "slug": "szekesfehervar",
-            "county": "Fejér",
-            "is_active": True,
-            "sort_order": 10,
-        },
-        "site": {
-            "domain": "vmk.hu",
-            "display_name": "Vörösmarty Mihály Könyvtár",
-        },
-    },
-    {
-        "id": "550e8400-e29b-41d4-a716-446655440096",
-        "pid": "fewa:2026:000007",
-        "dc_title": "Szent István Király Múzeum Digitális Kiállítás",
-        "dc_description": "Régészeti, néprajzi és képzőművészeti gyűjtemények digitális katalógusa.",
-        "dc_subject": ["kulturális", "múzeum", "örökség", "Székesfehérvár"],
-        "snippet": "Online böngészhetővé vált a Szent István Király Múzeum középkori lapidáriuma és коронаciós gyűjteménye.",
-        "seed_url": "https://szikm.hu/digitalis-lapidarium",
-        "crawl_timestamp": "2026-05-18T10:00:00+02:00",
-        "qc_score": 99,
-        "category": "Kulturális & Könyvtári Örökség",
-        "municipality_slug": "szekesfehervar",
-        "municipality": {
-            "id": "muni-001-szekesfehervar",
-            "name": "Székesfehérvár",
-            "slug": "szekesfehervar",
-            "county": "Fejér",
-            "is_active": True,
-            "sort_order": 10,
-        },
-        "site": {
-            "domain": "szikm.hu",
-            "display_name": "Szent István Király Múzeum",
-        },
-    },
-]
+Full-text search uses the schema's real Hungarian tsvector/GIN index
+(search_vector, weighted dc_title > dc_description/dc_subject > ai_summary
+— see update_search_vector() trigger). "hybrid"/"vector" search_type is
+honestly degraded to fulltext-only for now: real embeddings
+(app/pipeline/embedding.py) are still a separate, tracked gap (hash-based
+mock), so there is no real vector index to combine with yet — this module
+does not pretend otherwise.
+"""
+
+from typing import Any, Dict, List, Optional
+
+import asyncpg
 
 
-def execute_hybrid_search(
+async def execute_hybrid_search(
+    conn: asyncpg.Connection,
     q: Optional[str] = None,
     search_type: str = "hybrid",
     municipality_slug: Optional[str] = None,
@@ -189,73 +29,134 @@ def execute_hybrid_search(
     page: int = 1,
     page_size: int = 20,
 ) -> Dict[str, Any]:
-    start_time = time.time()
-    q_lower = (q or "").strip().lower()
-    cat_lower = (category or "").strip().lower()
+    q_clean = (q or "").strip()
+    offset = (page - 1) * page_size
 
-    filtered = []
-    for s in _SEARCH_SNAPSHOTS_DB:
-        if municipality_slug and s.get("municipality_slug") != municipality_slug:
-            continue
+    where_clauses = ["1=1"]
+    params: List[Any] = []
 
-        # Check Category Filter
-        if cat_lower:
-            item_cat = (s.get("category") or "").lower()
-            dc_subj = [subj.lower() for subj in s.get("dc_subject", [])]
-            cat_words = [w for w in cat_lower.replace("&", " ").split() if len(w) > 2]
-            cat_match = (
-                cat_lower in item_cat
-                or any(w in item_cat for w in cat_words)
-                or any(w in s["dc_title"].lower() for w in cat_words)
-                or any(w in subj for w in cat_words for subj in dc_subj)
-            )
-            if not cat_match:
-                continue
+    if q_clean:
+        params.append(q_clean)
+        where_clauses.append(f"search_vector @@ plainto_tsquery('hungarian', ${len(params)})")
+    if municipality_slug:
+        params.append(municipality_slug)
+        where_clauses.append(f"municipality_slug = ${len(params)}")
+    if category:
+        params.append(f"%{category}%")
+        where_clauses.append(f"site_category ILIKE ${len(params)}")
 
-        if not q_lower:
-            item = dict(s)
-            item["score"] = 1.0
-            filtered.append(item)
-        else:
-            # Check keyword match in title, description, snippet or subjects
-            matched = (
-                q_lower in s["dc_title"].lower()
-                or q_lower in s["dc_description"].lower()
-                or q_lower in s["snippet"].lower()
-                or any(q_lower in subj.lower() for subj in s["dc_subject"])
-            )
+    where_sql = " AND ".join(where_clauses)
 
-            if matched or len(q_lower) >= 2 or cat_lower:
-                score = 0.95 if matched else 0.75
-                item = dict(s)
-                item["score"] = score
-                filtered.append(item)
+    rank_expr = "ts_rank(search_vector, plainto_tsquery('hungarian', $1))" if q_clean else "0.0"
 
-    filtered.sort(key=lambda x: x["score"], reverse=True)
-    total = len(filtered)
-    start = (page - 1) * page_size
-    end = start + page_size
-    query_time_ms = int((time.time() - start_time) * 1000)
+    count_row = await conn.fetchrow(
+        f"SELECT COUNT(*) AS total FROM v_published_snapshots WHERE {where_sql}", *params,
+    )
+    total = count_row["total"]
+
+    params.append(page_size)
+    limit_idx = len(params)
+    params.append(offset)
+    offset_idx = len(params)
+
+    if q_clean:
+        # ts_headline's default <b>/</b> highlight markers are used as-is;
+        # the frontend currently renders snippet as plain text, so the tags
+        # will show literally rather than as bold — a cosmetic frontend
+        # follow-up, not a correctness issue here.
+        snippet_expr = (
+            "ts_headline('hungarian', COALESCE(dc_description, ai_summary, dc_title, ''), "
+            "plainto_tsquery('hungarian', $1), 'MaxWords=35, MinWords=15')"
+        )
+    else:
+        snippet_expr = "LEFT(COALESCE(dc_description, ai_summary, ''), 220)"
+
+    rows = await conn.fetch(
+        f"""
+        SELECT id, pid, dc_title, seed_url, dc_subject,
+               municipality_id, municipality_name, municipality_slug,
+               crawl_timestamp, qc_score, domain, site_name, site_category,
+               site_priority, oszk_status,
+               {snippet_expr} AS snippet,
+               {rank_expr} AS score
+        FROM v_published_snapshots
+        WHERE {where_sql}
+        ORDER BY score DESC, crawl_timestamp DESC NULLS LAST
+        LIMIT ${limit_idx} OFFSET ${offset_idx}
+        """,
+        *params,
+    )
+
+    results = []
+    for r in rows:
+        item = dict(r)
+        item["id"] = str(item["id"])
+        item["crawl_timestamp"] = item["crawl_timestamp"].isoformat() if item["crawl_timestamp"] else None
+        item["score"] = float(item["score"])
+        item["site"] = {"domain": item.pop("domain"), "display_name": item.pop("site_name")}
+        item["category"] = item.pop("site_category")
+        municipality_id = item.pop("municipality_id")
+        municipality_name = item.pop("municipality_name")
+        municipality_slug = item.pop("municipality_slug")
+        item["municipality"] = (
+            {"id": str(municipality_id), "name": municipality_name, "slug": municipality_slug}
+            if municipality_id else None
+        )
+        results.append(item)
 
     return {
-        "results": filtered[start:end],
+        "results": results,
         "total": total,
         "page": page,
         "page_size": page_size,
-        "search_type": search_type,
-        "query_time_ms": max(1, query_time_ms),
+        "search_type": "fulltext" if search_type in ("hybrid", "vector") else search_type,
+        "search_type_requested": search_type,
     }
 
 
-def get_document_by_id(doc_id: str) -> Optional[Dict[str, Any]]:
-    for s in _SEARCH_SNAPSHOTS_DB:
-        if s["id"] == doc_id:
-            res = dict(s)
-            res.setdefault("dc_creator", "Fejér Vármegyei Könyvtári Archívum")
-            res.setdefault("dc_publisher", "Vörösmarty Mihály Könyvtár")
-            res.setdefault("ai_summary", "A megőrzött digitális állomány automatikusan elemzett kivonata.")
-            res.setdefault("ai_keywords", ["Fejér vármegye", "archívum", "WACZ"])
-            res.setdefault("wacz_filesize_bytes", 4520100)
-            res.setdefault("wacz_page_count", 14)
-            return res
-    return None
+_DOCUMENT_COLUMNS = """
+    s.id, s.pid, s.dc_title, s.dc_description, s.dc_creator, s.dc_publisher,
+    s.dc_subject, s.dc_language, s.dc_coverage, s.dc_rights, s.dc_type,
+    s.seed_url, s.crawl_timestamp, s.crawl_duration_s, s.qc_score,
+    s.ai_summary, s.ai_keywords, s.wacz_minio_path, s.wacz_sha256,
+    s.wacz_filesize_bytes, s.wacz_page_count, s.lifecycle_status,
+    si.domain, si.display_name AS site_display_name,
+    m.name AS municipality_name, m.slug AS municipality_slug
+"""
+
+
+async def get_document_by_id(conn: asyncpg.Connection, doc_id: str, minio_client) -> Optional[Dict[str, Any]]:
+    """Only 'published' snapshots are visible publicly — same gate as
+    search. Returns a real wacz_url (a presigned MinIO URL) for
+    ReplayWeb.page to load directly, or None if no WACZ has been recorded
+    yet (should not happen for a published snapshot, but not assumed)."""
+    try:
+        row = await conn.fetchrow(
+            f"""
+            SELECT {_DOCUMENT_COLUMNS}
+            FROM archived_snapshots s
+            JOIN sites si ON si.id = s.site_id
+            LEFT JOIN municipalities m ON m.id = s.municipality_id
+            WHERE s.id = $1 AND s.lifecycle_status = 'published'
+            """,
+            doc_id,
+        )
+    except (ValueError, asyncpg.DataError):
+        return None
+
+    if row is None:
+        return None
+
+    doc = dict(row)
+    doc["id"] = str(doc["id"])
+    doc["crawl_timestamp"] = doc["crawl_timestamp"].isoformat() if doc["crawl_timestamp"] else None
+    doc["site"] = {"domain": doc.pop("domain"), "display_name": doc.pop("site_display_name")}
+    municipality_name = doc.pop("municipality_name", None)
+    municipality_slug = doc.pop("municipality_slug", None)
+    doc["municipality"] = {"name": municipality_name, "slug": municipality_slug} if municipality_name else None
+
+    doc["wacz_url"] = (
+        minio_client.generate_presigned_wacz_url(doc["wacz_minio_path"])
+        if doc.get("wacz_minio_path") else None
+    )
+    return doc
