@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { getApiBaseUrl } from '../../../utils/apiConfig';
+import { fetchWithAuth } from '../../../utils/apiConfig';
 
 interface SiteItem {
   id: string;
@@ -74,11 +74,8 @@ export default function AdminDashboardPage() {
   const fetchCandidates = async () => {
     setCandidatesLoading(true);
     setCandidatesError(false);
-    const token = localStorage.getItem('fewa_access_token');
     try {
-      const res = await fetch(`${getApiBaseUrl()}/api/admin/candidates`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetchWithAuth('/api/admin/candidates');
       if (!res.ok) throw new Error(`Candidates API returned ${res.status}`);
       const data = await res.json();
       setCandidates(data.items || []);
@@ -92,15 +89,11 @@ export default function AdminDashboardPage() {
 
   const decideCandidate = async (id: string, action: 'approve' | 'reject') => {
     setCandidateActionError(null);
-    const token = localStorage.getItem('fewa_access_token');
     const reason = action === 'approve' ? 'Kurátor jóváhagyta' : 'Kurátor elutasította';
     try {
-      const res = await fetch(`${getApiBaseUrl()}/api/admin/candidates/${id}/${action}`, {
+      const res = await fetchWithAuth(`/api/admin/candidates/${id}/${action}`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason }),
       });
       if (!res.ok) {
@@ -116,11 +109,8 @@ export default function AdminDashboardPage() {
   const fetchSites = async () => {
     setSitesLoading(true);
     setSitesError(false);
-    const token = localStorage.getItem('fewa_access_token');
     try {
-      const res = await fetch(`${getApiBaseUrl()}/api/admin/sites`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetchWithAuth('/api/admin/sites');
       if (!res.ok) throw new Error(`Sites API returned ${res.status}`);
       const data = await res.json();
       setSites(data.items || []);
@@ -135,11 +125,8 @@ export default function AdminDashboardPage() {
   const fetchThesaurus = async () => {
     setThesaurusLoading(true);
     setThesaurusError(false);
-    const token = localStorage.getItem('fewa_access_token');
     try {
-      const res = await fetch(`${getApiBaseUrl()}/api/thesaurus`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetchWithAuth('/api/thesaurus');
       if (!res.ok) throw new Error(`Thesaurus API returned ${res.status}`);
       const data = await res.json();
       setThesaurus(data.items || []);
@@ -154,14 +141,10 @@ export default function AdminDashboardPage() {
   const handleCreateSite = async (e: React.FormEvent) => {
     e.preventDefault();
     setCreateSiteError(null);
-    const token = localStorage.getItem('fewa_access_token');
     try {
-      const res = await fetch(`${getApiBaseUrl()}/api/admin/sites`, {
+      const res = await fetchWithAuth('/api/admin/sites', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           domain: newDomain,
           base_url: newBaseUrl,
