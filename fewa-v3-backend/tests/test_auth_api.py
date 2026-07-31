@@ -1,10 +1,34 @@
+"""Real integration tests for the auth API — login/refresh now query the
+real `users` table (seeded via spec/migrations/004_seed_default_users.sql),
+replacing the previous MOCK_USERS_DB in-memory dict. Same credentials as
+before, so the test bodies are unchanged; only the DB wiring is new."""
+
+import os
+
+import asyncpg
 import pytest
 from fastapi import FastAPI, status
 from fastapi.testclient import TestClient
 from app.api.v1.auth import router as auth_router
+from app.core.db import get_db_connection
+
+TEST_DSN = os.environ.get(
+    "TEST_DATABASE_URL",
+    "postgresql://fewa_admin:fewa_dev_local_only@localhost:5460/fewa_v3",
+)
+
+
+async def _override_get_db_connection():
+    connection = await asyncpg.connect(dsn=TEST_DSN)
+    try:
+        yield connection
+    finally:
+        await connection.close()
+
 
 app = FastAPI()
 app.include_router(auth_router)
+app.dependency_overrides[get_db_connection] = _override_get_db_connection
 
 client = TestClient(app)
 

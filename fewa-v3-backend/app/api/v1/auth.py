@@ -1,13 +1,16 @@
 import logging
+
+import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, status
+from app.core.db import get_db_connection
 from app.core.security import (
-    hash_password,
     verify_password,
     create_access_token,
     create_refresh_token,
     decode_token,
 )
 from app.api.deps import get_current_user_payload
+from app.crud import users as users_crud
 from pydantic import BaseModel, EmailStr, Field
 
 logger = logging.getLogger(__name__)
@@ -46,32 +49,9 @@ class LogoutRequest(BaseModel):
     refresh_token: str
 
 
-# Mock user database for Auth testing / default admin seed
-MOCK_USERS_DB = {
-    "curator@vmk.hu": {
-        "id": "550e8400-e29b-41d4-a716-446655440000",
-        "email": "curator@vmk.hu",
-        "password_hash": hash_password("SecretPassword123!"),
-        "role": "curator",
-        "full_name": "VMK Kurátor",
-        "tenant_id": "00000000-0000-0000-0000-000000000001",
-        "is_active": True,
-    },
-    "admin@vmk.hu": {
-        "id": "00000000-0000-0000-0000-000000000099",
-        "email": "admin@vmk.hu",
-        "password_hash": hash_password("AdminPassword123!"),
-        "role": "admin",
-        "full_name": "System Admin",
-        "tenant_id": "00000000-0000-0000-0000-000000000001",
-        "is_active": True,
-    },
-}
-
-
 @router.post("/login", response_model=TokenResponse)
-def login(body: LoginRequest):
-    user = MOCK_USERS_DB.get(body.email)
+async def login(body: LoginRequest, conn: asyncpg.Connection = Depends(get_db_connection)):
+    user = await users_crud.get_user_by_email(conn, body.email)
     if not user or not verify_password(body.password, user["password_hash"]):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -94,6 +74,8 @@ def login(body: LoginRequest):
         tenant_id=user["tenant_id"],
     )
 
+    await users_crud.mark_login(conn, user["id"])
+
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
@@ -109,7 +91,7 @@ def login(body: LoginRequest):
 
 
 @router.post("/refresh", response_model=TokenResponse)
-def refresh_tokens(body: RefreshTokenRequest):
+async def refresh_tokens(body: RefreshTokenRequest, conn: asyncpg.Connection = Depends(get_db_connection)):
     if body.refresh_token in _revoked_tokens:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -127,8 +109,10 @@ def refresh_tokens(body: RefreshTokenRequest):
         user_id = payload.get("sub")
         tenant_id = payload.get("tenant_id")
 
-        # Find user
-        user = next((u for u in MOCK_USERS_DB.values() if u["id"] == user_id), None)
+        try:
+            user = await users_crud.get_user_by_id(conn, user_id)
+        except asyncpg.DataError:
+            user = None
         if not user or not user.get("is_active", True):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
