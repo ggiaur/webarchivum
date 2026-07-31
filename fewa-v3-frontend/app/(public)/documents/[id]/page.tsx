@@ -14,6 +14,7 @@ declare module 'react' {
         ts?: string;
         embed?: string;
         replaybase?: string;
+        newWindowBase?: string;
       };
     }
   }
@@ -91,7 +92,22 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
 
   return (
     <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-      <Script src="/ui.js" strategy="afterInteractive" onReady={() => setRwpReady(true)} onLoad={() => setRwpReady(true)} />
+      {/*
+        ReplayWeb.page's SW registration (via the register-service-worker
+        package it bundles) waits on `window.addEventListener('load', ...)`,
+        evaluated the moment ui.js's module code runs. Loaded via
+        `afterInteractive`, ui.js always executes after the real `load`
+        event already fired, so that promise never resolves and
+        registration hangs forever with no error. Dispatching a synthetic
+        `load` event right after ui.js loads unsticks it — safe even if the
+        real event already resolved it (Promises only resolve once).
+      */}
+      <Script
+        src="/ui.js"
+        strategy="afterInteractive"
+        onReady={() => { setRwpReady(true); window.dispatchEvent(new Event('load')); }}
+        onLoad={() => { setRwpReady(true); window.dispatchEvent(new Event('load')); }}
+      />
 
       {/* Navigation */}
       <div>
@@ -190,6 +206,7 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
                 url={doc.seed_url}
                 embed="replayonly"
                 replaybase="/replay/"
+                newWindowBase="/replay/"
                 style={{ width: '100%', height: '700px', display: 'block', borderRadius: 'var(--radius-sm)', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0, 0, 0, 0.5)' }}
               />
             )}
