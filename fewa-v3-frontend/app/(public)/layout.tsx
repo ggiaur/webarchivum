@@ -1,11 +1,24 @@
 import React from 'react';
 import OaiNavLink from '../components/OaiNavLink';
+import { getApiBaseUrl } from '../utils/apiConfig';
 
-export default function PublicLayout({
+async function getPublicStats(): Promise<{ active_sites: number; published_documents: number } | null> {
+  try {
+    const res = await fetch(`${getApiBaseUrl()}/api/stats`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+export default async function PublicLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const stats = await getPublicStats();
+
   return (
     <div className="layout-wrapper" suppressHydrationWarning>
       {/* Top Banner */}
@@ -153,9 +166,15 @@ export default function PublicLayout({
             <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#f1f5f9', marginBottom: '0.75rem' }}>
               Rendszer Állapot
             </div>
-            <div style={{ background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.3)', padding: '0.75rem 1rem', borderRadius: '10px', fontSize: '0.85rem', color: '#34d399' }}>
-              🟢 Mind a 87 gyűjteményi webhely aktívan megőrizve és lekérdezhető.
-            </div>
+            {stats ? (
+              <div style={{ background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.3)', padding: '0.75rem 1rem', borderRadius: '10px', fontSize: '0.85rem', color: '#34d399' }}>
+                🟢 {stats.active_sites} regisztrált gyűjteményi webhely, {stats.published_documents} publikusan kereshető dokumentum.
+              </div>
+            ) : (
+              <div style={{ background: 'rgba(148, 163, 184, 0.1)', border: '1px solid rgba(148, 163, 184, 0.3)', padding: '0.75rem 1rem', borderRadius: '10px', fontSize: '0.85rem', color: '#94a3b8' }}>
+                ⚪ A rendszerállapot jelenleg nem elérhető.
+              </div>
+            )}
           </div>
         </div>
       </footer>

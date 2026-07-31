@@ -34,6 +34,21 @@ async def search_snapshots(
     )
 
 
+@router.get("/stats")
+async def public_stats(conn: asyncpg.Connection = Depends(get_db_connection)):
+    """Real counts for the public footer's status widget — this used to be
+    a hardcoded "Mind a 87 gyűjteményi webhely..." string with an invented
+    number, unrelated to actual DB state."""
+    row = await conn.fetchrow(
+        """
+        SELECT
+            (SELECT COUNT(*) FROM sites WHERE is_active_collection = TRUE) AS active_sites,
+            (SELECT COUNT(*) FROM archived_snapshots WHERE lifecycle_status = 'published') AS published_documents
+        """
+    )
+    return {"active_sites": row["active_sites"], "published_documents": row["published_documents"]}
+
+
 @router.get("/documents/{doc_id}")
 async def get_document(doc_id: str, conn: asyncpg.Connection = Depends(get_db_connection)):
     """Public detail view — includes wacz_url, a presigned MinIO URL for

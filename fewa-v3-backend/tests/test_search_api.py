@@ -127,3 +127,19 @@ async def test_get_document_unknown_id_returns_real_404_not_fabricated_placehold
 async def test_get_document_malformed_id_returns_404_not_500():
     response = client.get("/api/documents/not-a-valid-uuid")
     assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_public_stats_reflects_real_counts(published_snapshot, conn):
+    response = client.get("/api/stats")
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert isinstance(data["active_sites"], int)
+    assert isinstance(data["published_documents"], int)
+
+    # The published_snapshot fixture created one real published document —
+    # the count must reflect it, not a hardcoded number.
+    row = await conn.fetchrow(
+        "SELECT COUNT(*) AS c FROM archived_snapshots WHERE lifecycle_status = 'published'"
+    )
+    assert data["published_documents"] == row["c"]

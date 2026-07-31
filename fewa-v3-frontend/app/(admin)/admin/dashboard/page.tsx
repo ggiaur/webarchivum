@@ -22,6 +22,17 @@ interface SKOSConcept {
   definition?: string;
 }
 
+interface CandidateItem {
+  id: string;
+  dc_title: string;
+  seed_url: string;
+  domain: string;
+  priority: string;
+  category: string;
+  municipality_name?: string;
+  created_at: string;
+}
+
 // Must match spec/schema.sql's site_category_enum / crawl_priority_enum
 // exactly — these are real Postgres enum values, not free text (note:
 // 'kozintézmény' has no accent on "koz" in the real schema, unlike the
@@ -30,7 +41,11 @@ const CATEGORY_OPTIONS = ['kozintézmény', 'civil', 'média', 'vállalkozás', 
 const PRIORITY_OPTIONS = ['critical', 'high', 'medium', 'low', 'on_hold'];
 
 export default function AdminDashboardPage() {
-  const [activeTab, setActiveTab] = useState<'sites' | 'thesaurus' | 'jobs'>('sites');
+  const [activeTab, setActiveTab] = useState<'candidates' | 'sites' | 'thesaurus'>('candidates');
+  const [candidates, setCandidates] = useState<CandidateItem[]>([]);
+  const [candidatesLoading, setCandidatesLoading] = useState(true);
+  const [candidatesError, setCandidatesError] = useState(false);
+  const [candidateActionError, setCandidateActionError] = useState<string | null>(null);
   const [sites, setSites] = useState<SiteItem[]>([]);
   const [sitesLoading, setSitesLoading] = useState(true);
   const [sitesError, setSitesError] = useState(false);
@@ -51,9 +66,52 @@ export default function AdminDashboardPage() {
     const userStr = localStorage.getItem('fewa_user');
     if (userStr) setUser(JSON.parse(userStr));
 
+    fetchCandidates();
     fetchSites();
     fetchThesaurus();
   }, []);
+
+  const fetchCandidates = async () => {
+    setCandidatesLoading(true);
+    setCandidatesError(false);
+    const token = localStorage.getItem('fewa_access_token');
+    try {
+      const res = await fetch(`${getApiBaseUrl()}/api/admin/candidates`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`Candidates API returned ${res.status}`);
+      const data = await res.json();
+      setCandidates(data.items || []);
+    } catch {
+      setCandidates([]);
+      setCandidatesError(true);
+    } finally {
+      setCandidatesLoading(false);
+    }
+  };
+
+  const decideCandidate = async (id: string, action: 'approve' | 'reject') => {
+    setCandidateActionError(null);
+    const token = localStorage.getItem('fewa_access_token');
+    const reason = action === 'approve' ? 'Kurátor jóváhagyta' : 'Kurátor elutasította';
+    try {
+      const res = await fetch(`${getApiBaseUrl()}/api/admin/candidates/${id}/${action}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ reason }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.detail || `A művelet sikertelen (${res.status}).`);
+      }
+      fetchCandidates();
+    } catch (err) {
+      setCandidateActionError(err instanceof Error ? err.message : 'Sikertelen művelet.');
+    }
+  };
 
   const fetchSites = async () => {
     setSitesLoading(true);
@@ -157,6 +215,20 @@ export default function AdminDashboardPage() {
         {/* Navigation Tabs */}
         <div style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '1rem' }}>
           <button
+            onClick={() => setActiveTab('candidates')}
+            style={{
+              padding: '0.6rem 1.2rem',
+              borderRadius: 'var(--radius-md)',
+              border: 'none',
+              cursor: 'pointer',
+              fontWeight: 600,
+              background: activeTab === 'candidates' ? 'var(--accent-gradient)' : 'transparent',
+              color: activeTab === 'candidates' ? '#fff' : 'var(--text-secondary)',
+            }}
+          >
+            📥 Jóváhagyási Sor ({candidates.length})
+          </button>
+          <button
             onClick={() => setActiveTab('sites')}
             style={{
               padding: '0.6rem 1.2rem',
@@ -185,6 +257,56 @@ export default function AdminDashboardPage() {
             📚 SKOS Tezaurusz ({thesaurus.length})
           </button>
         </div>
+
+        {/* Tab 0: Candidate Approval Queue */}
+        {activeTab === 'candidates' && (
+          <div className="glass-panel" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            <h2 style={{ fontSize: '1.2rem' }}>Felfedezett Jelöltek — Jóváhagyásra Várnak</h2>
+
+            {candidateActionError && (
+              <div style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', background: 'rgba(244, 63, 94, 0.15)', border: '1px solid rgba(244, 63, 94, 0.4)', color: '#fda4af', fontSize: '0.85rem' }}>
+                {candidateActionError}
+              </div>
+            )}
+
+            {candidatesLoading && (
+              <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>Betöltés…</div>
+            )}
+            {!candidatesLoading && candidatesError && (
+              <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                A jóváhagyási sor jelenleg nem elérhető.
+              </div>
+            )}
+            {!candidatesLoading && !candidatesError && candidates.length === 0 && (
+              <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                Nincs jóváhagyásra váró jelölt.
+              </div>
+            )}
+
+            {!candidatesLoading && !candidatesError && candidates.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                {candidates.map((c) => (
+                  <div key={c.id} className="glass-card" style={{ padding: '1rem 1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', minWidth: '260px' }}>
+                      <div style={{ fontWeight: 600 }}>{c.dc_title}</div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                        🌐 {c.domain} {c.municipality_name ? `· 📍 ${c.municipality_name}` : ''} · {c.seed_url}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button onClick={() => decideCandidate(c.id, 'approve')} className="btn-primary" style={{ padding: '0.4rem 1rem', fontSize: '0.85rem' }}>
+                        ✓ Jóváhagyás
+                      </button>
+                      <button onClick={() => decideCandidate(c.id, 'reject')} className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.85rem' }}>
+                        ✕ Elutasítás
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Tab 1: Sites List */}
         {activeTab === 'sites' && (
