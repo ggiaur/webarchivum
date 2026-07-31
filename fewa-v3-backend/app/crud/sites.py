@@ -1,65 +1,104 @@
-import uuid
-from datetime import datetime, timezone
-from typing import Optional, List, Dict, Any
+"""Real, asyncpg-backed CRUD for the admin site-management workflow —
+operates on the real `sites` and `crawl_policies` tables (spec/schema.sql).
 
-# In-memory store for sites (for CRUD service & API testing; production connects via asyncpg DDL)
-_SITES_DB: Dict[str, Dict[str, Any]] = {
-    "550e8400-e29b-41d4-a716-446655440001": {
-        "id": "550e8400-e29b-41d4-a716-446655440001",
-        "tenant_id": "00000000-0000-0000-0000-000000000001",
-        "domain": "alba.hu",
-        "base_url": "https://alba.hu",
-        "display_name": "Alba Regia Portál",
-        "priority": "high",
-        "category": "közintézmény",
-        "crawl_frequency": "weekly",
-        "curator_notes": "Főoldal és hírek archiválása",
-        "oszk_status": "no",
-        "is_active_collection": True,
-        "robots_txt_respect": True,
-        "requires_js": False,
-        "scope_restriction": None,
-        "municipality_id": "muni-001-szekesfehervar",
-        "municipality": {
-            "id": "muni-001-szekesfehervar",
-            "name": "Székesfehérvár",
-            "slug": "szekesfehervar",
-            "county": "Fejér",
-            "is_active": True,
-            "sort_order": 10,
-        },
-        "total_snapshots": 12,
-        "last_crawled_at": "2026-07-20T02:00:00+02:00",
-        "crawl_policies": [
-            {
-                "id": "policy-001",
-                "site_id": "550e8400-e29b-41d4-a716-446655440001",
-                "name": "default",
-                "depth": 3,
-                "max_pages": 5000,
-                "page_limit": 500,
-                "cron_schedule": "0 2 * * 0",
-                "llm_profile": "balanced",
-                "include_patterns": ["/hirek/*"],
-                "exclude_patterns": ["/admin/*"],
-                "is_active": True,
-            }
-        ],
-        "created_at": "2026-01-10T10:00:00+02:00",
-        "updated_at": "2026-07-20T02:00:00+02:00",
-    }
-}
+Replaces a previous version of this module that was a pure in-memory dict
+(a single hardcoded "alba.hu" fixture, reset on every process restart) —
+the real candidate/QC workflow (app/crud/archive.py) already bypassed it
+via get_or_create_site_by_domain; this brings the admin listing/create/
+update endpoints (app/api/v1/sites.py) onto the same real data.
+"""
+
+from typing import Any, Dict, List, Optional, Tuple
+
+import asyncpg
+
+DEFAULT_TENANT_ID = "00000000-0000-0000-0000-000000000001"
+
+_SITE_COLUMNS = """
+    s.id, s.tenant_id, s.domain, s.base_url, s.display_name, s.priority,
+    s.category, s.crawl_frequency, s.curator_notes, s.oszk_status,
+    s.is_active_collection, s.robots_txt_respect, s.requires_js,
+    s.scope_restriction, s.municipality_id, s.last_crawled_at,
+    s.created_at, s.updated_at,
+    m.name AS municipality_name, m.slug AS municipality_slug,
+    m.county AS municipality_county, m.is_active AS municipality_is_active,
+    m.sort_order AS municipality_sort_order,
+    (SELECT COUNT(*) FROM archived_snapshots a WHERE a.site_id = s.id) AS total_snapshots
+"""
 
 
-def get_site_by_id(site_id: str) -> Optional[Dict[str, Any]]:
-    return _SITES_DB.get(site_id)
+def _row_to_site(row: asyncpg.Record) -> Dict[str, Any]:
+    site = dict(row)
+    site["id"] = str(site["id"])
+    site["tenant_id"] = str(site["tenant_id"])
+    site["municipality_id"] = str(site["municipality_id"]) if site["municipality_id"] else None
+
+    municipality_name = site.pop("municipality_name")
+    municipality_slug = site.pop("municipality_slug")
+    municipality_county = site.pop("municipality_county")
+    municipality_is_active = site.pop("municipality_is_active")
+    municipality_sort_order = site.pop("municipality_sort_order")
+    site["municipality"] = (
+        {
+            "id": site["municipality_id"],
+            "name": municipality_name,
+            "slug": municipality_slug,
+            "county": municipality_county,
+            "is_active": municipality_is_active,
+            "sort_order": municipality_sort_order,
+        }
+        if municipality_name else None
+    )
+    return site
 
 
-def get_site_by_domain(domain: str) -> Optional[Dict[str, Any]]:
-    return next((s for s in _SITES_DB.values() if s["domain"].lower() == domain.lower()), None)
+async def _attach_crawl_policies(conn: asyncpg.Connection, site: Dict[str, Any]) -> Dict[str, Any]:
+    rows = await conn.fetch(
+        "SELECT * FROM crawl_policies WHERE site_id = $1 ORDER BY is_default DESC, created_at ASC",
+        site["id"],
+    )
+    policies = []
+    for r in rows:
+        p = dict(r)
+        p["id"] = str(p["id"])
+        p["site_id"] = str(p["site_id"])
+        policies.append(p)
+    site["crawl_policies"] = policies
+    return site
 
 
-def list_sites(
+async def get_site_by_id(conn: asyncpg.Connection, site_id: str) -> Optional[Dict[str, Any]]:
+    row = await conn.fetchrow(
+        f"""
+        SELECT {_SITE_COLUMNS}
+        FROM sites s
+        LEFT JOIN municipalities m ON m.id = s.municipality_id
+        WHERE s.id = $1
+        """,
+        site_id,
+    )
+    if row is None:
+        return None
+    return await _attach_crawl_policies(conn, _row_to_site(row))
+
+
+async def get_site_by_domain(conn: asyncpg.Connection, domain: str) -> Optional[Dict[str, Any]]:
+    row = await conn.fetchrow(
+        f"""
+        SELECT {_SITE_COLUMNS}
+        FROM sites s
+        LEFT JOIN municipalities m ON m.id = s.municipality_id
+        WHERE lower(s.domain) = lower($1)
+        """,
+        domain,
+    )
+    if row is None:
+        return None
+    return await _attach_crawl_policies(conn, _row_to_site(row))
+
+
+async def list_sites(
+    conn: asyncpg.Connection,
     priority: Optional[str] = None,
     category: Optional[str] = None,
     is_active_collection: Optional[bool] = None,
@@ -67,87 +106,112 @@ def list_sites(
     oszk_status: Optional[str] = None,
     page: int = 1,
     page_size: int = 20,
-) -> tuple[List[Dict[str, Any]], int]:
-    results = list(_SITES_DB.values())
+) -> Tuple[List[Dict[str, Any]], int]:
+    where_clauses = ["1=1"]
+    params: List[Any] = []
 
     if priority:
-        results = [s for s in results if s["priority"] == priority]
+        params.append(priority)
+        where_clauses.append(f"s.priority = ${len(params)}")
     if category:
-        results = [s for s in results if s["category"] == category]
+        params.append(category)
+        where_clauses.append(f"s.category = ${len(params)}")
     if is_active_collection is not None:
-        results = [s for s in results if s["is_active_collection"] == is_active_collection]
+        params.append(is_active_collection)
+        where_clauses.append(f"s.is_active_collection = ${len(params)}")
     if municipality_slug:
-        results = [
-            s for s in results
-            if s.get("municipality") and s["municipality"].get("slug") == municipality_slug
-        ]
+        params.append(municipality_slug)
+        where_clauses.append(f"m.slug = ${len(params)}")
     if oszk_status:
-        results = [s for s in results if s["oszk_status"] == oszk_status]
+        params.append(oszk_status)
+        where_clauses.append(f"s.oszk_status = ${len(params)}")
 
-    total = len(results)
-    start = (page - 1) * page_size
-    end = start + page_size
-    return results[start:end], total
+    where_sql = " AND ".join(where_clauses)
 
+    count_row = await conn.fetchrow(
+        f"SELECT COUNT(*) AS total FROM sites s LEFT JOIN municipalities m ON m.id = s.municipality_id WHERE {where_sql}",
+        *params,
+    )
+    total = count_row["total"]
 
-def create_site(data: Dict[str, Any], tenant_id: str = "00000000-0000-0000-0000-000000000001") -> Dict[str, Any]:
-    if get_site_by_domain(data["domain"]):
-        raise ValueError(f"Domain {data['domain']} is already registered.")
+    params.append(page_size)
+    limit_idx = len(params)
+    params.append((page - 1) * page_size)
+    offset_idx = len(params)
 
-    site_id = str(uuid.uuid4())
-    now_iso = datetime.now(timezone.utc).isoformat()
-
-    site_record = {
-        "id": site_id,
-        "tenant_id": tenant_id,
-        "domain": data["domain"],
-        "base_url": data["base_url"],
-        "display_name": data.get("display_name") or data["domain"],
-        "priority": data.get("priority", "medium"),
-        "category": data.get("category", "egyéb"),
-        "crawl_frequency": data.get("crawl_frequency", "monthly"),
-        "curator_notes": data.get("curator_notes"),
-        "oszk_status": data.get("oszk_status", "unknown"),
-        "is_active_collection": True,
-        "robots_txt_respect": data.get("robots_txt_respect", True),
-        "requires_js": data.get("requires_js", False),
-        "scope_restriction": None,
-        "municipality_id": data.get("municipality_id"),
-        "municipality": None,
-        "total_snapshots": 0,
-        "last_crawled_at": None,
-        "crawl_policies": [
-            {
-                "id": str(uuid.uuid4()),
-                "site_id": site_id,
-                "name": "default",
-                "depth": 3,
-                "max_pages": 5000,
-                "page_limit": 500,
-                "cron_schedule": "0 2 * * 0",
-                "llm_profile": "balanced",
-                "include_patterns": None,
-                "exclude_patterns": None,
-                "is_active": True,
-            }
-        ],
-        "created_at": now_iso,
-        "updated_at": now_iso,
-    }
-
-    _SITES_DB[site_id] = site_record
-    return site_record
+    rows = await conn.fetch(
+        f"""
+        SELECT {_SITE_COLUMNS}
+        FROM sites s
+        LEFT JOIN municipalities m ON m.id = s.municipality_id
+        WHERE {where_sql}
+        ORDER BY s.priority, s.domain
+        LIMIT ${limit_idx} OFFSET ${offset_idx}
+        """,
+        *params,
+    )
+    sites = [await _attach_crawl_policies(conn, _row_to_site(r)) for r in rows]
+    return sites, total
 
 
-def update_site(site_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    site = _SITES_DB.get(site_id)
-    if not site:
+async def create_site(
+    conn: asyncpg.Connection, data: Dict[str, Any], tenant_id: str = DEFAULT_TENANT_ID,
+) -> Dict[str, Any]:
+    """Raises ValueError (mapped to 409 by the API layer) on duplicate
+    (tenant_id, domain) — enforced by the DB's own real UNIQUE constraint,
+    not an application-level pre-check."""
+    async with conn.transaction():
+        try:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO sites (
+                    tenant_id, domain, base_url, display_name, priority, category,
+                    crawl_frequency, curator_notes, oszk_status, robots_txt_respect,
+                    requires_js, municipality_id
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                RETURNING id
+                """,
+                tenant_id, data["domain"], data["base_url"], data.get("display_name") or data["domain"],
+                data.get("priority", "medium"), data.get("category", "egyéb"),
+                data.get("crawl_frequency", "monthly"), data.get("curator_notes"),
+                data.get("oszk_status", "unknown"), data.get("robots_txt_respect", True),
+                data.get("requires_js", False), data.get("municipality_id"),
+            )
+        except asyncpg.UniqueViolationError:
+            raise ValueError(f"Domain {data['domain']} is already registered.")
+
+        site_id = row["id"]
+        await conn.execute(
+            "INSERT INTO crawl_policies (site_id, name, is_default) VALUES ($1, 'default', TRUE)",
+            site_id,
+        )
+
+    return await get_site_by_id(conn, str(site_id))
+
+
+_UPDATABLE_FIELDS = [
+    "display_name", "priority", "category", "crawl_frequency", "municipality_id",
+    "curator_notes", "oszk_status", "is_active_collection", "robots_txt_respect", "requires_js",
+]
+
+
+async def update_site(conn: asyncpg.Connection, site_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    fields = {k: v for k, v in updates.items() if k in _UPDATABLE_FIELDS and v is not None}
+    if not fields:
+        return await get_site_by_id(conn, site_id)
+
+    set_clauses = []
+    params: List[Any] = []
+    for key, value in fields.items():
+        params.append(value)
+        set_clauses.append(f"{key} = ${len(params)}")
+    params.append(site_id)
+
+    row = await conn.fetchrow(
+        f"UPDATE sites SET {', '.join(set_clauses)} WHERE id = ${len(params)} RETURNING id",
+        *params,
+    )
+    if row is None:
         return None
-
-    for key, value in updates.items():
-        if value is not None and key in site:
-            site[key] = value
-
-    site["updated_at"] = datetime.now(timezone.utc).isoformat()
-    _SITES_DB[site_id] = site
-    return site
+    return await get_site_by_id(conn, site_id)

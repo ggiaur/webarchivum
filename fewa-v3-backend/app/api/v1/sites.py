@@ -1,8 +1,12 @@
 import logging
-from typing import Optional, List, Any, Dict
+from typing import Optional
+
+import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel
+
 from app.api.deps import require_role
+from app.core.db import get_db_connection
 from app.crud import sites as sites_crud
 
 logger = logging.getLogger(__name__)
@@ -38,7 +42,7 @@ class SiteUpdateSchema(BaseModel):
 
 
 @router.get("", dependencies=[Depends(require_role("archivist"))])
-def list_sites(
+async def list_sites(
     priority: Optional[str] = Query(None),
     category: Optional[str] = Query(None),
     is_active_collection: Optional[bool] = Query(None),
@@ -46,8 +50,10 @@ def list_sites(
     oszk_status: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    conn: asyncpg.Connection = Depends(get_db_connection),
 ):
-    items, total = sites_crud.list_sites(
+    items, total = await sites_crud.list_sites(
+        conn,
         priority=priority,
         category=category,
         is_active_collection=is_active_collection,
@@ -65,35 +71,31 @@ def list_sites(
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_role("archivist"))])
-def create_site(body: SiteCreateSchema):
+async def create_site(body: SiteCreateSchema, conn: asyncpg.Connection = Depends(get_db_connection)):
     try:
-        new_site = sites_crud.create_site(body.model_dump())
-        return new_site
+        return await sites_crud.create_site(conn, body.model_dump())
     except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(e),
-        )
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e))
 
 
 @router.get("/{id}", dependencies=[Depends(require_role("archivist"))])
-def get_site(id: str):
-    site = sites_crud.get_site_by_id(id)
+async def get_site(id: str, conn: asyncpg.Connection = Depends(get_db_connection)):
+    try:
+        site = await sites_crud.get_site_by_id(conn, id)
+    except asyncpg.DataError:
+        site = None
     if not site:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="A site nem található.",
-        )
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "A site nem található.")
     return site
 
 
 @router.patch("/{id}", dependencies=[Depends(require_role("archivist"))])
-def update_site(id: str, body: SiteUpdateSchema):
+async def update_site(id: str, body: SiteUpdateSchema, conn: asyncpg.Connection = Depends(get_db_connection)):
     updates = body.model_dump(exclude_unset=True)
-    updated = sites_crud.update_site(id, updates)
+    try:
+        updated = await sites_crud.update_site(conn, id, updates)
+    except asyncpg.DataError:
+        updated = None
     if not updated:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="A site nem található.",
-        )
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "A site nem található.")
     return updated
