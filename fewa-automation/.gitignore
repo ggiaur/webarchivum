@@ -1,0 +1,10 @@
+# Local, disposable verification artifacts from manual test runs — large
+# (100MB+), some contain root-owned files from Docker, never committed.
+crawl-output-sample/
+scope-test-output/
+qa-test-output*/
+pywb-data/
+replay-test-server/
+.venv-*/
+__pycache__/
+.pytest_cache/

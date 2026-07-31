@@ -1,0 +1,18 @@
+# Isolated automation stack — separate ports from anything else running on
+# this host (verified 2026-07-31: existing fewa-redis-test/fewa-postgres-test/
+# fewa-minio-test containers use 6380/5433/9002-9003; this stack avoids all
+# of them). Never touches production (fewa.vmk.hu, pywb.vmk.hu).
+#
+# Usage:
+#   docker compose up -d pywb        # start the local replay server
+#   ./crawl.sh <url> <collection>    # run a crawl (see crawler.py)
+#   # then wb-manager add the resulting WACZ into pywb-data/collections/fewa_local
+
+services:
+  pywb:
+    image: webrecorder/pywb:latest
+    container_name: fewa-automation-pywb
+    ports:
+      - "8180:8080"
+    volumes:
+      - ./pywb-data:/webarchive

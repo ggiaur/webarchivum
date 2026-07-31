@@ -1,0 +1,82 @@
+# Verified seed list of Fejér vármegyei (Fejér county, Hungary) websites for
+# archiving. Compiled 2026-07-31 from official sources:
+#   - https://www.fejer.hu/telepulesek (county government municipality list)
+#   - README.md's existing category structure (Önkormányzatok/Hivatalok,
+#     Helyi Sajtó & Média, Kulturális Örökség)
+# These are real, live domains — not placeholders. Verify reachability again
+# before crawling (a domain list this size will have some drift over time).
+
+sites:
+  # Önkormányzatok & Hivatalok
+  - domain: szekesfehervar.hu
+    url: https://www.szekesfehervar.hu/
+    category: onkormanyzat
+    note: Fejér vármegye székhelye, megyei jogú város
+  - domain: dunaujvaros.hu
+    url: https://dunaujvaros.hu/
+    category: onkormanyzat
+  - domain: mor.hu
+    url: https://mor.hu/
+    category: onkormanyzat
+  - domain: bicske.hu
+    url: http://bicske.hu/
+    category: onkormanyzat
+  - domain: sarbogard.hu
+    url: https://www.sarbogard.hu/
+    category: onkormanyzat
+  - domain: gardony.hu
+    url: https://www.gardony.hu/
+    category: onkormanyzat
+  - domain: ercsi.hu
+    url: https://ercsi.hu/
+    category: onkormanyzat
+  - domain: martonvasar.hu
+    url: https://martonvasar.hu/
+    category: onkormanyzat
+  - domain: csakvar.hu
+    url: https://www.csakvar.hu/
+    category: onkormanyzat
+  - domain: polgardi.hu
+    url: http://www.polgardi.hu/
+    category: onkormanyzat
+  - domain: rackeresztur.hu
+    url: https://rackeresztur.hu/
+    category: onkormanyzat
+  - domain: sukoro.hu
+    url: https://www.sukoro.hu/
+    category: onkormanyzat
+  - domain: velence.hu
+    url: http://www.velence.hu/Hirek
+    category: onkormanyzat
+    note: Velencei-tó térség
+  - domain: pusztaszabolcs.hu
+    url: https://pusztaszabolcs.hu/
+    category: onkormanyzat
+  - domain: fejer.hu
+    url: https://www.fejer.hu/
+    category: onkormanyzat
+    note: Fejér Vármegyei Önkormányzat hivatalos portálja (megyei szint)
+
+  # Helyi Sajtó & Média
+  - domain: feol.hu
+    url: https://www.feol.hu/
+    category: sajto
+    note: Fejér Megyei Hírlap online
+  - domain: duol.hu
+    url: https://www.duol.hu/
+    category: sajto
+    note: Dunaújvárosi Hírlap online
+
+  # Kulturális Örökség
+  - domain: vmk.hu
+    url: https://www.vmk.hu/
+    category: kulturalis
+    note: Vörösmarty Mihály Könyvtár — a jelenlegi FEWA (fewa.vmk.hu) üzemeltetője
+  - domain: szikm.hu
+    url: https://www.szikm.hu/
+    category: kulturalis
+    note: Szent István Király Múzeum
+  - domain: nmi.hu
+    url: https://nmi.hu/szervezeti-egyseg/nemzeti-muvelodesi-intezet-fejer-varmegyei-igazgatosag
+    category: kulturalis
+    note: Nemzeti Művelődési Intézet Fejér Vármegyei Igazgatóság
