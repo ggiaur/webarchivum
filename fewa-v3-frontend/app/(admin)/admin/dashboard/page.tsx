@@ -22,21 +22,21 @@ interface SKOSConcept {
   definition?: string;
 }
 
+// Must match spec/schema.sql's site_category_enum / crawl_priority_enum
+// exactly — these are real Postgres enum values, not free text (note:
+// 'kozintézmény' has no accent on "koz" in the real schema, unlike the
+// otherwise-expected Hungarian spelling).
+const CATEGORY_OPTIONS = ['kozintézmény', 'civil', 'média', 'vállalkozás', 'kulturális', 'egyéb'];
+const PRIORITY_OPTIONS = ['critical', 'high', 'medium', 'low', 'on_hold'];
+
 export default function AdminDashboardPage() {
   const [activeTab, setActiveTab] = useState<'sites' | 'thesaurus' | 'jobs'>('sites');
-  const [sites, setSites] = useState<SiteItem[]>(() => [
-    {
-      id: '550e8400-e29b-41d4-a716-446655440001',
-      domain: 'alba.hu',
-      display_name: 'Alba Regia Portál',
-      priority: 'high',
-      category: 'közintézmény',
-      crawl_frequency: 'monthly',
-      oszk_status: 'approved',
-      is_active_collection: true,
-    },
-  ]);
+  const [sites, setSites] = useState<SiteItem[]>([]);
+  const [sitesLoading, setSitesLoading] = useState(true);
+  const [sitesError, setSitesError] = useState(false);
   const [thesaurus, setThesaurus] = useState<SKOSConcept[]>([]);
+  const [thesaurusLoading, setThesaurusLoading] = useState(true);
+  const [thesaurusError, setThesaurusError] = useState(false);
   const [user, setUser] = useState<any>(null);
 
   // New site form modal
@@ -44,7 +44,8 @@ export default function AdminDashboardPage() {
   const [newDomain, setNewDomain] = useState('');
   const [newBaseUrl, setNewBaseUrl] = useState('');
   const [newPriority, setNewPriority] = useState('medium');
-  const [newCategory, setNewCategory] = useState('közintézmény');
+  const [newCategory, setNewCategory] = useState('kozintézmény');
+  const [createSiteError, setCreateSiteError] = useState<string | null>(null);
 
   useEffect(() => {
     const userStr = localStorage.getItem('fewa_user');
@@ -55,55 +56,49 @@ export default function AdminDashboardPage() {
   }, []);
 
   const fetchSites = async () => {
+    setSitesLoading(true);
+    setSitesError(false);
     const token = localStorage.getItem('fewa_access_token');
     try {
       const res = await fetch(`${getApiBaseUrl()}/api/admin/sites`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (!res.ok) throw new Error(`Sites API returned ${res.status}`);
       const data = await res.json();
       setSites(data.items || []);
     } catch {
-      setSites([
-        {
-          id: '550e8400-e29b-41d4-a716-446655440001',
-          domain: 'alba.hu',
-          display_name: 'Alba Regia Portál',
-          priority: 'high',
-          category: 'közintézmény',
-          crawl_frequency: 'weekly',
-          oszk_status: 'no',
-          is_active_collection: true,
-        },
-      ]);
+      setSites([]);
+      setSitesError(true);
+    } finally {
+      setSitesLoading(false);
     }
   };
 
   const fetchThesaurus = async () => {
+    setThesaurusLoading(true);
+    setThesaurusError(false);
     const token = localStorage.getItem('fewa_access_token');
     try {
       const res = await fetch(`${getApiBaseUrl()}/api/thesaurus`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (!res.ok) throw new Error(`Thesaurus API returned ${res.status}`);
       const data = await res.json();
       setThesaurus(data.items || []);
     } catch {
-      setThesaurus([
-        {
-          id: 'concept-001',
-          pref_label_hu: 'helyi politika',
-          pref_label_en: 'local politics',
-          alt_labels: ['önkormányzati politika', 'helyhatósági ügyek'],
-          definition: 'Fejér vármegyei önkormányzati és helyi politikai témák.',
-        },
-      ]);
+      setThesaurus([]);
+      setThesaurusError(true);
+    } finally {
+      setThesaurusLoading(false);
     }
   };
 
   const handleCreateSite = async (e: React.FormEvent) => {
     e.preventDefault();
+    setCreateSiteError(null);
     const token = localStorage.getItem('fewa_access_token');
     try {
-      await fetch(`${getApiBaseUrl()}/api/admin/sites`, {
+      const res = await fetch(`${getApiBaseUrl()}/api/admin/sites`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -116,10 +111,16 @@ export default function AdminDashboardPage() {
           category: newCategory,
         }),
       });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.detail || `A mentés sikertelen (${res.status}).`);
+      }
       setShowAddSite(false);
+      setNewDomain('');
+      setNewBaseUrl('');
       fetchSites();
     } catch (err) {
-      alert('Sikertelen mentés.');
+      setCreateSiteError(err instanceof Error ? err.message : 'Sikertelen mentés.');
     }
   };
 
@@ -195,37 +196,53 @@ export default function AdminDashboardPage() {
               </button>
             </div>
 
+            {sitesLoading && (
+              <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>Betöltés…</div>
+            )}
+            {!sitesLoading && sitesError && (
+              <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                A webhelyek listája jelenleg nem elérhető.
+              </div>
+            )}
+            {!sitesLoading && !sitesError && sites.length === 0 && (
+              <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                Még nincs regisztrált webhely.
+              </div>
+            )}
+
             {/* Sites Table */}
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.9rem' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
-                  <th style={{ padding: '0.75rem' }}>Domain</th>
-                  <th style={{ padding: '0.75rem' }}>Megnevezés</th>
-                  <th style={{ padding: '0.75rem' }}>Prioritás</th>
-                  <th style={{ padding: '0.75rem' }}>Kategória</th>
-                  <th style={{ padding: '0.75rem' }}>OSZK Státusz</th>
-                  <th style={{ padding: '0.75rem' }}>Gyakoriság</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sites.map((site) => (
-                  <tr key={site.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                    <td style={{ padding: '0.75rem', fontWeight: 600 }}>{site.domain}</td>
-                    <td style={{ padding: '0.75rem' }}>{site.display_name}</td>
-                    <td style={{ padding: '0.75rem' }}>
-                      <span className={`badge ${site.priority === 'high' || site.priority === 'critical' ? 'badge-rose' : 'badge-blue'}`}>
-                        {site.priority}
-                      </span>
-                    </td>
-                    <td style={{ padding: '0.75rem' }}>{site.category}</td>
-                    <td style={{ padding: '0.75rem' }}>
-                      <span className="badge badge-amber">{site.oszk_status}</span>
-                    </td>
-                    <td style={{ padding: '0.75rem' }}>{site.crawl_frequency}</td>
+            {!sitesLoading && !sitesError && sites.length > 0 && (
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.9rem' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)' }}>
+                    <th style={{ padding: '0.75rem' }}>Domain</th>
+                    <th style={{ padding: '0.75rem' }}>Megnevezés</th>
+                    <th style={{ padding: '0.75rem' }}>Prioritás</th>
+                    <th style={{ padding: '0.75rem' }}>Kategória</th>
+                    <th style={{ padding: '0.75rem' }}>OSZK Státusz</th>
+                    <th style={{ padding: '0.75rem' }}>Gyakoriság</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {sites.map((site) => (
+                    <tr key={site.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                      <td style={{ padding: '0.75rem', fontWeight: 600 }}>{site.domain}</td>
+                      <td style={{ padding: '0.75rem' }}>{site.display_name}</td>
+                      <td style={{ padding: '0.75rem' }}>
+                        <span className={`badge ${site.priority === 'high' || site.priority === 'critical' ? 'badge-rose' : 'badge-blue'}`}>
+                          {site.priority}
+                        </span>
+                      </td>
+                      <td style={{ padding: '0.75rem' }}>{site.category}</td>
+                      <td style={{ padding: '0.75rem' }}>
+                        <span className="badge badge-amber">{site.oszk_status}</span>
+                      </td>
+                      <td style={{ padding: '0.75rem' }}>{site.crawl_frequency}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         )}
 
@@ -233,26 +250,41 @@ export default function AdminDashboardPage() {
         {activeTab === 'thesaurus' && (
           <div className="glass-panel" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <h2 style={{ fontSize: '1.2rem' }}>SKOS Tezaurusz Fogalmak</h2>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1rem' }}>
-              {thesaurus.map((c) => (
-                <div key={c.id} className="glass-card" style={{ padding: '1rem' }}>
-                  <div style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--accent-cyan)', marginBottom: '0.25rem' }}>
-                    {c.pref_label_hu}
-                  </div>
-                  {c.pref_label_en && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>EN: {c.pref_label_en}</div>}
-                  <div style={{ fontSize: '0.85rem', marginTop: '0.5rem', color: 'var(--text-secondary)' }}>
-                    {c.definition}
-                  </div>
-                  {c.alt_labels && (
-                    <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
-                      {c.alt_labels.map((alt, idx) => (
-                        <span key={idx} className="badge badge-blue">{alt}</span>
-                      ))}
+            {thesaurusLoading && (
+              <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>Betöltés…</div>
+            )}
+            {!thesaurusLoading && thesaurusError && (
+              <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                A tezaurusz jelenleg nem elérhető.
+              </div>
+            )}
+            {!thesaurusLoading && !thesaurusError && thesaurus.length === 0 && (
+              <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                Még nincs tezaurusz fogalom.
+              </div>
+            )}
+            {!thesaurusLoading && !thesaurusError && thesaurus.length > 0 && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1rem' }}>
+                {thesaurus.map((c) => (
+                  <div key={c.id} className="glass-card" style={{ padding: '1rem' }}>
+                    <div style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--accent-cyan)', marginBottom: '0.25rem' }}>
+                      {c.pref_label_hu}
                     </div>
-                  )}
-                </div>
-              ))}
-            </div>
+                    {c.pref_label_en && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>EN: {c.pref_label_en}</div>}
+                    <div style={{ fontSize: '0.85rem', marginTop: '0.5rem', color: 'var(--text-secondary)' }}>
+                      {c.definition}
+                    </div>
+                    {c.alt_labels && (
+                      <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
+                        {c.alt_labels.map((alt, idx) => (
+                          <span key={idx} className="badge badge-blue">{alt}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -263,6 +295,11 @@ export default function AdminDashboardPage() {
           <div className="glass-panel animate-fade-in" style={{ width: '100%', maxWidth: '500px', padding: '2rem' }}>
             <h3 style={{ marginBottom: '1rem' }}>Új Archiválandó Webhely</h3>
             <form onSubmit={handleCreateSite} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {createSiteError && (
+                <div style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', background: 'rgba(244, 63, 94, 0.15)', border: '1px solid rgba(244, 63, 94, 0.4)', color: '#fda4af', fontSize: '0.85rem' }}>
+                  {createSiteError}
+                </div>
+              )}
               <div>
                 <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Domain</label>
                 <input type="text" className="input-search" placeholder="fejer.hu" value={newDomain} onChange={(e) => setNewDomain(e.target.value)} required />
@@ -275,24 +312,22 @@ export default function AdminDashboardPage() {
                 <div style={{ flex: 1 }}>
                   <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Prioritás</label>
                   <select className="input-search" value={newPriority} onChange={(e) => setNewPriority(e.target.value)}>
-                    <option value="critical">Critical</option>
-                    <option value="high">High</option>
-                    <option value="medium">Medium</option>
-                    <option value="low">Low</option>
+                    {PRIORITY_OPTIONS.map((p) => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
                   </select>
                 </div>
                 <div style={{ flex: 1 }}>
                   <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Kategória</label>
                   <select className="input-search" value={newCategory} onChange={(e) => setNewCategory(e.target.value)}>
-                    <option value="közintézmény">Közintézmény</option>
-                    <option value="média">Média</option>
-                    <option value="civil">Civil</option>
-                    <option value="kulturális">Kulturális</option>
+                    {CATEGORY_OPTIONS.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
                   </select>
                 </div>
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1rem' }}>
-                <button type="button" className="btn-secondary" onClick={() => setShowAddSite(false)}>Mégse</button>
+                <button type="button" className="btn-secondary" onClick={() => { setShowAddSite(false); setCreateSiteError(null); }}>Mégse</button>
                 <button type="submit" className="btn-primary">Mentés</button>
               </div>
             </form>
