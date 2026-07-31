@@ -60,8 +60,8 @@ async def create_candidate_snapshot(
     row = await conn.fetchrow(
         """
         INSERT INTO archived_snapshots
-            (tenant_id, site_id, seed_url, dc_title, lifecycle_status, lifecycle_reason, created_by)
-        VALUES ($1, $2, $3, $4, 'candidate', $5, $6)
+            (tenant_id, site_id, seed_url, dc_title, lifecycle_status, lifecycle_reason, created_by, municipality_id)
+        VALUES ($1, $2, $3, $4, 'candidate', $5, $6, (SELECT municipality_id FROM sites WHERE id = $2))
         RETURNING id, pid, lifecycle_status, dc_title, seed_url, created_at
         """,
         tenant_id, site_id, seed_url, dc_title, discovery_reason, created_by,

@@ -57,6 +57,34 @@ async def site_id(conn):
 
 
 @pytest.mark.asyncio
+async def test_create_candidate_snapshot_inherits_municipality_from_site(conn):
+    """Regression test: municipality_id was never copied from the site onto
+    the snapshot, so the public search API's municipality filter silently
+    never matched any real record — caught during live browser verification
+    of the search/replay rebuild (see search_service.py)."""
+    domain = f"muni-test-{uuid.uuid4().hex[:8]}.hu"
+    muni = await conn.fetchrow(
+        "INSERT INTO municipalities (name, slug) VALUES ($1, $2) RETURNING id",
+        f"TestVáros-{uuid.uuid4().hex[:6]}", f"testvaros-{uuid.uuid4().hex[:6]}",
+    )
+    site = await conn.fetchrow(
+        "INSERT INTO sites (tenant_id, domain, base_url, display_name, municipality_id) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+        TENANT_ID, domain, f"https://{domain}/", domain, muni["id"],
+    )
+    created = await archive.create_candidate_snapshot(
+        conn, site_id=str(site["id"]), seed_url="https://example.hu/",
+        dc_title="T", discovery_reason="r", discovery_metadata={},
+    )
+    row = await conn.fetchrow("SELECT municipality_id FROM archived_snapshots WHERE id = $1", created["id"])
+    assert row["municipality_id"] == muni["id"]
+
+    await conn.execute("DELETE FROM lifecycle_events WHERE snapshot_id = $1", created["id"])
+    await conn.execute("DELETE FROM archived_snapshots WHERE id = $1", created["id"])
+    await conn.execute("DELETE FROM sites WHERE id = $1", site["id"])
+    await conn.execute("DELETE FROM municipalities WHERE id = $1", muni["id"])
+
+
+@pytest.mark.asyncio
 async def test_create_candidate_snapshot_starts_in_candidate_status(conn, site_id):
     result = await archive.create_candidate_snapshot(
         conn, site_id=site_id, seed_url="https://example.hu/",

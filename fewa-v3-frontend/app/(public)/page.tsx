@@ -54,11 +54,14 @@ export default function HomePage() {
   const [totalResults, setTotalResults] = useState(0);
   const [searchTimeMs, setSearchTimeMs] = useState(0);
   const [isSearching, setIsSearching] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
+  const [searchError, setSearchError] = useState(false);
 
   // RAG state
   const [ragQuestion, setRagQuestion] = useState('');
   const [ragResult, setRagResult] = useState<RAGResponse | null>(null);
   const [isRagLoading, setIsRagLoading] = useState(false);
+  const [ragError, setRagError] = useState(false);
 
   useEffect(() => {
     fetch(`${getApiBaseUrl()}/api/municipalities`)
@@ -66,13 +69,7 @@ export default function HomePage() {
       .then(data => {
         if (Array.isArray(data)) setMunicipalities(data);
       })
-      .catch(() => {
-        setMunicipalities([
-          { id: '1', name: 'Székesfehérvár', slug: 'szekesfehervar' },
-          { id: '2', name: 'Dunaújváros', slug: 'dunauvaros' },
-          { id: '3', name: 'Mór', slug: 'mor' },
-        ]);
-      });
+      .catch(() => setMunicipalities([]));
 
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
@@ -88,108 +85,9 @@ export default function HomePage() {
     }
   }, []);
 
-  const getMockSearchResults = (category?: string): SearchResult[] => {
-    const allMocks: (SearchResult & { category?: string })[] = [
-      {
-        id: '550e8400-e29b-41d4-a716-446655440090',
-        pid: 'fewa:2026:000001',
-        score: 0.98,
-        category: 'Önkormányzatok & Hivatalok',
-        dc_title: 'Székesfehérvár MJV Polgármesteri Hivatal Hírei',
-        snippet: 'Elkezdődött a székesfehérvári Városháza műemléki épületének felújítása és digitális archívumának bővítése.',
-        seed_url: 'https://szekesfehervar.hu/hirek/varoshaza-felujitas',
-        crawl_timestamp: '2026-07-15T10:00:00+02:00',
-        site: { domain: 'szekesfehervar.hu', display_name: 'Székesfehérvár Város Portál' },
-        municipality: { id: '1', name: 'Székesfehérvár', slug: 'szekesfehervar' },
-      },
-      {
-        id: '550e8400-e29b-41d4-a716-446655440092',
-        pid: 'fewa:2026:000003',
-        score: 0.95,
-        category: 'Önkormányzatok & Hivatalok',
-        dc_title: 'Dunaújváros MJV Önkormányzat Hivatalos Közleményei',
-        snippet: 'Dunaújváros Megyei Jogú Város Közgyűlése elfogadta a 2026. évi fejlesztési és energetikai stratégiát.',
-        seed_url: 'https://dunaujvaros.hu/kozlemenyek/strategia-2026',
-        crawl_timestamp: '2026-07-10T14:30:00+02:00',
-        site: { domain: 'dunaujvaros.hu', display_name: 'Dunaújváros Önkormányzati Portál' },
-        municipality: { id: '2', name: 'Dunaújváros', slug: 'dunauvaros' },
-      },
-      {
-        id: '550e8400-e29b-41d4-a716-446655440093',
-        pid: 'fewa:2026:000004',
-        score: 0.93,
-        category: 'Önkormányzatok & Hivatalok',
-        dc_title: 'Mór Város Önkormányzat Hivatalos Lapja és Hírei',
-        snippet: 'Megnyílt a Móri Borvidék kulturális és turisztikai központjának megújult felülete.',
-        seed_url: 'https://mor.hu/hirek/borvidek-kozpont',
-        crawl_timestamp: '2026-07-08T09:15:00+02:00',
-        site: { domain: 'mor.hu', display_name: 'Mór Város Portál' },
-        municipality: { id: '3', name: 'Mór', slug: 'mor' },
-      },
-      {
-        id: '550e8400-e29b-41d4-a716-446655440094',
-        pid: 'fewa:2026:000005',
-        score: 0.97,
-        category: 'Helyi Sajtó & Média',
-        dc_title: 'FEOL — Fejér Megyei Hírportál Archívum',
-        snippet: 'Átfogó összefoglaló Fejér vármegye elmúlt évtizedének legfontosabb gazdasági és kulturális eseményeiről.',
-        seed_url: 'https://feol.hu/helyi-ertekek-fejer-megye',
-        crawl_timestamp: '2026-07-01T11:00:00+02:00',
-        site: { domain: 'feol.hu', display_name: 'FEOL Megyei Hírportál' },
-        municipality: { id: '1', name: 'Székesfehérvár', slug: 'szekesfehervar' },
-      },
-      {
-        id: '550e8400-e29b-41d4-a716-446655440095',
-        pid: 'fewa:2026:000006',
-        score: 0.94,
-        category: 'Helyi Sajtó & Média',
-        dc_title: 'Dunaújvárosi Hírlap Digitális Lapszámok',
-        snippet: 'Megjelent a Dunaújvárosi Hírlap jubileumi különszáma a város ipartörténetéről.',
-        seed_url: 'https://duol.hu/dunauvaros-ipartortenet',
-        crawl_timestamp: '2026-06-20T16:00:00+02:00',
-        site: { domain: 'duol.hu', display_name: 'DUOL Dunaújvárosi Hírportál' },
-        municipality: { id: '2', name: 'Dunaújváros', slug: 'dunauvaros' },
-      },
-      {
-        id: '550e8400-e29b-41d4-a716-446655440091',
-        pid: 'fewa:2026:000002',
-        score: 0.96,
-        category: 'Kulturális & Könyvtári Örökség',
-        dc_title: 'Vörösmarty Mihály Könyvtár Évkönyv 2025',
-        snippet: 'A Vörösmarty Mihály Könyvtár digitalizálta a Fejér Megyei Hírlap és a helyi sajtó teljes archívumát.',
-        seed_url: 'https://vmk.hu/evkonyv-2025',
-        crawl_timestamp: '2026-06-01T12:00:00+02:00',
-        site: { domain: 'vmk.hu', display_name: 'Vörösmarty Mihály Könyvtár' },
-        municipality: { id: '1', name: 'Székesfehérvár', slug: 'szekesfehervar' },
-      },
-      {
-        id: '550e8400-e29b-41d4-a716-446655440096',
-        pid: 'fewa:2026:000007',
-        score: 0.98,
-        category: 'Kulturális & Könyvtári Örökség',
-        dc_title: 'Szent István Király Múzeum Digitális Kiállítás',
-        snippet: 'Online böngészhetővé vált a Szent István Király Múzeum középkori lapidáriuma és koronázási gyűjteménye.',
-        seed_url: 'https://szikm.hu/digitalis-lapidarium',
-        crawl_timestamp: '2026-05-18T10:00:00+02:00',
-        site: { domain: 'szikm.hu', display_name: 'Szent István Király Múzeum' },
-        municipality: { id: '1', name: 'Székesfehérvár', slug: 'szekesfehervar' },
-      },
-    ];
-
-    if (!category) return allMocks;
-    const catLower = category.toLowerCase().trim();
-    const filtered = allMocks.filter(m => {
-      const mCat = (m.category || '').toLowerCase();
-      return mCat.includes(catLower) || catLower.includes(mCat) ||
-             (catLower.includes('önkormányzat') && mCat.includes('önkormányzat')) ||
-             (catLower.includes('sajtó') && mCat.includes('sajtó')) ||
-             (catLower.includes('kultur') && mCat.includes('kultur'));
-    });
-    return filtered.length > 0 ? filtered : allMocks;
-  };
-
   const executeSearch = async (qVal: string, muniVal?: string, catVal?: string) => {
     setIsSearching(true);
+    setSearchError(false);
     const activeCategory = catVal !== undefined ? catVal : selectedCategory;
     if (catVal !== undefined) setSelectedCategory(catVal);
 
@@ -200,24 +98,17 @@ export default function HomePage() {
       if (activeCategory) url.searchParams.append('category', activeCategory);
 
       const res = await fetch(url.toString());
+      if (!res.ok) throw new Error(`Search API returned ${res.status}`);
       const data = await res.json();
-      const results = data.results || [];
-      if (results.length > 0) {
-        setSearchResults(results);
-        setTotalResults(data.total || results.length);
-        setSearchTimeMs(data.query_time_ms || 12);
-      } else {
-        const mock = getMockSearchResults(activeCategory);
-        setSearchResults(mock);
-        setTotalResults(mock.length);
-        setSearchTimeMs(15);
-      }
+      setSearchResults(data.results || []);
+      setTotalResults(data.total ?? 0);
+      setSearchTimeMs(data.query_time_ms ?? 0);
     } catch {
-      const mock = getMockSearchResults(activeCategory);
-      setSearchResults(mock);
-      setTotalResults(mock.length);
-      setSearchTimeMs(14);
+      setSearchResults([]);
+      setTotalResults(0);
+      setSearchError(true);
     } finally {
+      setHasSearched(true);
       setIsSearching(false);
     }
   };
@@ -240,32 +131,19 @@ export default function HomePage() {
     if (!ragQuestion.trim()) return;
 
     setIsRagLoading(true);
+    setRagError(false);
     try {
       const res = await fetch(`${getApiBaseUrl()}/api/rag`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question: ragQuestion }),
       });
+      if (!res.ok) throw new Error(`RAG API returned ${res.status}`);
       const data = await res.json();
       setRagResult(data);
     } catch {
-      setRagResult({
-        answer: 'A székesfehérvári Városháza felújítása 2. ütemében a műemléki homlokzat és a digitális archívum fejlesztése valósul meg a Fejér Vármegyei Könyvtár közreműködésével.',
-        confidence_score: 0.94,
-        is_sufficient: true,
-        warning: '',
-        trace_id: 'rag-trace-mock-2026',
-        sources: [
-          {
-            snapshot_id: '550e8400-e29b-41d4-a716-446655440090',
-            pid: 'fewa:2026:000001',
-            seed_url: 'https://szekesfehervar.hu/hirek/varoshaza-felujitas',
-            crawl_timestamp: '2026-07-15T10:00:00+02:00',
-            chunk_excerpt: '...A Városháza felújítási munkálatai során a műemlékvédelem kiemelt figyelmet fordít a digitális örökség megőrzésére...',
-            relevance_score: 0.96,
-          },
-        ],
-      });
+      setRagResult(null);
+      setRagError(true);
     } finally {
       setIsRagLoading(false);
     }
@@ -373,6 +251,11 @@ export default function HomePage() {
       )}
 
       {/* RAG Answer Display */}
+      {activeTab === 'rag' && ragError && (
+        <div className="glass-panel animate-fade-in" style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
+          Az AI kérdés-válasz szolgáltatás jelenleg nem elérhető.
+        </div>
+      )}
       {activeTab === 'rag' && ragResult && (
         <div className="glass-panel animate-fade-in" style={{ padding: '2rem', border: '1px solid rgba(6, 182, 212, 0.4)', borderRadius: '16px', background: 'rgba(15, 23, 42, 0.9)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
@@ -383,37 +266,47 @@ export default function HomePage() {
             {ragResult.answer}
           </p>
 
-          <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.1)', paddingTop: '1rem' }}>
-            <h4 style={{ fontSize: '0.95rem', color: '#38bdf8', marginBottom: '0.75rem' }}>📌 Hiteles Archív Források:</h4>
-            {ragResult.sources.map((src, idx) => (
-              <div key={idx} style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem 1rem', borderRadius: '8px', fontSize: '0.9rem', color: '#94a3b8' }}>
-                <a href={`/documents/${src.snapshot_id}`} style={{ fontWeight: 600, color: '#60a5fa' }}>{src.seed_url}</a> — <em>{src.chunk_excerpt}</em>
-              </div>
-            ))}
-          </div>
+          {ragResult.sources.length > 0 && (
+            <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.1)', paddingTop: '1rem' }}>
+              <h4 style={{ fontSize: '0.95rem', color: '#38bdf8', marginBottom: '0.75rem' }}>📌 Hiteles Archív Források:</h4>
+              {ragResult.sources.map((src, idx) => (
+                <div key={idx} style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem 1rem', borderRadius: '8px', fontSize: '0.9rem', color: '#94a3b8' }}>
+                  <a href={`/documents/${src.snapshot_id}`} style={{ fontWeight: 600, color: '#60a5fa' }}>{src.seed_url}</a> — <em>{src.chunk_excerpt}</em>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
       {/* Search Results Listing */}
-      {activeTab === 'search' && (() => {
-        const displayItems = searchResults.length > 0 ? searchResults : getMockSearchResults(selectedCategory);
-        const displayCount = totalResults > 0 ? totalResults : displayItems.length;
+      {activeTab === 'search' && hasSearched && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#94a3b8', fontSize: '0.95rem' }}>
+            <span>
+              {isSearching
+                ? 'Keresés…'
+                : searchError
+                ? 'A keresés jelenleg nem elérhető.'
+                : <>Találatok: <strong style={{ color: '#f8fafc' }}>{totalResults} megőrzött archív dokumentum</strong> ({searchTimeMs} ms)</>}
+            </span>
+            {!searchError && !isSearching && <span>Rendezés: <strong>Relevancia szerint</strong></span>}
+          </div>
 
-        return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#94a3b8', fontSize: '0.95rem' }}>
-              <span>Találatok: <strong style={{ color: '#f8fafc' }}>{displayCount} megőrzött archív dokumentum</strong> ({searchTimeMs || 12} ms)</span>
-              <span>Rendezés: <strong>Relevancia szerint</strong></span>
+          {!isSearching && !searchError && searchResults.length === 0 && (
+            <div className="glass-panel" style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
+              Nincs a keresésnek megfelelő megőrzött dokumentum.
             </div>
+          )}
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-              {displayItems.map((item) => (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            {searchResults.map((item) => (
               <div key={item.id} className="glass-card" style={{ padding: '1.75rem', borderRadius: '16px', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
                   <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                     {item.pid && <span className="badge badge-green">{item.pid}</span>}
                     <span className="badge badge-blue">{item.site?.display_name || item.site?.domain}</span>
-                    <span className="badge badge-amber">ISO 28500 WARC</span>
+                    <span className="badge badge-amber">WACZ</span>
                   </div>
                   <span style={{ fontSize: '0.8rem', color: '#64748b' }}>📅 {new Date(item.crawl_timestamp).toLocaleDateString('hu-HU')}</span>
                 </div>
@@ -439,8 +332,7 @@ export default function HomePage() {
             ))}
           </div>
         </div>
-        );
-      })()}
+      )}
     </div>
   );
 }
