@@ -16,6 +16,33 @@ import asyncpg
 DEFAULT_TENANT_ID = "00000000-0000-0000-0000-000000000001"
 
 
+async def get_or_create_site_by_domain(
+    conn: asyncpg.Connection,
+    domain: str,
+    base_url: str,
+    display_name: Optional[str] = None,
+    tenant_id: str = DEFAULT_TENANT_ID,
+) -> Dict[str, Any]:
+    """Real, minimal site resolution against the actual `sites` table —
+    NOT the in-memory app/crud/sites.py (that module backs the older
+    /api/v1/sites admin-listing endpoint and remains a separate, tracked
+    gap; see commit 85ff6be). The new discovery -> candidate -> QC workflow
+    needs a real sites.id to satisfy archived_snapshots' NOT NULL FK, so it
+    resolves/creates one directly here rather than depending on that
+    in-memory module. (tenant_id, domain) is unique in the schema, so this
+    is idempotent."""
+    row = await conn.fetchrow(
+        """
+        INSERT INTO sites (tenant_id, domain, base_url, display_name)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (tenant_id, domain) DO UPDATE SET domain = EXCLUDED.domain
+        RETURNING id, domain, base_url, display_name
+        """,
+        tenant_id, domain, base_url, display_name or domain,
+    )
+    return dict(row)
+
+
 async def create_candidate_snapshot(
     conn: asyncpg.Connection,
     site_id: str,

@@ -33,6 +33,13 @@ class Settings(BaseSettings):
     POSTGRES_POOL_MIN_SIZE: int = Field(default=5, ge=1)
     POSTGRES_POOL_MAX_SIZE: int = Field(default=20, ge=5)
 
+    # Quality control — real Browsertrix QA scores (see fewa-automation/crawler.py::run_qa()).
+    # A snapshot was already approved once at the candidate stage; a score at or
+    # above this threshold auto-publishes without a second human gate. Below it,
+    # a human decides via the admin quality-review queue.
+    QUALITY_AUTO_ACCEPT_THRESHOLD: int = Field(default=96, ge=0, le=100)
+    QUALITY_MAX_AUTO_RETRIES: int = Field(default=1, ge=0)
+
     # Redis
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
