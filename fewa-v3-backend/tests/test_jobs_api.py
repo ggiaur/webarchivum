@@ -63,6 +63,11 @@ ARCHIVIST_TOKEN = create_access_token(
     role="archivist",
     tenant_id="00000000-0000-0000-0000-000000000001",
 )
+CURATOR_TOKEN = create_access_token(
+    subject="curator-user",
+    role="curator",
+    tenant_id="00000000-0000-0000-0000-000000000001",
+)
 
 
 @pytest.fixture
@@ -181,3 +186,20 @@ async def test_quality_review_list_and_decide_against_real_db(conn):
     await conn.execute("DELETE FROM lifecycle_events WHERE snapshot_id = $1", created["id"])
     await conn.execute("DELETE FROM archived_snapshots WHERE id = $1", created["id"])
     await conn.execute("DELETE FROM sites WHERE id = $1", site_row["id"])
+
+
+@pytest.mark.asyncio
+async def test_curator_role_can_access_candidate_approval_queue():
+    """Regression test: the admin dashboard's login form defaults to a
+    curator account (curator@vmk.hu), and 'curator' is this workflow's own
+    documented actor (see list_candidates()'s docstring: "awaiting curator
+    approve/reject decision") — but these endpoints originally required
+    'archivist', silently locking out the default account with no error a
+    normal user would recognize as a permissions issue (403, not 401, so
+    the frontend's token-refresh logic correctly left it alone — this was
+    a real RBAC misconfiguration, not an auth bug)."""
+    list_res = client.get("/api/admin/candidates", headers={"Authorization": f"Bearer {CURATOR_TOKEN}"})
+    assert list_res.status_code == status.HTTP_200_OK
+
+    quality_res = client.get("/api/admin/quality-review", headers={"Authorization": f"Bearer {CURATOR_TOKEN}"})
+    assert quality_res.status_code == status.HTTP_200_OK

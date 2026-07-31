@@ -70,15 +70,30 @@ async def real_site(conn):
     await conn.execute("DELETE FROM sites WHERE id = $1", row["id"])
 
 
-def test_list_sites_requires_archivist_role():
-    # Curator is not enough for sites CRUD (requires archivist+)
+def test_list_sites_requires_curator_role():
+    # Sites CRUD requires curator+ — the admin dashboard's own login form
+    # defaults to a curator account, and "Kurátori Portál" (curator portal)
+    # is this whole admin area's own framing, so curator must be able to
+    # actually use it. (Previously required archivist, which silently
+    # locked out the default account — a real RBAC bug caught via live use.)
     res_curator = client.get(
         "/api/admin/sites",
         headers={"Authorization": f"Bearer {CURATOR_TOKEN}"},
     )
-    assert res_curator.status_code == status.HTTP_403_FORBIDDEN
+    assert res_curator.status_code == status.HTTP_200_OK
+    assert "items" in res_curator.json()
 
-    # Archivist should succeed
+    # A viewer (below curator) still must not have access.
+    viewer_token = create_access_token(
+        subject="viewer-user", role="viewer", tenant_id="00000000-0000-0000-0000-000000000001",
+    )
+    res_viewer = client.get(
+        "/api/admin/sites",
+        headers={"Authorization": f"Bearer {viewer_token}"},
+    )
+    assert res_viewer.status_code == status.HTTP_403_FORBIDDEN
+
+    # Archivist (higher than curator) should also succeed.
     res_archivist = client.get(
         "/api/admin/sites",
         headers={"Authorization": f"Bearer {ARCHIVIST_TOKEN}"},

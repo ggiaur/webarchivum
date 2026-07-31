@@ -41,7 +41,7 @@ class QualityReviewDecisionSchema(BaseModel):
     reason: str
 
 
-@router.post("/ingest", status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(require_role("archivist"))])
+@router.post("/ingest", status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(require_role("curator"))])
 async def trigger_ingest(
     body: IngestRequestSchema,
     conn: asyncpg.Connection = Depends(get_db_connection),
@@ -89,14 +89,14 @@ async def trigger_ingest(
     }
 
 
-@router.get("/candidates", dependencies=[Depends(require_role("archivist"))])
+@router.get("/candidates", dependencies=[Depends(require_role("curator"))])
 async def list_candidates(conn: asyncpg.Connection = Depends(get_db_connection)):
     """Discovery candidates awaiting curator approve/reject decision."""
     rows = await archive.list_candidate_queue(conn)
     return {"items": rows, "total": len(rows)}
 
 
-@router.post("/candidates/{snapshot_id}/approve", dependencies=[Depends(require_role("archivist"))])
+@router.post("/candidates/{snapshot_id}/approve", dependencies=[Depends(require_role("curator"))])
 async def approve_candidate_endpoint(
     snapshot_id: uuid.UUID,
     body: CandidateDecisionSchema,
@@ -125,7 +125,7 @@ async def approve_candidate_endpoint(
     return {**result, "job_id": str(job_id)}
 
 
-@router.post("/candidates/{snapshot_id}/reject", dependencies=[Depends(require_role("archivist"))])
+@router.post("/candidates/{snapshot_id}/reject", dependencies=[Depends(require_role("curator"))])
 async def reject_candidate_endpoint(
     snapshot_id: uuid.UUID,
     body: CandidateDecisionSchema,
@@ -137,7 +137,7 @@ async def reject_candidate_endpoint(
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
 
 
-@router.get("/quality-review", dependencies=[Depends(require_role("archivist"))])
+@router.get("/quality-review", dependencies=[Depends(require_role("curator"))])
 async def list_quality_review(conn: asyncpg.Connection = Depends(get_db_connection)):
     """Archived snapshots at/below QUALITY_AUTO_ACCEPT_THRESHOLD (or not yet
     QC'd) awaiting a human accept/reject decision — see
@@ -146,7 +146,7 @@ async def list_quality_review(conn: asyncpg.Connection = Depends(get_db_connecti
     return {"items": rows, "total": len(rows), "threshold": settings.QUALITY_AUTO_ACCEPT_THRESHOLD}
 
 
-@router.post("/quality-review/{snapshot_id}/decide", dependencies=[Depends(require_role("archivist"))])
+@router.post("/quality-review/{snapshot_id}/decide", dependencies=[Depends(require_role("curator"))])
 async def decide_quality_review_endpoint(
     snapshot_id: uuid.UUID,
     body: QualityReviewDecisionSchema,

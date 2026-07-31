@@ -41,7 +41,7 @@ class SiteUpdateSchema(BaseModel):
     requires_js: Optional[bool] = None
 
 
-@router.get("", dependencies=[Depends(require_role("archivist"))])
+@router.get("", dependencies=[Depends(require_role("curator"))])
 async def list_sites(
     priority: Optional[str] = Query(None),
     category: Optional[str] = Query(None),
@@ -70,7 +70,7 @@ async def list_sites(
     }
 
 
-@router.post("", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_role("archivist"))])
+@router.post("", status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_role("curator"))])
 async def create_site(body: SiteCreateSchema, conn: asyncpg.Connection = Depends(get_db_connection)):
     try:
         return await sites_crud.create_site(conn, body.model_dump())
@@ -78,7 +78,7 @@ async def create_site(body: SiteCreateSchema, conn: asyncpg.Connection = Depends
         raise HTTPException(status.HTTP_409_CONFLICT, str(e))
 
 
-@router.get("/{id}", dependencies=[Depends(require_role("archivist"))])
+@router.get("/{id}", dependencies=[Depends(require_role("curator"))])
 async def get_site(id: str, conn: asyncpg.Connection = Depends(get_db_connection)):
     try:
         site = await sites_crud.get_site_by_id(conn, id)
@@ -89,7 +89,7 @@ async def get_site(id: str, conn: asyncpg.Connection = Depends(get_db_connection
     return site
 
 
-@router.patch("/{id}", dependencies=[Depends(require_role("archivist"))])
+@router.patch("/{id}", dependencies=[Depends(require_role("curator"))])
 async def update_site(id: str, body: SiteUpdateSchema, conn: asyncpg.Connection = Depends(get_db_connection)):
     updates = body.model_dump(exclude_unset=True)
     try:
