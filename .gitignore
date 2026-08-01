@@ -96,3 +96,6 @@ models/
 # pgvector / postgres local volumes
 postgres-data/
 redis-data/
+
+# TypeScript incremental build cache
+*.tsbuildinfo
