@@ -42,6 +42,16 @@ const PRIORITY_LABELS_HU: Record<string, string> = {
   on_hold: 'Felfüggesztve',
 };
 
+interface QualityReviewItem {
+  id: string;
+  pid?: string;
+  dc_title: string;
+  seed_url: string;
+  qc_score: number | null;
+  qc_detail?: Record<string, unknown> | null;
+  created_at: string;
+}
+
 // Must match spec/schema.sql's site_category_enum / crawl_priority_enum
 // exactly — these are real Postgres enum values, not free text (note:
 // 'kozintézmény' has no accent on "koz" in the real schema, unlike the
@@ -50,7 +60,7 @@ const CATEGORY_OPTIONS = ['kozintézmény', 'civil', 'média', 'vállalkozás', 
 const PRIORITY_OPTIONS = ['critical', 'high', 'medium', 'low', 'on_hold'];
 
 export default function AdminDashboardPage() {
-  const [activeTab, setActiveTab] = useState<'candidates' | 'sites' | 'thesaurus'>('candidates');
+  const [activeTab, setActiveTab] = useState<'candidates' | 'sites' | 'thesaurus' | 'quality'>('candidates');
   const [candidates, setCandidates] = useState<CandidateItem[]>([]);
   const [candidatesLoading, setCandidatesLoading] = useState(true);
   const [candidatesError, setCandidatesError] = useState(false);
@@ -62,6 +72,12 @@ export default function AdminDashboardPage() {
   const [thesaurus, setThesaurus] = useState<SKOSConcept[]>([]);
   const [thesaurusLoading, setThesaurusLoading] = useState(true);
   const [thesaurusError, setThesaurusError] = useState(false);
+  const [qualityItems, setQualityItems] = useState<QualityReviewItem[]>([]);
+  const [qualityLoading, setQualityLoading] = useState(true);
+  const [qualityError, setQualityError] = useState(false);
+  const [qualityThreshold, setQualityThreshold] = useState<number | null>(null);
+  const [qualityActionError, setQualityActionError] = useState<string | null>(null);
+  const [qualityRejectDrafts, setQualityRejectDrafts] = useState<Record<string, string>>({});
   const [user, setUser] = useState<any>(null);
 
   // New site form modal
@@ -77,6 +93,7 @@ export default function AdminDashboardPage() {
     if (userStr) setUser(JSON.parse(userStr));
 
     fetchCandidates();
+    fetchQualityReview();
     fetchSites();
     fetchThesaurus();
   }, []);
@@ -123,6 +140,50 @@ export default function AdminDashboardPage() {
       fetchCandidates();
     } catch (err) {
       setCandidateActionError(err instanceof Error ? err.message : 'Sikertelen művelet.');
+    }
+  };
+
+  const fetchQualityReview = async () => {
+    setQualityLoading(true);
+    try {
+      const res = await fetchWithAuth('/api/admin/quality-review');
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      setQualityItems(data.items || []);
+      setQualityThreshold(typeof data.threshold === 'number' ? data.threshold : null);
+    } catch {
+      setQualityItems([]);
+      setQualityError(true);
+    } finally {
+      setQualityLoading(false);
+    }
+  };
+
+  const decideQuality = async (id: string, accept: boolean) => {
+    setQualityActionError(null);
+    const reason = accept ? 'Kurátor elfogadta alacsony QC pontszám ellenére' : qualityRejectDrafts[id]?.trim();
+    if (!accept && !reason) {
+      setQualityActionError('Az visszaküldéshez kérlek adj meg egy indokot.');
+      return;
+    }
+    try {
+      const res = await fetchWithAuth(`/api/admin/quality-review/${id}/decide`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accept, reason }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.detail || `A művelet sikertelen (${res.status}).`);
+      }
+      setQualityRejectDrafts((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      fetchQualityReview();
+    } catch (err) {
+      setQualityActionError(err instanceof Error ? err.message : 'Sikertelen művelet.');
     }
   };
 
@@ -258,6 +319,20 @@ export default function AdminDashboardPage() {
             }}
           >
             📚 SKOS Tezaurusz ({thesaurus.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('quality')}
+            style={{
+              padding: '0.6rem 1.2rem',
+              borderRadius: 'var(--radius-md)',
+              border: 'none',
+              cursor: 'pointer',
+              fontWeight: 600,
+              background: activeTab === 'quality' ? 'var(--accent-gradient)' : 'transparent',
+              color: activeTab === 'quality' ? '#fff' : 'var(--text-secondary)',
+            }}
+          >
+            🔍 Minőségi Felülvizsgálat ({qualityItems.length})
           </button>
         </div>
 
@@ -434,6 +509,92 @@ export default function AdminDashboardPage() {
                         ))}
                       </div>
                     )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Tab 3: Quality Review Queue */}
+        {activeTab === 'quality' && (
+          <div className="glass-panel" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            <div>
+              <h2 style={{ fontSize: '1.2rem' }}>Minőségi Felülvizsgálat</h2>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                Archivált mentések, amelyek QC pontszáma a küszöb alatt van (vagy még nincs kiértékelve)
+                {qualityThreshold !== null ? ` — küszöb: ${qualityThreshold}%` : ''}.
+              </p>
+            </div>
+
+            {qualityActionError && (
+              <div style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', background: 'rgba(244, 63, 94, 0.15)', border: '1px solid rgba(244, 63, 94, 0.4)', color: '#fda4af', fontSize: '0.85rem' }}>
+                {qualityActionError}
+              </div>
+            )}
+
+            {qualityLoading && (
+              <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>Betöltés…</div>
+            )}
+            {!qualityLoading && qualityError && (
+              <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                A minőségi felülvizsgálati sor jelenleg nem elérhető.
+              </div>
+            )}
+            {!qualityLoading && !qualityError && qualityItems.length === 0 && (
+              <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                Nincs felülvizsgálatra váró mentés.
+              </div>
+            )}
+
+            {!qualityLoading && !qualityError && qualityItems.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                {qualityItems.map((q) => (
+                  <div key={q.id} className="glass-card" style={{ padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', minWidth: '260px' }}>
+                        <div style={{ fontWeight: 600 }}>{q.dc_title}</div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{q.seed_url}</div>
+                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', fontSize: '0.85rem' }}>
+                          <span
+                            style={{
+                              padding: '0.15rem 0.6rem',
+                              borderRadius: '999px',
+                              background: q.qc_score === null ? 'rgba(255,255,255,0.06)' : q.qc_score >= 50 ? 'rgba(234,179,8,0.15)' : 'rgba(244,63,94,0.15)',
+                              color: q.qc_score === null ? 'var(--text-secondary)' : q.qc_score >= 50 ? '#facc15' : '#fda4af',
+                              fontWeight: 600,
+                            }}
+                          >
+                            {q.qc_score === null ? 'Nincs QC eredmény' : `QC: ${q.qc_score}%`}
+                          </span>
+                          <a href={`/documents/${q.id}`} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent-cyan)', textDecoration: 'underline', fontSize: '0.8rem' }}>
+                            🔁 Visszajátszás megnyitása
+                          </a>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <button onClick={() => decideQuality(q.id, true)} className="btn-primary" style={{ padding: '0.4rem 1rem', fontSize: '0.85rem' }}>
+                          ✓ Elfogadás mégis
+                        </button>
+                        <button onClick={() => decideQuality(q.id, false)} className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.85rem' }}>
+                          ↩ Visszaküldés
+                        </button>
+                      </div>
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Visszaküldés indoka (kötelező visszaküldéshez)…"
+                      value={qualityRejectDrafts[q.id] ?? ''}
+                      onChange={(e) => setQualityRejectDrafts((prev) => ({ ...prev, [q.id]: e.target.value }))}
+                      style={{
+                        padding: '0.5rem 0.75rem',
+                        borderRadius: 'var(--radius-sm)',
+                        background: 'rgba(255,255,255,0.04)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        color: 'var(--text-primary)',
+                        fontSize: '0.85rem',
+                      }}
+                    />
                   </div>
                 ))}
               </div>
