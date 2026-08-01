@@ -31,7 +31,16 @@ interface CandidateItem {
   category: string;
   municipality_name?: string;
   created_at: string;
+  created_by_name?: string;
 }
+
+const PRIORITY_LABELS_HU: Record<string, string> = {
+  critical: 'Kritikus',
+  high: 'Magas',
+  medium: 'Közepes',
+  low: 'Alacsony',
+  on_hold: 'Felfüggesztve',
+};
 
 // Must match spec/schema.sql's site_category_enum / crawl_priority_enum
 // exactly — these are real Postgres enum values, not free text (note:
@@ -46,6 +55,7 @@ export default function AdminDashboardPage() {
   const [candidatesLoading, setCandidatesLoading] = useState(true);
   const [candidatesError, setCandidatesError] = useState(false);
   const [candidateActionError, setCandidateActionError] = useState<string | null>(null);
+  const [rejectReasonDrafts, setRejectReasonDrafts] = useState<Record<string, string>>({});
   const [sites, setSites] = useState<SiteItem[]>([]);
   const [sitesLoading, setSitesLoading] = useState(true);
   const [sitesError, setSitesError] = useState(false);
@@ -89,7 +99,12 @@ export default function AdminDashboardPage() {
 
   const decideCandidate = async (id: string, action: 'approve' | 'reject') => {
     setCandidateActionError(null);
-    const reason = action === 'approve' ? 'Kurátor jóváhagyta' : 'Kurátor elutasította';
+    const customReason = rejectReasonDrafts[id]?.trim();
+    if (action === 'reject' && !customReason) {
+      setCandidateActionError('Az elutasításhoz kérlek adj meg egy indokot.');
+      return;
+    }
+    const reason = action === 'approve' ? 'Kurátor jóváhagyta' : customReason!;
     try {
       const res = await fetchWithAuth(`/api/admin/candidates/${id}/${action}`, {
         method: 'POST',
@@ -100,6 +115,11 @@ export default function AdminDashboardPage() {
         const body = await res.json().catch(() => null);
         throw new Error(body?.detail || `A művelet sikertelen (${res.status}).`);
       }
+      setRejectReasonDrafts((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
       fetchCandidates();
     } catch (err) {
       setCandidateActionError(err instanceof Error ? err.message : 'Sikertelen művelet.');
@@ -269,21 +289,49 @@ export default function AdminDashboardPage() {
             {!candidatesLoading && !candidatesError && candidates.length > 0 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                 {candidates.map((c) => (
-                  <div key={c.id} className="glass-card" style={{ padding: '1rem 1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', minWidth: '260px' }}>
-                      <div style={{ fontWeight: 600 }}>{c.dc_title}</div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                        🌐 {c.domain} {c.municipality_name ? `· 📍 ${c.municipality_name}` : ''} · {c.seed_url}
+                  <div key={c.id} className="glass-card" style={{ padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', minWidth: '260px' }}>
+                        <div style={{ fontWeight: 600 }}>{c.dc_title}</div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                          🌐 {c.domain} {c.municipality_name ? `· 📍 ${c.municipality_name}` : ''} · {c.seed_url}
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', fontSize: '0.75rem' }}>
+                          <span style={{ padding: '0.15rem 0.6rem', borderRadius: '999px', background: 'rgba(59,130,246,0.15)', color: '#60a5fa' }}>
+                            {PRIORITY_LABELS_HU[c.priority] ?? c.priority}
+                          </span>
+                          <span style={{ padding: '0.15rem 0.6rem', borderRadius: '999px', background: 'rgba(255,255,255,0.06)', color: 'var(--text-secondary)' }}>
+                            {c.category}
+                          </span>
+                          <span style={{ color: 'var(--text-muted)' }}>
+                            {new Date(c.created_at).toLocaleDateString('hu-HU')}
+                            {c.created_by_name ? ` · felfedezte: ${c.created_by_name}` : ''}
+                          </span>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <button onClick={() => decideCandidate(c.id, 'approve')} className="btn-primary" style={{ padding: '0.4rem 1rem', fontSize: '0.85rem' }}>
+                          ✓ Jóváhagyás
+                        </button>
+                        <button onClick={() => decideCandidate(c.id, 'reject')} className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.85rem' }}>
+                          ✕ Elutasítás
+                        </button>
                       </div>
                     </div>
-                    <div style={{ display: 'flex', gap: '0.5rem' }}>
-                      <button onClick={() => decideCandidate(c.id, 'approve')} className="btn-primary" style={{ padding: '0.4rem 1rem', fontSize: '0.85rem' }}>
-                        ✓ Jóváhagyás
-                      </button>
-                      <button onClick={() => decideCandidate(c.id, 'reject')} className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.85rem' }}>
-                        ✕ Elutasítás
-                      </button>
-                    </div>
+                    <input
+                      type="text"
+                      placeholder="Elutasítás indoka (kötelező elutasításhoz)…"
+                      value={rejectReasonDrafts[c.id] ?? ''}
+                      onChange={(e) => setRejectReasonDrafts((prev) => ({ ...prev, [c.id]: e.target.value }))}
+                      style={{
+                        padding: '0.5rem 0.75rem',
+                        borderRadius: 'var(--radius-sm)',
+                        background: 'rgba(255,255,255,0.04)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        color: 'var(--text-primary)',
+                        fontSize: '0.85rem',
+                      }}
+                    />
                   </div>
                 ))}
               </div>
