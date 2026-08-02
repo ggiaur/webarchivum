@@ -1,8 +1,10 @@
 import logging
 from typing import Optional
-from fastapi import APIRouter, HTTPException, status
+import asyncpg
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from app.services import rag_service
+from app.core.db import get_db_connection
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +26,9 @@ class RAGFeedbackSchema(BaseModel):
 
 
 @router.post("")
-def rag_query(body: RAGRequestSchema):
-    return rag_service.execute_rag_query(
+async def rag_query(body: RAGRequestSchema, conn: asyncpg.Connection = Depends(get_db_connection)):
+    return await rag_service.execute_rag_query(
+        conn,
         question=body.question,
         municipality_slug=body.municipality_slug,
         top_k=body.top_k,
@@ -33,8 +36,9 @@ def rag_query(body: RAGRequestSchema):
 
 
 @router.post("/feedback", status_code=status.HTTP_204_NO_CONTENT)
-def rag_feedback(body: RAGFeedbackSchema):
-    success = rag_service.record_rag_feedback(
+async def rag_feedback(body: RAGFeedbackSchema, conn: asyncpg.Connection = Depends(get_db_connection)):
+    success = await rag_service.record_rag_feedback(
+        conn,
         trace_id=body.trace_id,
         feedback=body.feedback,
         note=body.note,

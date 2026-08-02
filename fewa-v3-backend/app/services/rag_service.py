@@ -1,19 +1,22 @@
-import uuid
-from typing import Optional, List, Dict, Any
+import json
+from typing import Optional, Dict, Any
 
-# Mock trace storage
-_AI_TRACES_DB: Dict[str, Dict[str, Any]] = {}
+import asyncpg
 
 
-def execute_rag_query(
+async def execute_rag_query(
+    conn: asyncpg.Connection,
     question: str,
     municipality_slug: Optional[str] = None,
     top_k: int = 3,
 ) -> Dict[str, Any]:
-    trace_id = str(uuid.uuid4())
+    """RAG retrieval is currently a hardcoded keyword-match simulation, not
+    real AI - a known, separately-tracked limitation (would need a real
+    embedding model + LLM, e.g. Ollama, which isn't running in this
+    environment). The trace/feedback persistence below IS real (writes to
+    the ai_traces table), independent of that limitation."""
     q_lower = question.lower()
 
-    # RAG Retrieval simulation (top-k)
     sources = []
     if "könyvtár" in q_lower or "épület" in q_lower or "székesfehérvár" in q_lower:
         sources.append({
@@ -43,15 +46,15 @@ def execute_rag_query(
     else:
         answer = "Nincs elegendő bizonyíték az archívumban."
 
-    trace_entry = {
-        "trace_id": trace_id,
-        "prompt_text": question,
-        "answer": answer,
-        "confidence_score": confidence_score,
-        "is_sufficient": is_sufficient,
-        "sources": sources,
-    }
-    _AI_TRACES_DB[trace_id] = trace_entry
+    row = await conn.fetchrow(
+        """
+        INSERT INTO ai_traces (trace_type, prompt_text, response_text, confidence_score, retrieved_chunks)
+        VALUES ('rag_query', $1, $2, $3, $4)
+        RETURNING id
+        """,
+        question, answer, confidence_score, json.dumps(sources),
+    )
+    trace_id = str(row["id"])
 
     return {
         "answer": answer,
@@ -63,10 +66,18 @@ def execute_rag_query(
     }
 
 
-def record_rag_feedback(trace_id: str, feedback: str, note: Optional[str] = None) -> bool:
-    trace = _AI_TRACES_DB.get(trace_id)
-    if not trace:
+async def record_rag_feedback(
+    conn: asyncpg.Connection, trace_id: str, feedback: str, note: Optional[str] = None
+) -> bool:
+    try:
+        result = await conn.execute(
+            "UPDATE ai_traces SET user_feedback = $2, feedback_note = $3 WHERE id = $1",
+            trace_id, feedback, note,
+        )
+    except asyncpg.DataError:
+        # Malformed UUID -> "not found" from the caller's perspective, same
+        # as a real, well-formed-but-nonexistent trace_id. Anything else
+        # (a real DB/connection error) should propagate as a 500, not be
+        # swallowed into a misleading 404.
         return False
-    trace["user_feedback"] = feedback
-    trace["feedback_note"] = note
-    return True
+    return result == "UPDATE 1"
