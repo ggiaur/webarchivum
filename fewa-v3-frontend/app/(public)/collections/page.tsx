@@ -1,40 +1,67 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { getApiBaseUrl } from '../../utils/apiConfig';
+
+interface CollectionItem {
+  id: string;
+  icon: string;
+  name: string;
+  count: number;
+}
+
+// Fixed visual treatment per category id — the backend only returns real
+// data (id/icon/name/count from site_category_enum + a live COUNT), not
+// styling, so the gradient/border/badge mapping stays on the frontend.
+const CATEGORY_STYLE: Record<string, { gradient: string; borderColor: string; badgeColor: string }> = {
+  kozintézmény: {
+    gradient: 'linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(6, 182, 212, 0.15) 100%)',
+    borderColor: 'rgba(59, 130, 246, 0.3)',
+    badgeColor: 'badge-blue',
+  },
+  civil: {
+    gradient: 'linear-gradient(135deg, rgba(168, 85, 247, 0.15) 0%, rgba(236, 72, 153, 0.15) 100%)',
+    borderColor: 'rgba(168, 85, 247, 0.3)',
+    badgeColor: 'badge-blue',
+  },
+  média: {
+    gradient: 'linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(244, 63, 94, 0.15) 100%)',
+    borderColor: 'rgba(245, 158, 11, 0.3)',
+    badgeColor: 'badge-amber',
+  },
+  vállalkozás: {
+    gradient: 'linear-gradient(135deg, rgba(14, 165, 233, 0.15) 0%, rgba(59, 130, 246, 0.15) 100%)',
+    borderColor: 'rgba(14, 165, 233, 0.3)',
+    badgeColor: 'badge-blue',
+  },
+  kulturális: {
+    gradient: 'linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(6, 182, 212, 0.15) 100%)',
+    borderColor: 'rgba(16, 185, 129, 0.3)',
+    badgeColor: 'badge-green',
+  },
+  egyéb: {
+    gradient: 'linear-gradient(135deg, rgba(148, 163, 184, 0.15) 0%, rgba(100, 116, 139, 0.15) 100%)',
+    borderColor: 'rgba(148, 163, 184, 0.3)',
+    badgeColor: 'badge-blue',
+  },
+};
+const DEFAULT_STYLE = CATEGORY_STYLE.egyéb;
 
 export default function CollectionsPage() {
-  const collections = [
-    {
-      id: 'col-001',
-      icon: '🏛️',
-      name: 'Önkormányzatok & Hivatalok',
-      description: 'Fejér vármegyei megyei és települési önkormányzatok hivatalos weboldalai.',
-      count: 42,
-      gradient: 'linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(6, 182, 212, 0.15) 100%)',
-      borderColor: 'rgba(59, 130, 246, 0.3)',
-      badgeColor: 'badge-blue',
-    },
-    {
-      id: 'col-002',
-      icon: '📰',
-      name: 'Helyi Sajtó & Média',
-      description: 'Fejér megyei hírportálok, helyi lapok és médiatartalmak archívuma.',
-      count: 18,
-      gradient: 'linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(244, 63, 94, 0.15) 100%)',
-      borderColor: 'rgba(245, 158, 11, 0.3)',
-      badgeColor: 'badge-amber',
-    },
-    {
-      id: 'col-003',
-      icon: '📚',
-      name: 'Kulturális & Könyvtári Örökség',
-      description: 'Múzeumok, színházak, helytörténeti gyűjtemények és könyvtári portálok.',
-      count: 27,
-      gradient: 'linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(6, 182, 212, 0.15) 100%)',
-      borderColor: 'rgba(16, 185, 129, 0.3)',
-      badgeColor: 'badge-green',
-    },
-  ];
+  const [collections, setCollections] = useState<CollectionItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    fetch(`${getApiBaseUrl()}/api/collections`)
+      .then((res) => {
+        if (!res.ok) throw new Error('failed');
+        return res.json();
+      })
+      .then((data) => setCollections(data.collections || []))
+      .catch(() => setError(true))
+      .finally(() => setLoading(false));
+  }, []);
 
   return (
     <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '2.5rem' }}>
@@ -57,47 +84,63 @@ export default function CollectionsPage() {
         </p>
       </div>
 
+      {loading && (
+        <div style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>Betöltés…</div>
+      )}
+      {!loading && error && (
+        <div style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>
+          A gyűjtemények jelenleg nem elérhetők.
+        </div>
+      )}
+      {!loading && !error && collections.length === 0 && (
+        <div style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>
+          Még nincs publikált gyűjtemény.
+        </div>
+      )}
+
       {/* Cards Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '2rem' }}>
-        {collections.map((col) => (
-          <div key={col.id} className="glass-card" style={{
-            background: col.gradient,
-            border: `1px solid ${col.borderColor}`,
-            borderRadius: '16px',
-            padding: '2rem',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'space-between',
-            boxShadow: '0 10px 30px rgba(0,0,0,0.3)',
-            transition: 'transform 0.25s ease, box-shadow 0.25s ease'
-          }}>
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-                <span style={{ fontSize: '2.5rem' }}>{col.icon}</span>
-                <span className={`badge ${col.badgeColor}`} style={{ fontSize: '0.85rem', padding: '0.35rem 0.75rem' }}>
-                  {col.count} webhely
-                </span>
-              </div>
-              <h2 style={{ fontSize: '1.45rem', fontWeight: 700, color: '#f8fafc', marginBottom: '0.6rem' }}>
-                {col.name}
-              </h2>
-              <p style={{ color: '#cbd5e1', fontSize: '0.98rem', lineHeight: '1.6' }}>
-                {col.description}
-              </p>
-            </div>
-            <div style={{ marginTop: '2rem' }}>
-              <a href={`/?category=${encodeURIComponent(col.name)}`} className="btn-primary" style={{
-                width: '100%',
-                justifyContent: 'center',
-                padding: '0.75rem',
-                fontSize: '0.95rem'
+      {!loading && !error && collections.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '2rem' }}>
+          {collections.map((col) => {
+            const style = CATEGORY_STYLE[col.id] || DEFAULT_STYLE;
+            return (
+              <div key={col.id} className="glass-card" style={{
+                background: style.gradient,
+                border: `1px solid ${style.borderColor}`,
+                borderRadius: '16px',
+                padding: '2rem',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                boxShadow: '0 10px 30px rgba(0,0,0,0.3)',
+                transition: 'transform 0.25s ease, box-shadow 0.25s ease'
               }}>
-                Gyűjtemény böngészése ➔
-              </a>
-            </div>
-          </div>
-        ))}
-      </div>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+                    <span style={{ fontSize: '2.5rem' }}>{col.icon}</span>
+                    <span className={`badge ${style.badgeColor}`} style={{ fontSize: '0.85rem', padding: '0.35rem 0.75rem' }}>
+                      {col.count} webhely
+                    </span>
+                  </div>
+                  <h2 style={{ fontSize: '1.45rem', fontWeight: 700, color: '#f8fafc', marginBottom: '0.6rem' }}>
+                    {col.name}
+                  </h2>
+                </div>
+                <div style={{ marginTop: '2rem' }}>
+                  <a href={`/?category=${encodeURIComponent(col.id)}`} className="btn-primary" style={{
+                    width: '100%',
+                    justifyContent: 'center',
+                    padding: '0.75rem',
+                    fontSize: '0.95rem'
+                  }}>
+                    Gyűjtemény böngészése ➔
+                  </a>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

@@ -143,3 +143,25 @@ async def test_public_stats_reflects_real_counts(published_snapshot, conn):
         "SELECT COUNT(*) AS c FROM archived_snapshots WHERE lifecycle_status = 'published'"
     )
     assert data["published_documents"] == row["c"]
+
+
+@pytest.mark.asyncio
+async def test_collections_reflects_real_per_category_counts(published_snapshot, conn):
+    """Regression: fewa-v3-frontend's /collections page had a hardcoded
+    array of 3 categories with fabricated counts (42/18/27) - the exact
+    same public-facing-fake-data bug class as the old search_service.py
+    (see that module's docstring, "the highest-severity finding of this
+    session"). There was no backend endpoint for it at all. published_snapshot
+    creates a site with the default category ('egyéb') - the response must
+    show a real count for it, not an invented number."""
+    response = client.get("/api/collections")
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert "collections" in data
+
+    row = await conn.fetchrow(
+        "SELECT COUNT(*) AS c FROM v_published_snapshots WHERE site_category = 'egyéb'"
+    )
+    egyeb = next((c for c in data["collections"] if c["id"] == "egyéb"), None)
+    assert egyeb is not None, f"expected an 'egyéb' category entry, got: {data['collections']}"
+    assert egyeb["count"] == row["c"]
