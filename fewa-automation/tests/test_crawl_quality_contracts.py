@@ -1,0 +1,102 @@
+import sys
+from pathlib import Path
+from io import BytesIO
+import zipfile
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from crawl_manifest import EdgeEvent, build_manifest
+from qa_gate import ReplayEvidence, evaluate
+from wacz_integrity import verify_wacz
+from wacz_integrity import WaczVerification
+from executor import build_plan
+from url_security import resolve_and_pin
+from hashlib import sha256
+
+
+def event(url, parent, hop, eligible=True, plan="p"):
+    return EdgeEvent(
+        url, url, parent, hop, eligible, "capture" if eligible else "skip", None, plan,
+        final_url=url, edge_source_page=parent or url, policy_decision="allowed",
+        robots_decision="allowed", security_decision="allowed", scope_decision="in_scope",
+        observed_at="2026-08-13T00:00:00Z",
+    )
+
+
+def test_h0_h1_h2_manifest_is_complete_and_h3_is_evidence_only():
+    seed = "https://fewa.vmk.hu/"
+    manifest = build_manifest(seed, "p", [event("https://fewa.vmk.hu/a", seed, 1),
+                                           event("https://fewa.vmk.hu/b", "https://fewa.vmk.hu/a", 2),
+                                           event("https://fewa.vmk.hu/c", "https://fewa.vmk.hu/b", 3, eligible=False)],
+                              {seed: True, "https://fewa.vmk.hu/a": True, "https://fewa.vmk.hu/b": True})
+    assert manifest["status"] == "complete"
+    assert "https://fewa.vmk.hu/c" not in manifest["required_capture_urls"]
+
+
+def test_missing_h1_is_review_required_not_success():
+    seed = "https://fewa.vmk.hu/"
+    manifest = build_manifest(seed, "p", [event("https://fewa.vmk.hu/a", seed, 1)], {seed: True})
+    gate = evaluate(manifest, wacz_ok=True, replay_ok=True, telemetry_complete=True)
+    assert (manifest["status"], gate.outcome) == ("crawl_incomplete", "review_required")
+
+
+def test_manifest_requires_explicit_policy_robots_security_scope_and_timestamp_facts():
+    seed = "https://example.org/"
+    incomplete = EdgeEvent("https://example.org/a", "https://example.org/a", seed, 1, True,
+                           "capture", None, "p", final_url="https://example.org/a",
+                           edge_source_page=seed, policy_decision="allowed")
+    manifest = build_manifest(seed, "p", [incomplete], {seed: True, "https://example.org/a": True})
+    assert manifest["status"] == "crawl_incomplete"
+
+
+def test_hash_bound_replay_evidence_is_required_for_a_positive_gate():
+    seed = "https://example.org/"
+    manifest = build_manifest(seed, "p", [event("https://example.org/a", seed, 1)],
+                              {seed: True, "https://example.org/a": True})
+    replay = ReplayEvidence.create(manifest["manifest_sha256"], "a" * 64, "now", "browsertrix-qa/1.14.1", "passed")
+    verification = WaczVerification(True, "a" * 64)
+    assert evaluate(manifest, wacz_ok=verification, replay_ok=replay, telemetry_complete=True,
+                    verified_wacz_sha256="a" * 64).outcome == "qc_passed_pending_release"
+    assert evaluate(manifest, wacz_ok=verification, replay_ok=replay, telemetry_complete=True,
+                    verified_wacz_sha256="b" * 64).outcome == "review_required"
+    assert evaluate(manifest, wacz_ok=True, replay_ok=replay, telemetry_complete=True,
+                    verified_wacz_sha256="a" * 64).outcome == "review_required"
+
+
+class Store:
+    def __init__(self, body): self.body = body
+    def read_version(self, key, version): return self.body
+
+
+def test_wacz_is_reread_and_requires_warc_and_cdxj():
+    stream = BytesIO()
+    with zipfile.ZipFile(stream, "w") as z:
+        z.writestr("archive/data.warc", b"WARC/1.0\r\nWARC-Type: response\r\nWARC-Target-URI: https://example.org/\r\nContent-Length: 0\r\n\r\n")
+        z.writestr("indexes/index.cdxj", 'org,example)/ 20260813000000 {"url":"https://example.org/"}\n')
+    body = stream.getvalue()
+    assert verify_wacz(Store(body), "x", "v1", sha256(body).hexdigest()).ok
+    assert verify_wacz(Store(body), "x", "v2", "0" * 64).reason == "object_hash_mismatch"
+
+
+def test_browsertrix_compressed_cdx_index_is_a_valid_replay_index():
+    stream = BytesIO()
+    with zipfile.ZipFile(stream, "w") as z:
+        z.writestr("archive/data.warc", b"WARC/1.0\r\nWARC-Type: response\r\nWARC-Target-URI: https://example.org/\r\nContent-Length: 0\r\n\r\n")
+        z.writestr("indexes/index.cdx", "com,example)/ 20260813000000 https://example.org/ text/html 200 abc - - 0 1 x.warc\n")
+    body = stream.getvalue()
+    assert verify_wacz(Store(body), "x", "v1", sha256(body).hexdigest()).ok
+
+
+def test_warc_content_length_cannot_claim_more_bytes_than_the_record_contains():
+    stream = BytesIO()
+    with zipfile.ZipFile(stream, "w") as z:
+        z.writestr("archive/data.warc", b"WARC/1.0\r\nWARC-Type: response\r\n"
+                   b"WARC-Target-URI: https://example.org/\r\nContent-Length: 100\r\n\r\n")
+        z.writestr("indexes/index.cdx", "com,example)/ 20260813000000 https://example.org/ text/html 200 x - - 0 1 x.warc\n")
+    body = stream.getvalue()
+    assert verify_wacz(Store(body), "x", "v1", sha256(body).hexdigest()).reason == "warc_parse_failed"
+
+
+def test_executor_is_pinned_and_does_not_accept_tag_only_image():
+    seed = resolve_and_pin("https://example.org/", lambda _: ["93.184.216.34"])
+    assert build_plan(seed, "browsertrix@sha256:" + "a" * 64, "egress-v1").seed.pinned_ip == "93.184.216.34"
+    import pytest
+    with pytest.raises(ValueError): build_plan(seed, "browsertrix:latest", "egress-v1")

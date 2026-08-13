@@ -1,0 +1,4 @@
+FROM webrecorder/browsertrix-crawler@sha256:8b430663a48b23be44d891fb84b726ae05975e5944e658916bddd8fe77691586
+USER 65532:65532
+WORKDIR /work
+ENTRYPOINT ["browsertrix-crawler"]
