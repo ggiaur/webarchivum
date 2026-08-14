@@ -277,3 +277,458 @@ def test_warc_declared_content_length_must_match_the_record_body():
         )
     body = stream.getvalue()
     assert not verify_wacz(Store(body), "object", "version", sha256(body).hexdigest()).ok
+
+
+def test_catalog_import_requires_proof_that_detail_id_was_in_the_list_response():
+    """A self-consistent hand-built detail must not bypass list enumeration."""
+    import json
+
+    raw = json.dumps(
+        [{"Eredeti webcím (URL)": "https://unlisted.example/"}],
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    provenance = tuple(sorted({
+        "catalogue_origin": "https://fewa.vmk.hu",
+        "detail_endpoint": "https://fewa.vmk.hu/tmp/all_unique_data.php",
+        "detail_request": '{"id":999999,"ip":""}',
+        "record_id": "999999",
+        "original_url_field": "Eredeti webcím (URL)",
+        "detail_response": raw,
+        "detail_response_sha256": sha256(raw.encode()).hexdigest(),
+    }.items()))
+    unlisted = CatalogRecord(
+        "https://fewa.vmk.hu/tmp/all_unique_data.php#record=999999",
+        "https://unlisted.example/",
+        "now",
+        raw,
+        "999999",
+        provenance,
+    )
+    item = import_catalog(
+        [unlisted],
+        lambda _pinned: "Fejer",
+        PositiveLLM(),
+        budget_available=True,
+        resolver=PUBLIC,
+    )[0]
+    assert item.pinned_url is None
+    assert item.decision.state != "prequalified"
+
+
+def test_manifest_rejects_eligible_capture_with_denied_policy_facts():
+    seed = "https://example.org/"
+    child = "https://example.org/child"
+    contradictory = EdgeEvent(
+        child,
+        child,
+        seed,
+        1,
+        True,
+        "capture",
+        None,
+        "plan",
+        final_url=child,
+        edge_source_page=seed,
+        policy_decision="denied",
+        robots_decision="denied",
+        security_decision="rejected",
+        scope_decision="external",
+        observed_at="2026-08-14T00:00:00Z",
+    )
+    manifest = build_manifest(
+        seed,
+        "plan",
+        [contradictory],
+        {seed: True, child: True},
+    )
+    assert manifest["status"] == "crawl_incomplete"
+
+
+def test_warc_parser_rejects_invalid_version_line():
+    target = "https://example.org/"
+    stream = BytesIO()
+    with zipfile.ZipFile(stream, "w") as archive:
+        archive.writestr(
+            "archive/data.warc",
+            ("WARC/not-a-version\r\nWARC-Type: response\r\n"
+             f"WARC-Target-URI: {target}\r\nContent-Length: 0\r\n\r\n").encode(),
+        )
+        archive.writestr(
+            "indexes/index.cdxj",
+            f'org,example)/ 20260814000000 {{"url":"{target}"}}\n',
+        )
+    body = stream.getvalue()
+    assert not verify_wacz(Store(body), "object", "version", sha256(body).hexdigest()).ok
+
+
+@pytest.mark.parametrize(
+    ("canonical_url", "final_url", "captured_url"),
+    [
+        ("https://evil.example/child", "https://evil.example/child", "https://evil.example/child"),
+        ("https://example.org/child", "https://evil.example/final", "https://example.org/child"),
+    ],
+)
+def test_manifest_derives_external_scope_from_urls_not_caller_claim(
+    canonical_url, final_url, captured_url
+):
+    """External canonical or redirect-final URLs can never be captured."""
+    seed = "https://example.org/"
+    forged_in_scope = EdgeEvent(
+        canonical_url,
+        canonical_url,
+        seed,
+        1,
+        True,
+        "capture",
+        None,
+        "plan",
+        final_url=final_url,
+        edge_source_page=seed,
+        policy_decision="allowed",
+        robots_decision="allowed",
+        security_decision="allowed",
+        scope_decision="in_scope",
+        observed_at="2026-08-14T00:00:00Z",
+    )
+    manifest = build_manifest(
+        seed,
+        "plan",
+        [forged_in_scope],
+        {seed: True, captured_url: True},
+    )
+    assert manifest["status"] == "crawl_incomplete"
+
+
+@pytest.mark.parametrize(
+    ("canonical_url", "final_url"),
+    [
+        ("not-a-url", "https://evil.example/final"),
+        ("https://example.org/child", "not-a-url"),
+    ],
+)
+def test_manifest_does_not_treat_malformed_url_as_valid_external_evidence(
+    canonical_url, final_url
+):
+    seed = "https://example.org/"
+    malformed = EdgeEvent(
+        canonical_url,
+        canonical_url,
+        seed,
+        1,
+        False,
+        "skip",
+        "external",
+        "plan",
+        final_url=final_url,
+        edge_source_page=seed,
+        policy_decision="allowed",
+        robots_decision="allowed",
+        security_decision="allowed",
+        scope_decision="external",
+        observed_at="2026-08-14T00:00:00Z",
+    )
+    manifest = build_manifest(seed, "plan", [malformed], {seed: True})
+    assert manifest["status"] == "crawl_incomplete"
+
+
+@pytest.mark.parametrize(
+    ("seed", "canonical_url", "final_url"),
+    [
+        ("not-a-url", "https://evil.example/a", "https://evil.example/a"),
+        ("https://example.org/", "http://2130706433/", "https://evil.example/a"),
+        ("https://example.org/", "https://user@example.org/a", "https://evil.example/a"),
+        ("https://example.org/", "https://example.org:8443/a", "https://evil.example/a"),
+    ],
+)
+def test_manifest_invalid_url_mutations_never_become_external_skip_evidence(
+    seed, canonical_url, final_url
+):
+    event = EdgeEvent(
+        canonical_url,
+        canonical_url,
+        seed,
+        1,
+        False,
+        "skip",
+        "external",
+        "plan",
+        final_url=final_url,
+        edge_source_page=seed,
+        policy_decision="allowed",
+        robots_decision="allowed",
+        security_decision="allowed",
+        scope_decision="external",
+        observed_at="2026-08-14T00:00:00Z",
+    )
+    assert build_manifest(seed, "plan", [event], {seed: True})["status"] == "crawl_incomplete"
+
+
+def test_terminal_dns_dot_is_same_authority_not_external_skip():
+    seed = "https://example.org/"
+    same_authority = "https://EXAMPLE.org.:443/child"
+    forged_external = EdgeEvent(
+        same_authority,
+        same_authority,
+        seed,
+        1,
+        False,
+        "skip",
+        "external",
+        "plan",
+        final_url=same_authority,
+        edge_source_page=seed,
+        policy_decision="allowed",
+        robots_decision="allowed",
+        security_decision="allowed",
+        scope_decision="external",
+        observed_at="2026-08-14T00:00:00Z",
+    )
+    manifest = build_manifest(seed, "plan", [forged_external], {seed: True})
+    assert manifest["status"] == "crawl_incomplete"
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["https://0x7f000001./", "https://0x7f.0x0.0x0.0x1./"],
+)
+def test_terminal_dot_cannot_bypass_alternative_numeric_host_rejection(url):
+    with pytest.raises(URLSecurityError):
+        resolve_and_pin(url, PUBLIC)
+
+
+@pytest.mark.parametrize("url", ["https://example.org../", "https://example.org.../"])
+def test_only_one_terminal_dns_root_dot_is_normalized(url):
+    with pytest.raises(URLSecurityError):
+        resolve_and_pin(url, PUBLIC)
+
+
+@pytest.mark.parametrize("separator", ["\u3002", "\uff0e", "\uff61"])
+def test_idna_dot_variant_cannot_bypass_numeric_host_rejection(separator):
+    with pytest.raises(URLSecurityError):
+        resolve_and_pin(f"https://0x7f000001{separator}/", PUBLIC)
+
+
+@pytest.mark.parametrize("separator", ["\u3002", "\uff0e", "\uff61"])
+def test_idna_terminal_dot_variant_is_not_forged_external_scope(separator):
+    seed = "https://example.org/"
+    same_authority = f"https://EXAMPLE.org{separator}/child"
+    forged_external = EdgeEvent(
+        same_authority,
+        same_authority,
+        seed,
+        1,
+        False,
+        "skip",
+        "external",
+        "plan",
+        final_url=same_authority,
+        edge_source_page=seed,
+        policy_decision="allowed",
+        robots_decision="allowed",
+        security_decision="allowed",
+        scope_decision="external",
+        observed_at="2026-08-14T00:00:00Z",
+    )
+    assert build_manifest(seed, "plan", [forged_external], {seed: True})["status"] == "crawl_incomplete"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://0x7f\u30020x0\uff0e0x0\uff610x1/",
+        "https://0177\uff610000\u30020000\uff0e0001/",
+        "https://2130706433\u3002/",
+    ],
+)
+def test_mixed_idna_dot_numeric_forms_remain_fail_closed(url):
+    with pytest.raises(URLSecurityError):
+        resolve_and_pin(url, PUBLIC)
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://example.org/a\u3002b", "https://example.org/a\u3002b"),
+        ("https://example.org/a\uff0eb", "https://example.org/a\uff0eb"),
+        ("https://example.org/a\uff61b", "https://example.org/a\uff61b"),
+        ("https://example.org/a?q=x\u3002y", "https://example.org/a?q=x\u3002y"),
+        ("https://example.org/a?q=x\uff0ey", "https://example.org/a?q=x\uff0ey"),
+        ("https://example.org/a?q=x\uff61y", "https://example.org/a?q=x\uff61y"),
+    ],
+)
+def test_idna_dot_translation_is_limited_to_hostname(url, expected):
+    from url_security import normalize_url
+
+    assert normalize_url(url) == expected
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example .org/",
+        "https://exa%zzmple.org/",
+        "https://-example.org/",
+        "https://example-.org/",
+        "https://" + ".".join(["a" * 63] * 5) + "/",
+    ],
+)
+def test_invalid_dns_hostname_syntax_is_rejected_before_resolution(url):
+    with pytest.raises(URLSecurityError):
+        resolve_and_pin(url, PUBLIC)
+
+
+def test_invalid_dns_hostname_cannot_be_recorded_as_external_skip():
+    seed = "https://example.org/"
+    invalid = "https://invalid host.example/"
+    event = EdgeEvent(
+        invalid,
+        invalid,
+        seed,
+        1,
+        False,
+        "skip",
+        "external",
+        "plan",
+        final_url=invalid,
+        edge_source_page=seed,
+        policy_decision="allowed",
+        robots_decision="allowed",
+        security_decision="allowed",
+        scope_decision="external",
+        observed_at="2026-08-14T00:00:00Z",
+    )
+    assert build_manifest(seed, "plan", [event], {seed: True})["status"] == "crawl_incomplete"
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://münich.example/", "https://xn--mnich-kva.example/"),
+        ("https://例え.テスト/", "https://xn--r8jz45g.xn--zckzah/"),
+        ("https://árvíztűrő.hu/út?q=ő", "https://xn--rvztr-wqa0gx3bwi.hu/út?q=ő"),
+    ],
+)
+def test_valid_international_dns_labels_remain_accepted(url, expected):
+    from url_security import normalize_url
+
+    assert normalize_url(url) == expected
+
+
+@pytest.mark.parametrize("label", ["xn--a", "xn--abc", "xn--0", "xn--a-ecp"])
+def test_malformed_ascii_idna_alabel_is_rejected(label):
+    with pytest.raises(URLSecurityError):
+        resolve_and_pin(f"https://{label}.example/", PUBLIC)
+
+
+def test_malformed_ascii_idna_alabel_cannot_be_external_manifest_evidence():
+    seed = "https://example.org/"
+    invalid = "https://xn--a.example/"
+    event = EdgeEvent(
+        invalid,
+        invalid,
+        seed,
+        1,
+        False,
+        "skip",
+        "external",
+        "plan",
+        final_url=invalid,
+        edge_source_page=seed,
+        policy_decision="allowed",
+        robots_decision="allowed",
+        security_decision="allowed",
+        scope_decision="external",
+        observed_at="2026-08-14T00:00:00Z",
+    )
+    assert build_manifest(seed, "plan", [event], {seed: True})["status"] == "crawl_incomplete"
+
+
+@pytest.mark.parametrize(
+    ("address", "accepted"),
+    [
+        ("::ffff:93.184.216.34", True),
+        ("::ffff:127.0.0.1", False),
+        ("::ffff:169.254.169.254", False),
+        ("::ffff:100.64.0.1", False),
+        ("64:ff9b::5db8:d822", True),
+        ("64:ff9b::7f00:1", False),
+        ("64:ff9b::a9fe:a9fe", False),
+        ("64:ff9b::6440:1", False),
+        ("::5db8:d822", True),
+        ("::7f00:1", False),
+        ("::a9fe:a9fe", False),
+        ("::6440:1", False),
+    ],
+)
+def test_embedded_ipv4_publicness_is_decisive_for_all_supported_ipv6_forms(
+    address, accepted
+):
+    if accepted:
+        assert resolve_and_pin("https://example.org/", lambda _host: [address]).pinned_ip == address
+    else:
+        with pytest.raises(URLSecurityError):
+            resolve_and_pin("https://example.org/", lambda _host: [address])
+
+
+def test_mixed_public_nat64_and_nonpublic_answer_fails_closed():
+    with pytest.raises(URLSecurityError):
+        resolve_and_pin(
+            "https://example.org/",
+            lambda _host: ["64:ff9b::5db8:d822", "64:ff9b::a9fe:a9fe"],
+        )
+
+
+def _wacz_with_record_types(records, index_target):
+    chunks = []
+    for number, (record_type, target) in enumerate(records, 1):
+        chunks.append(
+            (
+                "WARC/1.1\r\n"
+                f"WARC-Type: {record_type}\r\n"
+                f"WARC-Record-ID: <urn:uuid:qa-{number}>\r\n"
+                "WARC-Date: 2026-08-14T00:00:00Z\r\n"
+                f"WARC-Target-URI: {target}\r\n"
+                "Content-Length: 0\r\n\r\n"
+            ).encode()
+        )
+    stream = BytesIO()
+    with zipfile.ZipFile(stream, "w") as archive:
+        archive.writestr("archive/data.warc", b"\r\n\r\n".join(chunks))
+        archive.writestr(
+            "indexes/index.cdxj",
+            f'org,example)/ 20260814000000 {{"url":"{index_target}"}}\n',
+        )
+    return stream.getvalue()
+
+
+@pytest.mark.parametrize(
+    ("record_type", "accepted"),
+    [
+        ("warcinfo", False),
+        ("request", False),
+        ("metadata", False),
+        ("response", True),
+        ("resource", True),
+        ("revisit", True),
+    ],
+)
+def test_only_captured_content_record_types_bind_wacz_to_replay_index(
+    record_type, accepted
+):
+    target = "https://example.org/"
+    body = _wacz_with_record_types([(record_type, target)], target)
+    assert verify_wacz(Store(body), "object", "version", sha256(body).hexdigest()).ok is accepted
+
+
+def test_metadata_target_cannot_mask_different_captured_content_target():
+    metadata_target = "https://example.org/metadata-only"
+    captured_target = "https://example.org/captured"
+    records = [("warcinfo", metadata_target), ("response", captured_target)]
+
+    body = _wacz_with_record_types(records, metadata_target)
+    assert not verify_wacz(Store(body), "object", "version", sha256(body).hexdigest()).ok
+
+    body = _wacz_with_record_types(records, captured_target)
+    assert verify_wacz(Store(body), "object", "version", sha256(body).hexdigest()).ok
