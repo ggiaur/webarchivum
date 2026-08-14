@@ -47,6 +47,13 @@ def test_unicode_dns_dot_is_canonicalized_for_same_origin(separator):
     assert normalize_url(f"HTTPS://EXAMPLE{separator}org:443/a") == "https://example.org/a"
 
 
+@pytest.mark.parametrize("separator", ["\u3002", "\uff0e", "\uff61"])
+def test_unicode_dot_normalization_is_host_only_and_preserves_path_and_query(separator):
+    assert normalize_url(f"https://example{separator}org/p{separator}ath?q={separator}value") == (
+        f"https://example.org/p{separator}ath?q={separator}value"
+    )
+
+
 def test_mixed_dns_rejected_before_any_connection():
     with pytest.raises(URLSecurityError, match="mixed"):
         resolve_and_pin("https://example.org", lambda _: ["93.184.216.34", "169.254.169.254"])
