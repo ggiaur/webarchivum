@@ -35,6 +35,23 @@ def _canonical_host_input(hostname: str) -> str:
     return _strip_single_terminal_root_dot(hostname.translate(_UNICODE_DOT_TRANSLATION))
 
 
+_DNS_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\Z", re.IGNORECASE)
+
+
+def _canonical_dns_hostname(hostname: str) -> str:
+    """Return a strict ASCII DNS hostname, rejecting non-DNS syntax early."""
+    try:
+        ascii_host = _canonical_host_input(hostname).encode("idna").decode("ascii").lower()
+    except UnicodeError as exc:
+        raise URLSecurityError("invalid hostname") from exc
+    if not ascii_host or len(ascii_host) > 253:
+        raise URLSecurityError("hostname length is invalid")
+    labels = ascii_host.split(".")
+    if any(not _DNS_LABEL.fullmatch(label) for label in labels):
+        raise URLSecurityError("hostname syntax is invalid")
+    return ascii_host
+
+
 @dataclass(frozen=True)
 class PinnedURL:
     original_url: str
@@ -81,7 +98,7 @@ def _canonical_parts(value: str) -> SplitResult:
     # First remove the DNS presentation-only root dot.  Numeric host checks
     # must run on this canonical host, otherwise `0x7f000001.` could evade a
     # pre-normalisation check and be interpreted by a downstream resolver.
-    hostname = _canonical_host_input(parts.hostname)
+    hostname = _canonical_dns_hostname(parts.hostname)
     if not hostname:
         raise URLSecurityError("invalid hostname")
     try:
@@ -102,15 +119,10 @@ def _canonical_parts(value: str) -> SplitResult:
 def normalize_url(value: str) -> str:
     """Return canonical HTTP(S) URL without a fragment, or reject it."""
     parts = _canonical_parts(value)
-    try:
-        # DNS terminal root dots are presentation syntax, not a different
-        # authority.  Remove them before IDNA/case canonicalisation so every
-        # S2 consumer (scope, FEWA self exclusion, pin plans) sees one host.
-        host = _canonical_host_input(parts.hostname).encode("idna").decode("ascii").lower()
-    except UnicodeError as exc:
-        raise URLSecurityError("invalid hostname") from exc
-    if not host:
-        raise URLSecurityError("invalid hostname")
+    # DNS terminal root dots are presentation syntax, not a different
+    # authority.  The strict IDNA/DNS validation was already applied before
+    # this canonical hostname reaches scope comparison or connection planning.
+    host = _canonical_dns_hostname(parts.hostname)
     netloc = host
     path = parts.path or "/"
     return urlunsplit((parts.scheme.lower(), netloc, path, parts.query, ""))

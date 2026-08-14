@@ -127,6 +127,15 @@ def test_unicode_dot_same_origin_remains_in_scope_after_authority_canonicalizati
     assert build_manifest(seed, "p", [aliased], {seed: True, child: True})["status"] == "complete"
 
 
+def test_invalid_dns_host_cannot_be_recorded_as_a_complete_external_skip():
+    seed = "https://example.org/"
+    invalid = "https://exa%mple.org/a"
+    event = EdgeEvent(invalid, invalid, seed, 1, False, "skip", "external", "p", final_url=invalid,
+                      edge_source_page=seed, policy_decision="allowed", robots_decision="allowed",
+                      security_decision="allowed", scope_decision="external", observed_at="now")
+    assert build_manifest(seed, "p", [event], {seed: True})["status"] == "crawl_incomplete"
+
+
 def test_hash_bound_replay_evidence_is_required_for_a_positive_gate():
     seed = "https://example.org/"
     manifest = build_manifest(seed, "p", [event("https://example.org/a", seed, 1)],

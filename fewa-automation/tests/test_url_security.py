@@ -54,6 +54,13 @@ def test_unicode_dot_normalization_is_host_only_and_preserves_path_and_query(sep
     )
 
 
+@pytest.mark.parametrize("host", ["exa mple.org", "exa%mple.org", "-example.org", "example-.org",
+                                  ".example.org", "a" * 64 + ".org", ".".join(["a" * 63] * 4) + ".com"])
+def test_invalid_dns_hostname_syntax_or_length_rejects_before_resolution(host):
+    with pytest.raises(URLSecurityError):
+        resolve_and_pin(f"https://{host}/", lambda _: ["93.184.216.34"])
+
+
 def test_mixed_dns_rejected_before_any_connection():
     with pytest.raises(URLSecurityError, match="mixed"):
         resolve_and_pin("https://example.org", lambda _: ["93.184.216.34", "169.254.169.254"])
