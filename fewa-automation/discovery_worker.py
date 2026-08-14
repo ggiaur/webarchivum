@@ -19,11 +19,27 @@ def _verified_fewa_record(record: CatalogRecord) -> bool:
     """
     provenance = dict(record.provenance)
     try:
+        list_response = provenance["list_response"]
+        listed_rows = json.loads(list_response)
+        list_request = json.loads(provenance.get("list_request", ""))
+        exact_row = json.loads(provenance.get("list_row", ""))
         detail = json.loads(record.raw_evidence)
         detail_request = json.loads(provenance.get("detail_request", ""))
         original = detail[0]["Eredeti webcím (URL)"]
         canonical_original = normalize_url(original)
     except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError):
+        return False
+    if not isinstance(listed_rows, list) or not isinstance(exact_row, dict):
+        return False
+    # Membership is a semantic check over the immutable list artifact, not a
+    # caller assertion.  ID must be unique and the exact canonical row must
+    # still exist in the same response used for its recorded hash.
+    matching_rows = [row for row in listed_rows if isinstance(row, dict)
+                     and str(row.get("id")) == str(record.catalog_record_id)]
+    if (len(matching_rows) != 1 or matching_rows[0] != exact_row
+            or sha256(list_response.encode()).hexdigest() != provenance.get("list_response_sha256")
+            or sha256(json.dumps(exact_row, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+            != provenance.get("list_row_sha256")):
         return False
     # A record URL is provenance only, but its fragment must identify the same
     # detail row.  The candidate URL is independently re-derived from the raw
@@ -32,6 +48,8 @@ def _verified_fewa_record(record: CatalogRecord) -> bool:
     return (
         record.catalog_record_id is not None
         and provenance.get("catalogue_origin") == "https://fewa.vmk.hu"
+        and provenance.get("list_endpoint") == "https://fewa.vmk.hu/tmp/search_form_data.php"
+        and list_request == {"category": "s_all", "autocomplete": ""}
         and provenance.get("detail_endpoint") == "https://fewa.vmk.hu/tmp/all_unique_data.php"
         and provenance.get("record_id") == str(record.catalog_record_id)
         and set(detail_request) == {"id", "ip"}

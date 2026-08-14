@@ -51,8 +51,18 @@ def test_invalid_model_quote_cannot_prequalify():
 def test_fewa_catalog_is_provenance_not_candidate_and_source_url_is_imported():
     raw = json.dumps([{"Eredeti webcím (URL)": "https://example-fejer.hu/"}], ensure_ascii=False,
                      separators=(",", ":"), sort_keys=True)
+    list_response = json.dumps([{"id": 42, "standard_fewa_id": "fewa0000042", "uniform_title": "Example"}], ensure_ascii=False,
+                               separators=(",", ":"), sort_keys=True)
+    list_row = json.dumps({"id": 42, "standard_fewa_id": "fewa0000042", "uniform_title": "Example"}, ensure_ascii=False,
+                          separators=(",", ":"), sort_keys=True)
     provenance = tuple(sorted({
         "catalogue_origin": "https://fewa.vmk.hu",
+        "list_endpoint": "https://fewa.vmk.hu/tmp/search_form_data.php",
+        "list_request": '{"autocomplete":"","category":"s_all"}',
+        "list_response": list_response,
+        "list_response_sha256": sha256(list_response.encode()).hexdigest(),
+        "list_row": list_row,
+        "list_row_sha256": sha256(list_row.encode()).hexdigest(),
         "detail_endpoint": "https://fewa.vmk.hu/tmp/all_unique_data.php",
         "detail_request": '{"id":42,"ip":""}',
         "record_id": "42",

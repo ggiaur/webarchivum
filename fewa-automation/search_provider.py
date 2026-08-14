@@ -25,7 +25,7 @@ class SearchProvider(Protocol):
 class CatalogRecord:
     """A source site listed by an external catalogue such as FEWA.
 
-    ``catalog_url`` is provenance only; it is never emitted as the discovered
+    ``catalog_record_url`` is provenance only; it is never emitted as the discovered
     archive candidate.  ``raw_evidence`` preserves the rendered catalogue row
     used to locate the source URL.
     """

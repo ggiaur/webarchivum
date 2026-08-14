@@ -40,6 +40,45 @@ def _same_host(left: str, right: str) -> bool:
     return urlsplit(left).hostname == urlsplit(right).hostname
 
 
+_POLICY = {"allowed", "denied"}
+_ROBOTS = {"allowed", "denied"}
+_SECURITY = {"allowed", "rejected"}
+_SCOPE = {"in_scope", "external"}
+_SKIP_REASON = {
+    "policy_denied": "policy_decision",
+    "robots_denied": "robots_decision",
+    "security_rejected": "security_decision",
+    "external": "scope_decision",
+    "depth_limit": "hop",
+}
+
+
+def _semantic_edge_valid(event: EdgeEvent) -> bool:
+    """The policy decision matrix; unknown facts never default to allow."""
+    if (event.policy_decision not in _POLICY or event.robots_decision not in _ROBOTS
+            or event.security_decision not in _SECURITY or event.scope_decision not in _SCOPE
+            or event.decision not in {"capture", "skip"}):
+        return False
+    capture_allowed = (event.hop in {1, 2} and event.policy_decision == "allowed"
+                       and event.robots_decision == "allowed" and event.security_decision == "allowed"
+                       and event.scope_decision == "in_scope")
+    if capture_allowed:
+        return event.eligible and event.decision == "capture" and event.skip_reason is None
+    # A single deterministic primary skip reason prevents contradictory
+    # `eligible/capture` claims when several policy facts deny an edge.
+    if event.policy_decision == "denied":
+        expected = "policy_denied"
+    elif event.robots_decision == "denied":
+        expected = "robots_denied"
+    elif event.security_decision == "rejected":
+        expected = "security_rejected"
+    elif event.scope_decision == "external":
+        expected = "external"
+    else:
+        expected = "depth_limit"  # only remaining non-capture case is H3
+    return not event.eligible and event.decision == "skip" and event.skip_reason == expected
+
+
 def build_manifest(seed: str, plan_hash: str, events: list[EdgeEvent], captures: dict[str, bool], *,
                    stream_complete: bool = True) -> dict:
     """Derive a manifest only from a complete deterministic edge stream.
@@ -63,6 +102,9 @@ def build_manifest(seed: str, plan_hash: str, events: list[EdgeEvent], captures:
         if event.plan_hash != plan_hash or event.hop not in {1, 2, 3} or not all(required):
             valid = False
             continue
+        if not _semantic_edge_valid(event):
+            valid = False
+            continue
         key = (event.canonical_url, event.hop, event.parent_canonical_url)
         if key in seen_edges:
             valid = False
@@ -73,12 +115,7 @@ def build_manifest(seed: str, plan_hash: str, events: list[EdgeEvent], captures:
             valid = False
         elif event.hop > 1 and minimum_hop.get(event.parent_canonical_url or "") != event.hop - 1:
             valid = False
-        external = not _same_host(seed, event.canonical_url)
-        if event.hop == 3 and event.eligible:
-            valid = False
-        if external and event.eligible:
-            valid = False
-        if event.eligible and event.hop <= 2 and not external:
+        if event.eligible:
             previous = minimum_hop.get(event.canonical_url)
             if previous is not None and previous < event.hop:
                 # An observation cannot replace a previous smaller-hop page.

@@ -14,7 +14,7 @@ from hashlib import sha256
 
 def event(url, parent, hop, eligible=True, plan="p"):
     return EdgeEvent(
-        url, url, parent, hop, eligible, "capture" if eligible else "skip", None, plan,
+        url, url, parent, hop, eligible, "capture" if eligible else "skip", None if eligible else "depth_limit", plan,
         final_url=url, edge_source_page=parent or url, policy_decision="allowed",
         robots_decision="allowed", security_decision="allowed", scope_decision="in_scope",
         observed_at="2026-08-13T00:00:00Z",
@@ -47,6 +47,31 @@ def test_manifest_requires_explicit_policy_robots_security_scope_and_timestamp_f
     assert manifest["status"] == "crawl_incomplete"
 
 
+def test_every_deny_or_unknown_policy_fact_forces_ineligible_skip():
+    seed = "https://example.org/"
+    child = "https://example.org/a"
+    for field, value, skip in (
+        ("policy_decision", "denied", "policy_denied"),
+        ("robots_decision", "denied", "robots_denied"),
+        ("security_decision", "rejected", "security_rejected"),
+        ("scope_decision", "external", "external"),
+    ):
+        facts = {"policy_decision": "allowed", "robots_decision": "allowed",
+                 "security_decision": "allowed", "scope_decision": "in_scope"}
+        facts[field] = value
+        candidate = EdgeEvent(child, child, seed, 1, False, "skip", skip, "p", final_url=child,
+                              edge_source_page=seed, observed_at="now", **facts)
+        status = build_manifest(seed, "p", [candidate], {seed: True})["status"]
+        # A correctly evidenced exclusion can be a complete exploration, but
+        # it never becomes a capture requirement or eligible page.
+        assert status == "complete"
+        assert child not in build_manifest(seed, "p", [candidate], {seed: True})["required_capture_urls"]
+    unknown = EdgeEvent(child, child, seed, 1, False, "skip", "policy_denied", "p", final_url=child,
+                        edge_source_page=seed, observed_at="now", policy_decision="unknown",
+                        robots_decision="allowed", security_decision="allowed", scope_decision="in_scope")
+    assert build_manifest(seed, "p", [unknown], {seed: True})["status"] == "crawl_incomplete"
+
+
 def test_hash_bound_replay_evidence_is_required_for_a_positive_gate():
     seed = "https://example.org/"
     manifest = build_manifest(seed, "p", [event("https://example.org/a", seed, 1)],
@@ -69,7 +94,7 @@ class Store:
 def test_wacz_is_reread_and_requires_warc_and_cdxj():
     stream = BytesIO()
     with zipfile.ZipFile(stream, "w") as z:
-        z.writestr("archive/data.warc", b"WARC/1.0\r\nWARC-Type: response\r\nWARC-Target-URI: https://example.org/\r\nContent-Length: 0\r\n\r\n")
+        z.writestr("archive/data.warc", b"WARC/1.0\r\nWARC-Type: response\r\nWARC-Record-ID: <urn:uuid:1>\r\nWARC-Date: 2026-08-14T00:00:00Z\r\nWARC-Target-URI: https://example.org/\r\nContent-Length: 0\r\n\r\n")
         z.writestr("indexes/index.cdxj", 'org,example)/ 20260813000000 {"url":"https://example.org/"}\n')
     body = stream.getvalue()
     assert verify_wacz(Store(body), "x", "v1", sha256(body).hexdigest()).ok
@@ -79,7 +104,7 @@ def test_wacz_is_reread_and_requires_warc_and_cdxj():
 def test_browsertrix_compressed_cdx_index_is_a_valid_replay_index():
     stream = BytesIO()
     with zipfile.ZipFile(stream, "w") as z:
-        z.writestr("archive/data.warc", b"WARC/1.0\r\nWARC-Type: response\r\nWARC-Target-URI: https://example.org/\r\nContent-Length: 0\r\n\r\n")
+        z.writestr("archive/data.warc", b"WARC/1.0\r\nWARC-Type: response\r\nWARC-Record-ID: <urn:uuid:2>\r\nWARC-Date: 2026-08-14T00:00:00Z\r\nWARC-Target-URI: https://example.org/\r\nContent-Length: 0\r\n\r\n")
         z.writestr("indexes/index.cdx", "com,example)/ 20260813000000 https://example.org/ text/html 200 abc - - 0 1 x.warc\n")
     body = stream.getvalue()
     assert verify_wacz(Store(body), "x", "v1", sha256(body).hexdigest()).ok
@@ -93,6 +118,15 @@ def test_warc_content_length_cannot_claim_more_bytes_than_the_record_contains():
         z.writestr("indexes/index.cdx", "com,example)/ 20260813000000 https://example.org/ text/html 200 x - - 0 1 x.warc\n")
     body = stream.getvalue()
     assert verify_wacz(Store(body), "x", "v1", sha256(body).hexdigest()).reason == "warc_parse_failed"
+
+
+def test_warc_requires_exact_version_and_record_identity_headers():
+    stream = BytesIO()
+    with zipfile.ZipFile(stream, "w") as z:
+        z.writestr("archive/data.warc", b"WARC/1.2\r\nWARC-Type: response\r\nWARC-Date: 2026-08-14T00:00:00Z\r\nWARC-Target-URI: https://example.org/\r\nContent-Length: 0\r\n\r\n")
+        z.writestr("indexes/index.cdxj", 'org,example)/ 20260814000000 {"url":"https://example.org/"}\n')
+    body = stream.getvalue()
+    assert verify_wacz(Store(body), "x", "v", sha256(body).hexdigest()).reason == "warc_parse_failed"
 
 
 def test_executor_is_pinned_and_does_not_accept_tag_only_image():

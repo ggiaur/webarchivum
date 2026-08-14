@@ -5,6 +5,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from fewa_adapter import DETAIL_ENDPOINT, LIST_ENDPOINT, ORIGINAL_URL_FIELD, FewaCatalogueAdapter
+from discovery_worker import import_catalog
 
 
 class FixtureTransport:
@@ -54,3 +55,18 @@ def test_fewa_detail_missing_malformed_or_portal_url_is_review_not_candidate():
         result = FewaCatalogueAdapter(BadTransport(value), retrieved_at="now").enumerate_resolutions()[0]
         assert result.state == "review_required"
         assert result.record is None
+
+
+def test_only_the_hashed_list_member_can_cross_from_adapter_to_discovery():
+    class LLM:
+        model_id = "test"
+        model_digest = "sha256:test"
+        def classify(self, prompt):
+            quote = "Fejer"
+            return {"verdict": "fejer_positive", "evidence_spans": [{"start": 0, "end": 5, "quote": quote}]}
+
+    record = FewaCatalogueAdapter(FixtureTransport(), retrieved_at="now").enumerate_records()[0]
+    imported = import_catalog([record], lambda _: "Fejer county source", LLM(), budget_available=True,
+                              resolver=lambda _: ["93.184.216.34"])
+    assert imported[0].pinned_url is not None
+    assert imported[0].catalog_provenance is record

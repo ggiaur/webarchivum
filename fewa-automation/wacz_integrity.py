@@ -5,6 +5,7 @@ from hashlib import sha256
 from io import BytesIO
 import gzip
 import json
+from datetime import datetime
 from urllib.parse import urlsplit
 import zipfile
 from typing import Protocol
@@ -38,7 +39,7 @@ def _warc_targets(body: bytes) -> set[str]:
             offset += 4
         if offset == len(body):
             break
-        if not body[offset:].startswith(b"WARC/"):
+        if not body[offset:].startswith((b"WARC/1.0\r\n", b"WARC/1.1\r\n")):
             raise ValueError("WARC record header missing")
         header_end = body.find(b"\r\n\r\n", offset)
         if header_end < 0:
@@ -50,10 +51,19 @@ def _warc_targets(body: bytes) -> set[str]:
             if ":" in line:
                 key, value = line.split(":", 1)
                 headers[key.strip().lower()] = value.strip()
+        record_type = headers.get("warc-type")
         target = headers.get("warc-target-uri")
         content_length = headers.get("content-length")
-        if not headers.get("warc-type") or content_length is None or not content_length.isdigit():
+        if (record_type not in {"response", "resource", "request", "revisit", "metadata", "warcinfo"}
+                or not headers.get("warc-record-id") or not headers.get("warc-date")
+                or content_length is None or not content_length.isdigit()):
             raise ValueError("WARC required headers missing")
+        try:
+            datetime.fromisoformat(headers["warc-date"].replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("WARC-Date is invalid") from exc
+        if record_type != "warcinfo" and (not target or urlsplit(target).scheme not in {"http", "https"}):
+            raise ValueError("WARC target URI missing")
         content_start = header_end + 4
         content_end = content_start + int(content_length)
         if content_end > len(body):

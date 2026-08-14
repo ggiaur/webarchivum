@@ -70,9 +70,9 @@ class FewaCatalogueAdapter:
             try:
                 detail = self._transport.post_json(DETAIL_ENDPOINT, detail_request)
             except Exception:
-                output.append(self._review(record_id, title, "detail_request_failed", list_body, detail_request, None))
+                output.append(self._review(record_id, title, "detail_request_failed", list_body, detail_request, None, row))
                 continue
-            output.append(self._resolve(record_id, title, list_body, detail_request, detail))
+            output.append(self._resolve(record_id, title, list_body, row, detail_request, detail))
         return tuple(output)
 
     def enumerate_records(self) -> Sequence[CatalogRecord]:
@@ -84,40 +84,47 @@ class FewaCatalogueAdapter:
         """
         return tuple(item.record for item in self.enumerate_resolutions() if item.record is not None)
 
-    def _resolve(self, record_id: str, title: str, list_body: str,
+    def _resolve(self, record_id: str, title: str, list_body: str, list_row: dict[str, Any],
                  detail_request: dict[str, Any], detail: Any) -> FewaResolution:
         if not isinstance(detail, list) or not detail or not isinstance(detail[0], dict):
-            return self._review(record_id, title, "detail_invalid", list_body, detail_request, detail)
+            return self._review(record_id, title, "detail_invalid", list_body, detail_request, detail, list_row)
         original = detail[0].get(ORIGINAL_URL_FIELD)
         if not isinstance(original, str) or not original.strip():
-            return self._review(record_id, title, "original_url_missing", list_body, detail_request, detail)
+            return self._review(record_id, title, "original_url_missing", list_body, detail_request, detail, list_row)
         raw_url = original.strip()
         try:
             canonical = normalize_url(raw_url)
             if is_fewa_catalogue_url(canonical):
                 raise URLSecurityError("FEWA catalogue URL is not an archive candidate")
         except URLSecurityError:
-            return self._review(record_id, title, "original_url_rejected", list_body, detail_request, detail)
+            return self._review(record_id, title, "original_url_rejected", list_body, detail_request, detail, list_row)
         raw_detail = _canonical_json(detail)
-        provenance = self._provenance(record_id, list_body, detail_request, raw_detail)
+        provenance = self._provenance(record_id, list_body, list_row, detail_request, raw_detail)
         record_url = f"{DETAIL_ENDPOINT}#record={record_id}"
         return FewaResolution(record_id, title, "resolved", None,
                               CatalogRecord(record_url, canonical, self._retrieved_at, raw_detail,
                                             record_id, provenance), provenance)
 
     def _review(self, record_id: str, title: str, reason: str, list_body: str,
-                detail_request: dict[str, Any], detail: Any) -> FewaResolution:
+                detail_request: dict[str, Any], detail: Any, list_row: dict[str, Any] | None = None) -> FewaResolution:
         raw_detail = _canonical_json(detail) if detail is not None else ""
         return FewaResolution(record_id, title, "review_required", reason, None,
-                              self._provenance(record_id, list_body, detail_request, raw_detail))
+                              self._provenance(record_id, list_body, list_row, detail_request, raw_detail))
 
-    def _provenance(self, record_id: str, list_body: str, detail_request: dict[str, Any],
+    def _provenance(self, record_id: str, list_body: str, list_row: dict[str, Any] | None, detail_request: dict[str, Any],
                     raw_detail: str) -> tuple[tuple[str, str], ...]:
         return tuple(sorted({
             "catalogue_origin": FEWA_ORIGIN,
             "list_endpoint": LIST_ENDPOINT,
             "list_request": _canonical_json({"category": "s_all", "autocomplete": ""}),
+            # The full canonical response is an immutable input artifact in
+            # this isolated adapter.  S3 may replace this with a
+            # content-addressed object reference, but must preserve the hash
+            # and exact row evidence below.
+            "list_response": list_body,
             "list_response_sha256": sha256(list_body.encode()).hexdigest(),
+            "list_row": _canonical_json(list_row) if list_row is not None else "",
+            "list_row_sha256": sha256(_canonical_json(list_row).encode()).hexdigest() if list_row is not None else "",
             "detail_endpoint": DETAIL_ENDPOINT,
             "detail_request": _canonical_json(detail_request),
             "detail_response": raw_detail,
