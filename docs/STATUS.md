@@ -109,3 +109,41 @@ A projekt 100%-ban felpusholva a Git repóba (`master` ág). Bármely másik gé
 - [0003] SimHash Hamming-küszöb default=3 → elfogadva Phase 2-ben
 - [0004] Explicit Auth API végpontok (/api/auth/login, /refresh, /logout) → elfogadva Phase 3-ban
 - [0005] Egyetlen Next.js 15 projekt App Router route groupokkal (`(public)` SSR + `(admin)` SPA) → elfogadva Phase 5.7-ben
+
+### ARCH-01 — AUDITÁLT ÚJRANYITÁSI ENGEDÉLY (2026-08-13)
+
+Ez a bejegyzés nem módosítja a fenti, történeti lezárásokat.  Az ARCH-01-ben
+csak a célzott Sonnet re-review `ELFOGADVA` verdictje után, az alábbi
+fájltulajdonnal és sorrendben szabad új munkát kezdeni.
+
+- **S1, kizárólagos owner:** `docs/adr/0002-arch-01-release-state-machine.md`
+  (új), `spec/migrations/005_arch_01_pipeline.sql` (új),
+  `spec/pipeline_schemas.py`, `spec/openapi.yaml`,
+  `fewa-v3-backend/tests/test_arch01_migration.py` (új),
+  `fewa-v3-backend/tests/test_arch01_contract.py` (új). A lezárt
+  `spec/schema.sql` nem nyitható újra: a változás csak verziózott migration.
+- **S2, kizárólag új fájlok:** `fewa-automation/url_security.py`,
+  `search_provider.py`, `discovery_llm.py`, `discovery_worker.py`,
+  `crawl_manifest.py`, `wacz_integrity.py`, `qa_gate.py`, `executor.py`,
+  `Dockerfile.executor`, valamint az azonos nevű új célzott tesztek. S2 csak
+  S1 elfogadott séma- és szerződéskimenetére épülhet.
+- **S3, FELTÉTELES ÚJRANYITÁS:** `fewa-automation/crawler.py`,
+  `fewa-automation/tests/test_crawler.py`,
+  `fewa-v3-backend/app/api/v1/jobs.py`, `app/core/config.py`,
+  `app/core/minio_client.py`, `app/crud/archive.py`, `app/workers/arq_worker.py`,
+  `tests/test_archive_crud.py`, `tests/test_arq_worker.py`,
+  `tests/test_jobs_api.py`, `fewa-v3-backend/Dockerfile`,
+  `docker-compose.yml`, `docker-compose.test.yml`, `.env.example`, és az új
+  `infra/egress/egress-policy.yaml`, `tests/fixtures/arch01_site/app.py`,
+  `tests/test_arch01_compose_e2e.py`, `tests/test_nginx_contract.py`.
+  Ezek csak S1+S2 elfogadása **és** az aktuális diff tulajdonosának írásos
+  checkpoint/handoffja után nyithatók újra.
+
+**In-flight tilalom:** a jelenleg módosított `crawler.py`,
+`test_crawler.py`, `jobs.py`, `minio_client.py`, `archive.py`, `arq_worker.py`,
+`test_archive_crud.py`, `test_arq_worker.py` és `test_jobs_api.py` más builder
+számára addig TILTOTT. Nem felülírhatók, nem részlegesen merge-elhetők és nem
+vehetők át hallgatólagosan; a handoffnak a base commitot, diff hash-t, futtatott
+tesztet, ismert hibákat és az átvevő nevét kell rögzítenie a
+`COLLAB_GEMINI.md`-ben. A fenti engedély nem ad deploy-, Nginx- vagy
+titokmódosítási jogosultságot.

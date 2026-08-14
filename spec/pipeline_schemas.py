@@ -5,10 +5,11 @@
 # Phase 4 — spec-first megközelítés
 # =============================================================================
 
+from enum import Enum
 from typing import Literal, Optional, List
 from uuid import UUID
 from datetime import datetime
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
 
 # -----------------------------------------------------------------------------
@@ -172,3 +173,104 @@ class ReembedJobPayload(BaseModel):
     target_embedding_model: str = "nomic-embed-text"
     target_embedding_version: str = "1.5"
     batch_size: int = Field(default=100, ge=1, le=1000)
+
+
+# -----------------------------------------------------------------------------
+# 8. ARCH-01 discovery, policy and release boundary
+# -----------------------------------------------------------------------------
+# These are deliberately separate from the legacy V3.1 CrawlJobPayload above.
+# ARCH-01 callers select a server-approved revision; they cannot provide depth,
+# page/byte/time limits, snapshot IDs or a release state.
+
+
+class CandidateOrigin(str, Enum):
+    discovery = "discovery"
+    manual = "manual"
+    legacy_migration = "legacy_migration"
+
+
+class DiscoveryDecisionSource(str, Enum):
+    deterministic = "deterministic"
+    llm = "llm"
+    provider_failure = "provider_failure"
+    budget_exhausted = "budget_exhausted"
+    model_failure = "model_failure"
+    security_rejected = "security_rejected"
+    manual = "manual"
+    legacy_migration = "legacy_migration"
+
+
+class DiscoveryReasonCode(str, Enum):
+    locality_match = "locality_match"
+    non_local = "non_local"
+    content_uncertain = "content_uncertain"
+    duplicate = "duplicate"
+    prior_suppression = "prior_suppression"
+    provider_failed = "provider_failed"
+    budget_exhausted = "budget_exhausted"
+    model_timeout = "model_timeout"
+    model_invalid_output = "model_invalid_output"
+    evidence_invalid = "evidence_invalid"
+    prompt_injection_signal = "prompt_injection_signal"
+    security_rejected = "security_rejected"
+    policy_rejected = "policy_rejected"
+    manual_review = "manual_review"
+    legacy_candidate_requires_reapproval = "legacy_candidate_requires_reapproval"
+    legacy_approval_requires_reapproval = "legacy_approval_requires_reapproval"
+    legacy_inflight_requires_reapproval = "legacy_inflight_requires_reapproval"
+    legacy_artifact_retained = "legacy_artifact_retained"
+    legacy_deprecated_retained = "legacy_deprecated_retained"
+
+
+class DiscoveryCandidateSubmission(BaseModel):
+    """The only client-submittable manual intake shape in ARCH-01."""
+
+    landing_url: HttpUrl
+    model_config = ConfigDict(extra="forbid")
+    submitter_rationale: str = Field(min_length=1, max_length=2_000)
+    immutable_submission_evidence: dict = Field(default_factory=dict)
+    candidate_origin: Literal["manual"] = "manual"
+    state: Literal["uncertain"] = "uncertain"
+    decision_source: Literal["manual"] = "manual"
+    reason_code: Literal["manual_review"] = "manual_review"
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_client_controlled_internal_fields(cls, value: object) -> object:
+        if isinstance(value, dict) and "candidate_origin" in value:
+            raise ValueError("candidate_origin is server-assigned to manual")
+        return value
+
+
+class CrawlPlanReference(BaseModel):
+    """Server-side execution reference: no caller-controlled crawl limits."""
+
+    model_config = ConfigDict(extra="forbid")
+    policy_revision_id: UUID
+
+
+class Arch01CrawlJobPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    snapshot_id: UUID
+    policy_revision_id: UUID
+    crawl_plan_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    idempotency_key: str = Field(min_length=1, max_length=255)
+
+
+class ReleaseDecisionPayload(BaseModel):
+    """Hash-bound release request with its required idempotency identity."""
+
+    model_config = ConfigDict(extra="forbid")
+    idempotency_key: str = Field(min_length=1, max_length=255)
+    curator_id: UUID
+    admin_id: UUID
+    curator_reason: str = Field(min_length=1, max_length=2_000)
+    admin_reason: str = Field(min_length=1, max_length=2_000)
+    gate_matrix_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    artifact_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+    @model_validator(mode="after")
+    def distinct_principals(self) -> "ReleaseDecisionPayload":
+        if self.curator_id == self.admin_id:
+            raise ValueError("ARCH-01 release requires distinct curator and admin principals")
+        return self

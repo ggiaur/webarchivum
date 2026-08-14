@@ -33,8 +33,7 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: JWT RS256 token. Szerepkörök (növekvő jogosultság sorrend):
-        guest < viewer < indexer < curator < archivist < admin
+      description: "JWT RS256 token. Szerepkörök (növekvő jogosultság sorrend): guest < viewer < indexer < curator < archivist < admin"
 
   # ===========================================================================
   # Schemas
@@ -894,9 +893,84 @@ components:
         - crawling
         - archived
         - indexed
+        - migration_hold
+        - archived_pending_qc
+        - qc_passed_pending_release
+        - qc_review_required
+        - integrity_failed
         - published
         - deprecated
         - withdrawn
+
+    ReleaseState:
+      type: string
+      enum: [not_ready, review_required, release_pending, released, held, withdrawn]
+
+    CandidateOrigin:
+      type: string
+      enum: [discovery, manual, legacy_migration]
+
+    DiscoveryDecisionSource:
+      type: string
+      enum: [deterministic, llm, provider_failure, budget_exhausted, model_failure, security_rejected, manual, legacy_migration]
+
+    DiscoveryReasonCode:
+      type: string
+      enum: [locality_match, non_local, content_uncertain, duplicate, prior_suppression, provider_failed, budget_exhausted, model_timeout, model_invalid_output, evidence_invalid, prompt_injection_signal, security_rejected, policy_rejected, manual_review, legacy_candidate_requires_reapproval, legacy_approval_requires_reapproval, legacy_inflight_requires_reapproval, legacy_artifact_retained, legacy_deprecated_retained]
+
+    ManualCandidateSubmission:
+      type: object
+      description: Manual intake is evidence-only; it cannot carry approval, policy, snapshot, queue or release fields.
+      required: [landing_url, submitter_rationale]
+      additionalProperties: false
+      properties:
+        landing_url:
+          type: string
+          format: uri
+        submitter_rationale:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        immutable_submission_evidence:
+          type: object
+          additionalProperties: true
+
+    CrawlPlanReference:
+      type: object
+      description: The caller selects only an already approved policy revision; limits are server-side immutable plan data.
+      required: [policy_revision_id]
+      additionalProperties: false
+      properties:
+        policy_revision_id:
+          $ref: '#/components/schemas/UUID'
+
+    ReleaseDecisionRequest:
+      type: object
+      required: [idempotency_key, curator_id, admin_id, curator_reason, admin_reason, gate_matrix_hash, artifact_sha256]
+      additionalProperties: false
+      properties:
+        idempotency_key:
+          type: string
+          minLength: 1
+          maxLength: 255
+        curator_id:
+          $ref: '#/components/schemas/UUID'
+        admin_id:
+          $ref: '#/components/schemas/UUID'
+        curator_reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        admin_reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        gate_matrix_hash:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        artifact_sha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
 
     CrawlPriority:
       type: string
@@ -1036,6 +1110,64 @@ components:
 # =============================================================================
 
 paths:
+
+  # ---------------------------------------------------------------------------
+  # ARCH-01 — candidate and release gates (contract-first; implementation S3)
+  # ---------------------------------------------------------------------------
+
+  /api/admin/discovery-candidates/manual:
+    post:
+      operationId: submit_manual_discovery_candidate
+      summary: Manual candidate submission for curator review
+      tags: [Admin]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManualCandidateSubmission'
+      responses:
+        '202':
+          description: Uncertain manual candidate retained for review; no snapshot or crawl was created.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/admin/snapshots/{snapshot_id}/release:
+    post:
+      operationId: release_arch01_snapshot
+      summary: Hash-bound, idempotent ARCH-01 release decision
+      tags: [Admin]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: snapshot_id
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReleaseDecisionRequest'
+      responses:
+        '200':
+          description: Original or newly recorded release outcome.
+        '409':
+          description: Idempotency key was reused with different material input.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
 
   # ---------------------------------------------------------------------------
   # Health
