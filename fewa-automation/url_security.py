@@ -61,15 +61,21 @@ def _canonical_parts(value: str) -> SplitResult:
         raise URLSecurityError("non-default ports are prohibited")
     if port == 443 and parts.scheme.lower() != "https":
         raise URLSecurityError("non-default ports are prohibited")
+    # First remove the DNS presentation-only root dot.  Numeric host checks
+    # must run on this canonical host, otherwise `0x7f000001.` could evade a
+    # pre-normalisation check and be interpreted by a downstream resolver.
+    hostname = parts.hostname.rstrip(".")
+    if not hostname:
+        raise URLSecurityError("invalid hostname")
     try:
-        ipaddress.ip_address(parts.hostname)
+        ipaddress.ip_address(hostname)
     except ValueError:
         pass
     else:
         raise URLSecurityError("literal IP addresses are prohibited")
     # Decimal/octal/hex IPv4 spellings are intentionally rejected rather than
     # delegated to platform-specific socket parsing.
-    hostname = parts.hostname.lower()
+    hostname = hostname.lower()
     numeric_label = re.compile(r"(?:0x[0-9a-f]+|0[0-7]*|[0-9]+)$", re.IGNORECASE)
     if hostname.replace(".", "").isdigit() or all(numeric_label.fullmatch(label) for label in hostname.split(".")):
         raise URLSecurityError("numeric host notation is prohibited")

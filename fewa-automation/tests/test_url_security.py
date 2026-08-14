@@ -21,7 +21,13 @@ def test_terminal_dot_case_idna_and_default_port_share_one_authority():
 @pytest.mark.parametrize("url", ["file:///etc/passwd", "http://127.0.0.1/", "http://2130706433/",
                                   "http://user@example.com/", "https://example.com:8080/", "https://[::1]/"])
 def test_rejects_ssrf_and_url_ambiguity(url):
-    with pytest.raises(URLSecurityError): normalize_url(url)
+        with pytest.raises(URLSecurityError): normalize_url(url)
+
+
+@pytest.mark.parametrize("url", ["https://0x7f000001./", "https://0x7f.0x0.0x0.0x1./", "https://127.0.0.1./"])
+def test_numeric_host_forms_with_terminal_dns_dot_are_rejected_before_resolution(url):
+    with pytest.raises(URLSecurityError):
+        resolve_and_pin(url, lambda _: ["93.184.216.34"])
 
 
 def test_mixed_dns_rejected_before_any_connection():
