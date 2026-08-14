@@ -18,6 +18,13 @@ class URLSecurityError(ValueError):
     pass
 
 
+def _strip_single_terminal_root_dot(hostname: str) -> str:
+    """Normalise one DNS root dot; reject ambiguous repeated-dot spellings."""
+    if hostname.endswith(".."):
+        raise URLSecurityError("hostname has multiple terminal root dots")
+    return hostname[:-1] if hostname.endswith(".") else hostname
+
+
 @dataclass(frozen=True)
 class PinnedURL:
     original_url: str
@@ -64,7 +71,7 @@ def _canonical_parts(value: str) -> SplitResult:
     # First remove the DNS presentation-only root dot.  Numeric host checks
     # must run on this canonical host, otherwise `0x7f000001.` could evade a
     # pre-normalisation check and be interpreted by a downstream resolver.
-    hostname = parts.hostname.rstrip(".")
+    hostname = _strip_single_terminal_root_dot(parts.hostname)
     if not hostname:
         raise URLSecurityError("invalid hostname")
     try:
@@ -89,7 +96,7 @@ def normalize_url(value: str) -> str:
         # DNS terminal root dots are presentation syntax, not a different
         # authority.  Remove them before IDNA/case canonicalisation so every
         # S2 consumer (scope, FEWA self exclusion, pin plans) sees one host.
-        host = parts.hostname.rstrip(".").encode("idna").decode("ascii").lower()
+        host = _strip_single_terminal_root_dot(parts.hostname).encode("idna").decode("ascii").lower()
     except UnicodeError as exc:
         raise URLSecurityError("invalid hostname") from exc
     if not host:

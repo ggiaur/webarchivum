@@ -30,6 +30,12 @@ def test_numeric_host_forms_with_terminal_dns_dot_are_rejected_before_resolution
         resolve_and_pin(url, lambda _: ["93.184.216.34"])
 
 
+@pytest.mark.parametrize("url", ["https://example.org../", "https://example.org.../", "https://0x7f000001../"])
+def test_multiple_terminal_dns_dots_are_invalid_before_resolution(url):
+    with pytest.raises(URLSecurityError):
+        resolve_and_pin(url, lambda _: ["93.184.216.34"])
+
+
 def test_mixed_dns_rejected_before_any_connection():
     with pytest.raises(URLSecurityError, match="mixed"):
         resolve_and_pin("https://example.org", lambda _: ["93.184.216.34", "169.254.169.254"])
