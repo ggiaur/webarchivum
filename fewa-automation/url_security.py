@@ -49,6 +49,17 @@ def _canonical_dns_hostname(hostname: str) -> str:
     labels = ascii_host.split(".")
     if any(not _DNS_LABEL.fullmatch(label) for label in labels):
         raise URLSecurityError("hostname syntax is invalid")
+    # LDH syntax alone is insufficient for reserved IDNA A-labels.  A malformed
+    # `xn--` string must not reach a resolver merely because it looks like a
+    # legal DNS label; require decoding and a canonical IDNA round trip.
+    for label in labels:
+        if label.lower().startswith("xn--"):
+            try:
+                decoded = label.encode("ascii").decode("idna")
+                if decoded.encode("idna").decode("ascii").lower() != label.lower():
+                    raise UnicodeError("non-canonical IDNA A-label")
+            except UnicodeError as exc:
+                raise URLSecurityError("invalid IDNA A-label") from exc
     return ascii_host
 
 

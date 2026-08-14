@@ -136,6 +136,15 @@ def test_invalid_dns_host_cannot_be_recorded_as_a_complete_external_skip():
     assert build_manifest(seed, "p", [event], {seed: True})["status"] == "crawl_incomplete"
 
 
+def test_malformed_idna_alabel_cannot_be_recorded_as_external_skip():
+    seed = "https://example.org/"
+    invalid = "https://xn--a.example/a"
+    event = EdgeEvent(invalid, invalid, seed, 1, False, "skip", "external", "p", final_url=invalid,
+                      edge_source_page=seed, policy_decision="allowed", robots_decision="allowed",
+                      security_decision="allowed", scope_decision="external", observed_at="now")
+    assert build_manifest(seed, "p", [event], {seed: True})["status"] == "crawl_incomplete"
+
+
 def test_hash_bound_replay_evidence_is_required_for_a_positive_gate():
     seed = "https://example.org/"
     manifest = build_manifest(seed, "p", [event("https://example.org/a", seed, 1)],

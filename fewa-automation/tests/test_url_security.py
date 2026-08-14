@@ -61,6 +61,16 @@ def test_invalid_dns_hostname_syntax_or_length_rejects_before_resolution(host):
         resolve_and_pin(f"https://{host}/", lambda _: ["93.184.216.34"])
 
 
+@pytest.mark.parametrize("host", ["xn--.example", "xn--a.example", "xn--invalid-.example", "xn--abc-.example"])
+def test_malformed_idna_a_labels_reject_before_resolution(host):
+    with pytest.raises(URLSecurityError):
+        resolve_and_pin(f"https://{host}/", lambda _: ["93.184.216.34"])
+
+
+def test_legitimate_punycode_a_label_remains_a_valid_hostname():
+    assert normalize_url("https://xn--bcher-kva.example/") == "https://xn--bcher-kva.example/"
+
+
 def test_mixed_dns_rejected_before_any_connection():
     with pytest.raises(URLSecurityError, match="mixed"):
         resolve_and_pin("https://example.org", lambda _: ["93.184.216.34", "169.254.169.254"])
