@@ -23,6 +23,16 @@ must be given explicitly once autoclick is added, or the other defaults
 
 import json
 import subprocess
+
+# browsertrix-crawler's own ExitCodes enum (dist/util/constants.js) defines
+# 14 (SizeLimit) and 15 (TimeLimit) as deliberate, graceful stops once a
+# configured --sizeLimit/--timeLimit is hit — NOT crashes. Verified
+# 2026-08-02 after two real production crawls (521MB and 501MB WACZ files,
+# against a 500MB --sizeLimit) were being discarded as "failed" solely
+# because this treated any nonzero exit as an error, despite a complete,
+# valid WACZ already sitting on disk. Still gated on wacz_path.exists() —
+# hitting a limit before any output existed is a real failure.
+GRACEFUL_STOP_RETURN_CODES = {0, 14, 15}
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -47,6 +57,10 @@ class CrawlResult:
     wacz_path: Path | None
     returncode: int
     stderr_tail: str
+    # HTTP status Browsertrix itself recorded for the seed page, read from
+    # its own pages.jsonl. None = unknown (couldn't read/parse it) — NOT a
+    # stand-in for "assume it worked". See _read_seed_http_status.
+    seed_http_status: int | None = None
 
 
 @dataclass
@@ -136,14 +150,52 @@ def run_crawl(
         )
 
     wacz_path = output_dir / collection / f"{collection}.wacz"
-    success = result.returncode == 0 and wacz_path.exists()
+    success = result.returncode in GRACEFUL_STOP_RETURN_CODES and wacz_path.exists()
 
     return CrawlResult(
         success=success,
         wacz_path=wacz_path if wacz_path.exists() else None,
         returncode=result.returncode,
         stderr_tail=result.stderr[-2000:] if result.stderr else "",
+        seed_http_status=_read_seed_http_status(output_dir / collection),
     )
+
+
+def _read_seed_http_status(collection_dir: Path) -> int | None:
+    """The HTTP status Browsertrix itself recorded for the seed page, read
+    from its own pages/pages.jsonl (one JSON object per line; the first
+    line is a format header, not a page record — see real sample output,
+    2026-08-02: {"format":"json-pages-1.0","id":"pages",...} then per-page
+    records with "seed":true/"status":<code>).
+
+    Real incident this exists for: a seed URL that returns a genuine HTTP
+    404 still produces a perfectly valid, complete WACZ of that 404 page —
+    crawling succeeds by every technical measure. Browsertrix's own QA mode
+    then re-crawls the SAME dead URL live, finds it still 404s, and reports
+    near-perfect similarity — both sides are the same "not found" page. A
+    site returning garbage doesn't stop being garbage just because it's
+    consistent garbage; nothing about a similarity score can tell the two
+    apart. This is the actual signal that can: a real page returns 2xx.
+
+    Returns None (not True/False) when the file is missing or unreadable —
+    an absent signal, which callers must treat as "can't tell," not as
+    quiet permission to proceed.
+    """
+    pages_path = collection_dir / "pages" / "pages.jsonl"
+    if not pages_path.exists():
+        return None
+    try:
+        with open(pages_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                record = json.loads(line)
+                if record.get("seed") and "status" in record:
+                    return record["status"]
+    except (json.JSONDecodeError, OSError):
+        return None
+    return None
 
 
 def run_qa(

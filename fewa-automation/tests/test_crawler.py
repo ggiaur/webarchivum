@@ -108,6 +108,127 @@ def test_run_crawl_reports_nonzero_exit_code(tmp_path, monkeypatch):
     assert result.returncode == 1
 
 
+def test_run_crawl_treats_size_limit_exit_code_as_success(tmp_path, monkeypatch):
+    """Regression test for the 2026-08-02 incident: returncode=14 is
+    browsertrix-crawler's own ExitCodes.SizeLimit (see its dist/util/
+    constants.js) — a deliberate, graceful stop once --sizeLimit is hit,
+    not a crash. Two real production crawls (521MB and 501MB WACZ files,
+    both against a 500MB --sizeLimit) were being discarded as "failed"
+    because this treated any nonzero exit as an error, even though a
+    complete, valid WACZ had already been written."""
+    def fake_run(cmd, capture_output, text, timeout):
+        (tmp_path / "mycol").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "mycol" / "mycol.wacz").write_bytes(b"fake wacz content")
+        return _FakeCompletedProcess(returncode=14)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result = run_crawl("https://example.hu/", "mycol", tmp_path)
+
+    assert result.success is True
+    assert result.wacz_path == tmp_path / "mycol" / "mycol.wacz"
+    assert result.returncode == 14
+
+
+def test_run_crawl_treats_time_limit_exit_code_as_success(tmp_path, monkeypatch):
+    """Same as above for returncode=15 (ExitCodes.TimeLimit) — hitting
+    --timeLimit is an expected, graceful stop for a bounded crawl."""
+    def fake_run(cmd, capture_output, text, timeout):
+        (tmp_path / "mycol").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "mycol" / "mycol.wacz").write_bytes(b"fake wacz content")
+        return _FakeCompletedProcess(returncode=15)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result = run_crawl("https://example.hu/", "mycol", tmp_path)
+
+    assert result.success is True
+    assert result.returncode == 15
+
+
+def test_run_crawl_reports_seed_http_status_from_pages_jsonl(tmp_path, monkeypatch):
+    """Regression test for the 2026-08-02 incident: a seed URL that returns
+    a real HTTP 404 (szgyf.gov.hu/kirendeltsegek-2/fejer-megye — a genuinely
+    dead link, confirmed 404 on 4 separate real crawls) still produces a
+    perfectly valid, complete WACZ of the 404 page, and Browsertrix's own
+    QA re-crawls the SAME dead link live and finds it matches almost
+    perfectly — because both sides are the same 404 page. That combination
+    auto-published a "Page not found" screen as archived content with a
+    96% quality score. Browsertrix's crawl already records the real HTTP
+    status per page in pages.jsonl; run_crawl must surface it so callers
+    can gate on it BEFORE trusting any similarity score."""
+    def fake_run(cmd, capture_output, text, timeout):
+        coll_dir = tmp_path / "mycol"
+        coll_dir.mkdir(parents=True, exist_ok=True)
+        (coll_dir / "mycol.wacz").write_bytes(b"fake wacz content")
+        pages_dir = coll_dir / "pages"
+        pages_dir.mkdir(exist_ok=True)
+        (pages_dir / "pages.jsonl").write_text(
+            json.dumps({"format": "json-pages-1.0", "id": "pages"}) + "\n" +
+            json.dumps({"url": "https://example.hu/", "status": 404, "seed": True}) + "\n"
+        )
+        return _FakeCompletedProcess(returncode=0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result = run_crawl("https://example.hu/", "mycol", tmp_path)
+
+    assert result.success is True
+    assert result.seed_http_status == 404
+
+
+def test_run_crawl_seed_http_status_is_200_for_normal_page(tmp_path, monkeypatch):
+    def fake_run(cmd, capture_output, text, timeout):
+        coll_dir = tmp_path / "mycol"
+        coll_dir.mkdir(parents=True, exist_ok=True)
+        (coll_dir / "mycol.wacz").write_bytes(b"fake wacz content")
+        pages_dir = coll_dir / "pages"
+        pages_dir.mkdir(exist_ok=True)
+        (pages_dir / "pages.jsonl").write_text(
+            json.dumps({"format": "json-pages-1.0", "id": "pages"}) + "\n" +
+            json.dumps({"url": "https://example.hu/", "status": 200, "seed": True}) + "\n"
+        )
+        return _FakeCompletedProcess(returncode=0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result = run_crawl("https://example.hu/", "mycol", tmp_path)
+
+    assert result.seed_http_status == 200
+
+
+def test_run_crawl_seed_http_status_is_none_when_pages_jsonl_missing(tmp_path, monkeypatch):
+    """Older/incompatible Browsertrix output, or a crawl mode that doesn't
+    write pages.jsonl — must not crash the whole crawl over this. None
+    means "unknown," not "assume success" — callers must not silently
+    treat unknown as safe."""
+    def fake_run(cmd, capture_output, text, timeout):
+        (tmp_path / "mycol").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "mycol" / "mycol.wacz").write_bytes(b"fake wacz content")
+        return _FakeCompletedProcess(returncode=0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result = run_crawl("https://example.hu/", "mycol", tmp_path)
+
+    assert result.success is True
+    assert result.seed_http_status is None
+
+
+def test_run_crawl_size_or_time_limit_without_wacz_is_still_failure(tmp_path, monkeypatch):
+    """A graceful-stop exit code is only success if a WACZ actually got
+    written — if the limit hit before any usable output existed, it's
+    still a real failure, same as returncode=0 with no WACZ."""
+    def fake_run(cmd, capture_output, text, timeout):
+        return _FakeCompletedProcess(returncode=14)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result = run_crawl("https://example.hu/", "mycol", tmp_path)
+
+    assert result.success is False
+
+
 # --- Cookie-consent autoclick ---------------------------------------------
 
 def test_run_crawl_enables_autoclick_with_default_cookie_selector(tmp_path, monkeypatch):
