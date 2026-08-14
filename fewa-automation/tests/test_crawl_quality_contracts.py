@@ -202,6 +202,20 @@ def test_warc_requires_exact_version_and_record_identity_headers():
     assert verify_wacz(Store(body), "x", "v", sha256(body).hexdigest()).reason == "warc_parse_failed"
 
 
+def test_warcinfo_target_cannot_satisfy_wacz_replay_index_binding():
+    target = "https://example.org/"
+    stream = BytesIO()
+    with zipfile.ZipFile(stream, "w") as z:
+        z.writestr("archive/meta.warc", (
+            "WARC/1.1\r\nWARC-Type: warcinfo\r\nWARC-Record-ID: <urn:uuid:info>\r\n"
+            "WARC-Date: 2026-08-14T00:00:00Z\r\n"
+            f"WARC-Target-URI: {target}\r\nContent-Length: 0\r\n\r\n"
+        ).encode())
+        z.writestr("indexes/index.cdxj", f'org,example)/ 20260814000000 {{"url":"{target}"}}\n')
+    body = stream.getvalue()
+    assert verify_wacz(Store(body), "x", "v", sha256(body).hexdigest()).reason == "warc_parse_failed"
+
+
 def test_executor_is_pinned_and_does_not_accept_tag_only_image():
     seed = resolve_and_pin("https://example.org/", lambda _: ["93.184.216.34"])
     assert build_plan(seed, "browsertrix@sha256:" + "a" * 64, "egress-v1").seed.pinned_ip == "93.184.216.34"

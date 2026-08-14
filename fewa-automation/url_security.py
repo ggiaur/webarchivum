@@ -141,9 +141,21 @@ def normalize_url(value: str) -> str:
 
 def _is_public(address: str) -> bool:
     ip = ipaddress.ip_address(address)
+    # IPv6 globally-routable syntax can embed an IPv4 address with a *local*
+    # security classification.  Check all supported embedded-IPv4 forms before
+    # deciding the outer address is public: mapped, RFC 6052 well-known NAT64,
+    # and legacy IPv4-compatible ::x.x.x.x.
+    if isinstance(ip, ipaddress.IPv6Address):
+        embedded = ip.ipv4_mapped
+        if embedded is None and ip in ipaddress.IPv6Network("64:ff9b::/96"):
+            embedded = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
+        if embedded is None and (int(ip) >> 32) == 0:
+            embedded = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
+        if embedded is not None:
+            return embedded.is_global
     # ``is_global`` excludes private, loopback, link-local, multicast,
-    # unspecified, documentation and IPv4-mapped/private IPv6 addresses.
-    return ip.is_global and not (isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped)
+    # unspecified and reserved address ranges.
+    return ip.is_global
 
 
 Resolver = Callable[[str], DNSResolution | Iterable[str]]

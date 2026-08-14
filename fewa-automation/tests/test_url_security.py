@@ -71,6 +71,24 @@ def test_legitimate_punycode_a_label_remains_a_valid_hostname():
     assert normalize_url("https://xn--bcher-kva.example/") == "https://xn--bcher-kva.example/"
 
 
+@pytest.mark.parametrize(
+    ("address", "accepted"),
+    [
+        ("64:ff9b::a9fe:a9fe", False),  # NAT64 169.254.169.254 metadata
+        ("64:ff9b::5db8:d822", True),   # NAT64 93.184.216.34 public control
+        ("::7f00:1", False),            # IPv4-compatible 127.0.0.1
+        ("::a9fe:a9fe", False),         # IPv4-compatible metadata
+        ("::5db8:d822", True),          # IPv4-compatible public control
+    ],
+)
+def test_embedded_ipv4_ipv6_policy_uses_embedded_ipv4_publicness(address, accepted):
+    if accepted:
+        assert resolve_and_pin("https://example.org/", lambda _: [address]).pinned_ip == address
+    else:
+        with pytest.raises(URLSecurityError):
+            resolve_and_pin("https://example.org/", lambda _: [address])
+
+
 def test_mixed_dns_rejected_before_any_connection():
     with pytest.raises(URLSecurityError, match="mixed"):
         resolve_and_pin("https://example.org", lambda _: ["93.184.216.34", "169.254.169.254"])

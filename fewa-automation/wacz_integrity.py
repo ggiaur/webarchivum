@@ -70,7 +70,11 @@ def _warc_targets(body: bytes) -> set[str]:
             raise ValueError("WARC Content-Length does not match available body")
         if content_end < len(body) and body[content_end:content_end + 4] != b"\r\n\r\n":
             raise ValueError("WARC record framing after Content-Length is invalid")
-        if target and urlsplit(target).scheme in {"http", "https"}:
+        # Only actual captured-content records prove that a URL is present in
+        # the archive.  Crawl metadata/request records can carry a target but
+        # must never satisfy WARC↔replay-index binding on their own.
+        if (record_type in {"response", "resource", "revisit"}
+                and target and urlsplit(target).scheme in {"http", "https"}):
             targets.add(target)
         offset = content_end
     return targets
