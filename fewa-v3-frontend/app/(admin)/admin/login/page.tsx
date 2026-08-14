@@ -22,8 +22,11 @@ export default function AdminLoginPage() {
       });
 
       if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.detail || 'Érvénytelen bejelentkezési adatok.');
+        const errData = await res.json().catch(() => null);
+        throw new Error(
+          errData?.detail ||
+            'A bejelentkezési szolgáltatás átmenetileg nem elérhető. Próbáld újra később.'
+        );
       }
 
       const data = await res.json();

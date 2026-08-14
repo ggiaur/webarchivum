@@ -45,11 +45,76 @@ interface DocumentDetail {
 
 type LoadState = { status: 'loading' } | { status: 'error' } | { status: 'ready'; doc: DocumentDetail };
 
+const MAX_REPLAY_RETRIES = 4;
+
 export default function DocumentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const [activeTab, setActiveTab] = useState<'replay' | 'summary' | 'metadata'>('replay');
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const [rwpReady, setRwpReady] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
+  const [retryCount, setRetryCount] = useState(0);
+  const replayContainerRef = React.useRef<HTMLDivElement>(null);
+
+  // Regression fix for 2026-08-03, real root cause found via direct
+  // instrumentation (captured Response.fromServiceWorker() on every
+  // /replay/ request in a fresh browser context): mounting
+  // <replay-web-page> is what makes ui.js kick off Service Worker
+  // registration in the first place (its connectedCallback triggers it) —
+  // an EARLIER fix gated mounting on "SW already active", which is a
+  // deadlock (registration never starts because the element that starts it
+  // never mounts). Mounting must be unconditional (as soon as ui.js itself
+  // has loaded). On a brand-new visit, the iframe's OWN first navigation to
+  // /replay/?source=... can start before that registration has reached
+  // 'activated', so it bypasses the worker entirely and lands on Next.js's
+  // plain 404 page instead of being served by the SW (confirmed: identical
+  // requests issued after the SW is already active come back
+  // fromServiceWorker()=true with the real archived content; the exact same
+  // request issued before come back fromServiceWorker()=false with a 404).
+  // So this polls the embedded iframe repeatedly (not just once — an
+  // earlier version checked a single time after a fixed delay, and if that
+  // one check landed before the failure text had even rendered yet, it
+  // wrongly concluded success and never looked again) and forces a full
+  // remount via the `key` prop the moment a real 404 is seen, giving the
+  // SW registration — already progressing in the background since the very
+  // first mount — another shot at being active before the next attempt.
+  useEffect(() => {
+    if (!rwpReady || retryCount >= MAX_REPLAY_RETRIES) return;
+    let settled = false;
+    const pollMs = 700;
+    const maxWaitMs = 7000;
+    let elapsed = 0;
+    const iv = setInterval(() => {
+      if (settled) return;
+      elapsed += pollMs;
+      // <replay-web-page> renders its iframe inside its OWN shadow root —
+      // a plain querySelector from outside never pierces that boundary and
+      // silently returns null forever, which is why this polling loop
+      // previously ran to completion every time without ever detecting a
+      // failure (confirmed directly: the effect always fell through to the
+      // maxWaitMs branch, never the failed branch).
+      const rwpEl = replayContainerRef.current?.querySelector('replay-web-page');
+      const iframe = rwpEl?.shadowRoot?.querySelector('iframe') as HTMLIFrameElement | null;
+      let text = '';
+      try {
+        text = iframe?.contentDocument?.body?.textContent || '';
+      } catch {
+        // Cross-origin or not-yet-accessible — treat as "can't tell yet", keep polling.
+      }
+      const failed = text.includes('could not be found');
+      const loaded = text.trim().length > 0 && !failed;
+      if (failed) {
+        settled = true;
+        clearInterval(iv);
+        setRetryCount((c) => c + 1);
+        setRetryKey((k) => k + 1);
+      } else if (loaded || elapsed >= maxWaitMs) {
+        settled = true;
+        clearInterval(iv);
+      }
+    }, pollMs);
+    return () => { settled = true; clearInterval(iv); };
+  }, [rwpReady, retryKey, retryCount]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -105,8 +170,8 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
       <Script
         src="/ui.js"
         strategy="afterInteractive"
-        onReady={() => { setRwpReady(true); window.dispatchEvent(new Event('load')); }}
-        onLoad={() => { setRwpReady(true); window.dispatchEvent(new Event('load')); }}
+        onReady={() => { setTimeout(() => window.dispatchEvent(new Event('load')), 50); setRwpReady(true); }}
+        onLoad={() => { setTimeout(() => window.dispatchEvent(new Event('load')), 50); setRwpReady(true); }}
       />
 
       {/* Navigation */}
@@ -190,6 +255,18 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
               <div style={{ flex: 1, background: 'var(--bg-primary)', padding: '0.3rem 0.75rem', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {doc.seed_url}
               </div>
+              {doc.wacz_url && (
+                <a
+                  href={`/replay-loading?target=${encodeURIComponent(`/replay/?source=${encodeURIComponent(`${window.location.origin}${doc.wacz_url}`)}&url=${encodeURIComponent(doc.seed_url)}`)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-secondary"
+                  style={{ fontSize: '0.75rem', padding: '0.35rem 0.8rem', whiteSpace: 'nowrap' }}
+                  title="Megnyitás a ReplayWeb.page saját, teljes oldalas nézetében — ez a beágyazott dobozon kívül, külön fülön/ablakban jeleníti meg az archivált oldalt."
+                >
+                  ⤢ Teljes oldal (új fül)
+                </a>
+              )}
             </div>
 
             {!doc.wacz_url ? (
@@ -201,14 +278,17 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
                 Replay betöltése…
               </div>
             ) : (
-              <replay-web-page
-                source={doc.wacz_url}
-                url={doc.seed_url}
-                embed="replayonly"
-                replaybase="/replay/"
-                newWindowBase="/replay/"
-                style={{ width: '100%', height: '700px', display: 'block', borderRadius: 'var(--radius-sm)', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0, 0, 0, 0.5)' }}
-              />
+              <div ref={replayContainerRef}>
+                <replay-web-page
+                  key={retryKey}
+                  source={doc.wacz_url}
+                  url={doc.seed_url}
+                  embed="replayonly"
+                  replaybase="/replay/"
+                  newWindowBase="/replay/"
+                  style={{ width: '100%', height: '700px', display: 'block', borderRadius: 'var(--radius-sm)', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0, 0, 0, 0.5)' }}
+                />
+              </div>
             )}
           </div>
         )}

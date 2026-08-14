@@ -567,7 +567,7 @@ export default function AdminDashboardPage() {
                           >
                             {q.qc_score === null ? 'Nincs QC eredmény' : `QC: ${q.qc_score}%`}
                           </span>
-                          <a href={`/documents/${q.id}`} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent-cyan)', textDecoration: 'underline', fontSize: '0.8rem' }}>
+                          <a href={`/admin/documents/${q.id}`} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent-cyan)', textDecoration: 'underline', fontSize: '0.8rem' }}>
                             🔁 Visszajátszás megnyitása
                           </a>
                         </div>
