@@ -1,4 +1,4 @@
-version: '3.8'
+name: webarchivum-test
 
 services:
   postgres-test:
@@ -6,17 +6,96 @@ services:
     container_name: fewa-postgres-test
     environment:
       POSTGRES_DB: fewa_test_db
-      POSTGRES_USER: test_user
-      POSTGRES_PASSWORD: test_password
+      # Mirrors the production role split (docker-compose.yml) for honest
+      # test coverage of the ARCH-01 migration/role chain, rather than
+      # leaving CI on a pre-ARCH-01 schema. infra/postgres/bootstrap_roles.sql
+      # hardcodes the role names fewa_bootstrap/fewa_migrator/fewa_app (not
+      # parameterized), so this test Postgres instance uses the identical
+      # names to production - safe, since it is a fully separate container/
+      # network with its own volume, never shared with the dev/prod stack.
+      POSTGRES_USER: fewa_bootstrap
+      POSTGRES_PASSWORD: ${POSTGRES_BOOTSTRAP_PASSWORD_TEST:-fewa_bootstrap_test_password}
+      POSTGRES_MIGRATOR_PASSWORD: ${POSTGRES_MIGRATOR_PASSWORD_TEST:-fewa_migrator_test_password}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD_TEST:-test_password}
     ports:
       - "5433:5432"
     volumes:
-      - ./spec/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - ./spec/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./spec/migrations/seed_base_tenant.sql:/docker-entrypoint-initdb.d/02_seed_base_tenant.sql:ro
+      # demo_seed.sql is NOT mounted here: it inserts a row referencing the
+      # default user created by migration 004, which has not run yet at
+      # initdb.d time (migrations run later, via the one-shot db-migrate-*
+      # containers below). Seeding it this early caused postgres-test to
+      # fail its own bootstrap with a foreign-key violation on every fresh
+      # start. It now runs as its own gated one-shot service (demo-seed-test)
+      # after db-migrate-test-006 completes.
+      # See docker-compose.yml for why bootstrap_roles.sql lives under lib/,
+      # not the initdb.d top level (must not be auto-executed by the
+      # entrypoint directly, only through the wrapper below).
+      - ./infra/postgres/bootstrap_roles.sql:/docker-entrypoint-initdb.d/lib/bootstrap_roles.sql:ro
+      - ./infra/postgres/entrypoint-bootstrap-roles.sh:/docker-entrypoint-initdb.d/04_bootstrap_roles.sh:ro
+      - ./spec/migrations:/fixed/read-only/migrations:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U test_user -d fewa_test_db"]
+      test: ["CMD-SHELL", "pg_isready -U fewa_bootstrap -d fewa_test_db"]
       interval: 3s
       timeout: 3s
       retries: 5
+
+  db-migrate-test-004:
+    build:
+      context: .
+      dockerfile: infra/migrations/Dockerfile
+    container_name: fewa-db-migrate-test-004
+    environment:
+      MIGRATOR_DATABASE_URL: postgresql://fewa_migrator:${POSTGRES_MIGRATOR_PASSWORD_TEST:-fewa_migrator_test_password}@postgres-test:5432/fewa_test_db
+      MIGRATION_THROUGH: "004"
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+    restart: "no"
+
+  db-migrate-test-005:
+    build:
+      context: .
+      dockerfile: infra/migrations/Bootstrap.Dockerfile
+    container_name: fewa-db-migrate-test-005
+    environment:
+      BOOTSTRAP_DATABASE_URL: postgresql://fewa_bootstrap:${POSTGRES_BOOTSTRAP_PASSWORD_TEST:-fewa_bootstrap_test_password}@postgres-test:5432/fewa_test_db
+      ONLY_VERSION: "005"
+    depends_on:
+      db-migrate-test-004:
+        condition: service_completed_successfully
+    restart: "no"
+
+  db-migrate-test-006:
+    build:
+      context: .
+      dockerfile: infra/migrations/Dockerfile
+    container_name: fewa-db-migrate-test-006
+    environment:
+      MIGRATOR_DATABASE_URL: postgresql://fewa_migrator:${POSTGRES_MIGRATOR_PASSWORD_TEST:-fewa_migrator_test_password}@postgres-test:5432/fewa_test_db
+      MIGRATION_FROM: "006"
+    depends_on:
+      db-migrate-test-005:
+        condition: service_completed_successfully
+    restart: "no"
+
+  demo-seed-test:
+    image: pgvector/pgvector:pg16
+    container_name: fewa-demo-seed-test
+    entrypoint: ["psql"]
+    command:
+      - "postgresql://fewa_app:${POSTGRES_APP_PASSWORD_TEST:-test_password}@postgres-test:5432/fewa_test_db"
+      - "-v"
+      - "ON_ERROR_STOP=1"
+      - "-f"
+      - "/demo_seed.sql"
+    volumes:
+      - ./spec/demo_seed.sql:/demo_seed.sql:ro
+    depends_on:
+      db-migrate-test-006:
+        condition: service_completed_successfully
+    restart: "no"
 
   redis-test:
     image: redis:7-alpine
@@ -55,21 +134,21 @@ services:
     environment:
       - ENVIRONMENT=testing
       - LOG_LEVEL=DEBUG
-      - POSTGRES_HOST=postgres-test
+      - POSTGRES_SERVER=postgres-test
       - POSTGRES_PORT=5432
       - POSTGRES_DB=fewa_test_db
-      - POSTGRES_USER=test_user
-      - POSTGRES_PASSWORD=test_password
+      - POSTGRES_USER=fewa_app
+      - POSTGRES_PASSWORD=${POSTGRES_APP_PASSWORD_TEST:-test_password}
       - REDIS_HOST=redis-test
       - REDIS_PORT=6379
       - MINIO_ENDPOINT=minio-test:9000
       - MINIO_ACCESS_KEY=miniotestadmin
       - MINIO_SECRET_KEY=miniotestpassword
-      - MINIO_BUCKET_NAME=fewa-wacz-test-storage
-      - JWT_SECRET_KEY=test-secret-key-super-secure-key-32chars-min!
+      - MINIO_BUCKET_WACZ=fewa-wacz-test-storage
+      - SECRET_KEY=test-secret-key-super-secure-key-32chars-min!
     depends_on:
-      postgres-test:
-        condition: service_healthy
+      demo-seed-test:
+        condition: service_completed_successfully
       redis-test:
         condition: service_healthy
       minio-test:

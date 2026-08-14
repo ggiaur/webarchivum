@@ -1,4 +1,4 @@
-version: '3.8'
+name: webarchivum
 
 services:
   postgres:
@@ -7,18 +7,92 @@ services:
     restart: always
     environment:
       POSTGRES_DB: fewa_db
-      POSTGRES_USER: fewa_user
-      POSTGRES_PASSWORD: fewa_password
+      # The official Postgres image always creates POSTGRES_USER as a full
+      # cluster superuser. ARCH-01 treats that identity as the one-shot
+      # "fewa_bootstrap" principal: it provisions fewa_migrator/fewa_app,
+      # runs the immutable migration 005, then loses server-file access.
+      # The running backend/worker NEVER uses this credential.
+      POSTGRES_USER: fewa_bootstrap
+      POSTGRES_PASSWORD: ${POSTGRES_BOOTSTRAP_PASSWORD:-fewa_bootstrap_password}
+      POSTGRES_MIGRATOR_PASSWORD: ${POSTGRES_MIGRATOR_PASSWORD:-fewa_migrator_password}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:-fewa_app_password}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./spec/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      # First-boot only (docker-entrypoint-initdb.d runs once, against an
+      # empty data directory): base schema, seed data, then role
+      # provisioning. bootstrap_roles.sql needs psql variables for the
+      # passwords, so it is invoked through a wrapper script rather than
+      # mounted directly as a .sql file.
+      - ./spec/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./spec/migrations/seed_base_tenant.sql:/docker-entrypoint-initdb.d/02_seed_base_tenant.sql:ro
+      # Mounted under lib/, not the initdb.d top level: the entrypoint
+      # glob-matches *.sql at the top level, and this file must only run
+      # through the wrapper below (which supplies its required password
+      # variables), never executed directly by the entrypoint.
+      - ./infra/postgres/bootstrap_roles.sql:/docker-entrypoint-initdb.d/lib/bootstrap_roles.sql:ro
+      - ./infra/postgres/entrypoint-bootstrap-roles.sh:/docker-entrypoint-initdb.d/03_bootstrap_roles.sh:ro
+      # Server-side read-only mount for the ARCH-01 005 migration: PostgreSQL
+      # itself (not the runner container) reads this path via
+      # pg_read_binary_file() to verify the immutable migration's checksum.
+      # Access to this path is revoked from fewa_migrator/fewa_app by the
+      # bootstrap cleanup stage before migration 006 is allowed to run.
+      - ./spec/migrations:/fixed/read-only/migrations:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U fewa_user -d fewa_db"]
+      test: ["CMD-SHELL", "pg_isready -U fewa_bootstrap -d fewa_db"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+
+  # --- ARCH-01 migration runner chain -------------------------------------
+  # Each stage is a one-shot container gated on the previous stage's clean
+  # exit (`service_completed_successfully`), so the backend can never start
+  # against an unmigrated or wrongly-privileged database. The normal runner
+  # is fail-closed against ever touching the immutable, bootstrap-only
+  # migration 005 (see infra/migrations/runner.py); the bootstrap-only
+  # executor is fail-closed against ever running anything else (see
+  # infra/migrations/bootstrap_runner.py).
+
+  db-migrate-004:
+    build:
+      context: .
+      dockerfile: infra/migrations/Dockerfile
+    container_name: fewa-db-migrate-004
+    environment:
+      MIGRATOR_DATABASE_URL: postgresql://fewa_migrator:${POSTGRES_MIGRATOR_PASSWORD:-fewa_migrator_password}@postgres:5432/fewa_db
+      MIGRATION_THROUGH: "004"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  db-migrate-005:
+    build:
+      context: .
+      dockerfile: infra/migrations/Bootstrap.Dockerfile
+    container_name: fewa-db-migrate-005
+    environment:
+      BOOTSTRAP_DATABASE_URL: postgresql://fewa_bootstrap:${POSTGRES_BOOTSTRAP_PASSWORD:-fewa_bootstrap_password}@postgres:5432/fewa_db
+      ONLY_VERSION: "005"
+    depends_on:
+      db-migrate-004:
+        condition: service_completed_successfully
+    restart: "no"
+
+  db-migrate-006:
+    build:
+      context: .
+      dockerfile: infra/migrations/Dockerfile
+    container_name: fewa-db-migrate-006
+    environment:
+      MIGRATOR_DATABASE_URL: postgresql://fewa_migrator:${POSTGRES_MIGRATOR_PASSWORD:-fewa_migrator_password}@postgres:5432/fewa_db
+      MIGRATION_FROM: "006"
+    depends_on:
+      db-migrate-005:
+        condition: service_completed_successfully
+    restart: "no"
+  # -------------------------------------------------------------------------
 
   redis:
     image: redis:7-alpine
@@ -41,12 +115,15 @@ services:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadminpassword
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "${MINIO_API_HOST_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_HOST_PORT:-9001}:9001"
     volumes:
       - minio_data:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      # Pre-existing bug found while wiring S3: this image has no curl, so
+      # the previous curl-based healthcheck could never pass. Matches the
+      # already-working pattern in docker-compose.test.yml.
+      test: ["CMD", "mc", "ready", "local"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -58,25 +135,28 @@ services:
     container_name: fewa-backend
     restart: always
     ports:
-      - "8000:8000"
+      - "${BACKEND_HOST_PORT:-8000}:8000"
     environment:
       - ENVIRONMENT=production
       - LOG_LEVEL=INFO
-      - POSTGRES_HOST=postgres
+      - POSTGRES_SERVER=postgres
       - POSTGRES_PORT=5432
       - POSTGRES_DB=fewa_db
-      - POSTGRES_USER=fewa_user
-      - POSTGRES_PASSWORD=fewa_password
+      # Least-privilege runtime credential: not superuser, not the migrator,
+      # cannot alter schema, cannot disable triggers, cannot read server
+      # files. See spec/migrations/006_arch_01_db_roles.sql.
+      - POSTGRES_USER=fewa_app
+      - POSTGRES_PASSWORD=${POSTGRES_APP_PASSWORD:-fewa_app_password}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=minioadmin
       - MINIO_SECRET_KEY=minioadminpassword
-      - MINIO_BUCKET_NAME=fewa-wacz-storage
-      - JWT_SECRET_KEY=prod-secret-key-super-secure-key-32chars-min!
+      - MINIO_BUCKET_WACZ=fewa-wacz-storage
+      - SECRET_KEY=prod-secret-key-super-secure-key-32chars-min!
     depends_on:
-      postgres:
-        condition: service_healthy
+      db-migrate-006:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       minio:
@@ -89,7 +169,7 @@ services:
     container_name: fewa-frontend
     restart: always
     ports:
-      - "3000:3000"
+      - "${FRONTEND_HOST_PORT:-3000}:3000"
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:8000
     depends_on:
