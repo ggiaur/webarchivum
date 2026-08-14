@@ -102,6 +102,64 @@ async def test_create_candidate_snapshot_starts_in_candidate_status(conn, site_i
 
 
 @pytest.mark.asyncio
+async def test_create_candidate_snapshot_rejects_duplicate_for_same_site(conn, site_id):
+    """Regression test (2026-08-03): www.szekesfehervar.hu ended up with 9
+    separate archived_snapshots rows — one per discovered sub-page URL, all
+    under the same site_id — because create_candidate_snapshot had no
+    dedup check at all, so every ingest call for that domain just inserted
+    another row. A site should have at most one snapshot "in play"
+    (anything short of withdrawn/deprecated) at a time."""
+    await archive.create_candidate_snapshot(
+        conn, site_id=site_id, seed_url="https://example.hu/cikk-1",
+        dc_title="T1", discovery_reason="r", discovery_metadata={},
+    )
+    with pytest.raises(ValueError):
+        await archive.create_candidate_snapshot(
+            conn, site_id=site_id, seed_url="https://example.hu/cikk-2",
+            dc_title="T2", discovery_reason="r", discovery_metadata={},
+        )
+
+
+@pytest.mark.asyncio
+async def test_create_candidate_snapshot_allowed_again_after_withdrawn(conn, site_id):
+    first = await archive.create_candidate_snapshot(
+        conn, site_id=site_id, seed_url="https://example.hu/cikk-1",
+        dc_title="T1", discovery_reason="r", discovery_metadata={},
+    )
+    await archive.reject_candidate(conn, first["id"], reason="Not relevant")
+
+    second = await archive.create_candidate_snapshot(
+        conn, site_id=site_id, seed_url="https://example.hu/cikk-2",
+        dc_title="T2", discovery_reason="r", discovery_metadata={},
+    )
+    assert second["lifecycle_status"] == "candidate"
+
+
+@pytest.mark.asyncio
+async def test_create_candidate_snapshot_unaffected_by_other_sites(conn, site_id):
+    """The dedup check is scoped to ONE site_id — an active candidate on a
+    different site must never block this one."""
+    other_domain = f"other-{uuid.uuid4().hex[:8]}.hu"
+    other_site = await conn.fetchrow(
+        "INSERT INTO sites (tenant_id, domain, base_url, display_name) VALUES ($1, $2, $3, $4) RETURNING id",
+        TENANT_ID, other_domain, f"https://{other_domain}/", other_domain,
+    )
+    await archive.create_candidate_snapshot(
+        conn, site_id=str(other_site["id"]), seed_url=f"https://{other_domain}/",
+        dc_title="Other", discovery_reason="r", discovery_metadata={},
+    )
+    result = await archive.create_candidate_snapshot(
+        conn, site_id=site_id, seed_url="https://example.hu/",
+        dc_title="T", discovery_reason="r", discovery_metadata={},
+    )
+    assert result["lifecycle_status"] == "candidate"
+
+    await conn.execute("DELETE FROM lifecycle_events WHERE snapshot_id IN (SELECT id FROM archived_snapshots WHERE site_id = $1)", str(other_site["id"]))
+    await conn.execute("DELETE FROM archived_snapshots WHERE site_id = $1", str(other_site["id"]))
+    await conn.execute("DELETE FROM sites WHERE id = $1", str(other_site["id"]))
+
+
+@pytest.mark.asyncio
 async def test_approve_candidate_transitions_to_approved(conn, site_id):
     created = await archive.create_candidate_snapshot(
         conn, site_id=site_id, seed_url="https://example.hu/",
@@ -243,3 +301,72 @@ async def test_db_rejects_invalid_lifecycle_transition_directly(conn, site_id):
             "UPDATE archived_snapshots SET lifecycle_status = 'published' WHERE id = $1",
             created["id"],
         )  # candidate -> published is not a valid direct transition
+
+
+@pytest.mark.asyncio
+async def test_list_stale_approved_finds_snapshot_never_picked_up(conn, site_id):
+    """Regression test for the 2026-08-02 incident: 6 approved candidates
+    whose run_crawl_job jobs silently expired in Redis during a worker
+    outage, leaving them stuck in 'approved' forever with no error visible
+    anywhere. app/workers/arq_worker.py's reconcile_stalled_snapshots cron
+    uses this query to notice and re-enqueue them."""
+    created = await archive.create_candidate_snapshot(
+        conn, site_id=site_id, seed_url="https://example.hu/",
+        dc_title="T", discovery_reason="r", discovery_metadata={},
+    )
+    await archive.approve_candidate(conn, created["id"], user_id=None)
+
+    # older_than_minutes=0 -> "not updated in the last 0 minutes", true for
+    # any already-committed row, without needing to fake real elapsed time.
+    stale = await archive.list_stale_approved(conn, older_than_minutes=0)
+    assert created["id"] in [r["id"] for r in stale]
+
+    # A huge threshold means "older than ~2 years" -> a fresh row must not match.
+    not_yet_stale = await archive.list_stale_approved(conn, older_than_minutes=999_999)
+    assert created["id"] not in [r["id"] for r in not_yet_stale]
+
+
+@pytest.mark.asyncio
+async def test_list_stale_crawling_finds_snapshot_stuck_mid_crawl(conn, site_id):
+    """A crawl job that crashes (worker killed, OOM, etc.) rather than
+    reaching run_crawl_job's own failure return leaves the snapshot stuck in
+    'crawling' with nothing to notice — same class of silent-loss bug as the
+    stale-approved case above."""
+    created = await archive.create_candidate_snapshot(
+        conn, site_id=site_id, seed_url="https://example.hu/",
+        dc_title="T", discovery_reason="r", discovery_metadata={},
+    )
+    await archive.approve_candidate(conn, created["id"], user_id=None)
+    await archive.mark_crawling(conn, created["id"])
+
+    stale = await archive.list_stale_crawling(conn, older_than_minutes=0)
+    assert created["id"] in [r["id"] for r in stale]
+
+    not_yet_stale = await archive.list_stale_crawling(conn, older_than_minutes=999_999)
+    assert created["id"] not in [r["id"] for r in not_yet_stale]
+
+
+@pytest.mark.asyncio
+async def test_revert_stalled_crawl_sends_back_to_candidate_for_re_approval(conn, site_id):
+    """Reverting to 'candidate' (not blindly re-crawling) means a curator
+    consciously re-approves a stalled site rather than the reconciler
+    retrying a possibly-broken crawl forever unattended."""
+    created = await archive.create_candidate_snapshot(
+        conn, site_id=site_id, seed_url="https://example.hu/",
+        dc_title="T", discovery_reason="r", discovery_metadata={},
+    )
+    await archive.approve_candidate(conn, created["id"], user_id=None)
+    await archive.mark_crawling(conn, created["id"])
+
+    result = await archive.revert_stalled_crawl(conn, created["id"], reason="Reconciler: stalled")
+    assert result["lifecycle_status"] == "candidate"
+
+
+@pytest.mark.asyncio
+async def test_revert_stalled_crawl_fails_if_not_in_crawling_status(conn, site_id):
+    created = await archive.create_candidate_snapshot(
+        conn, site_id=site_id, seed_url="https://example.hu/",
+        dc_title="T", discovery_reason="r", discovery_metadata={},
+    )
+    with pytest.raises(ValueError):
+        await archive.revert_stalled_crawl(conn, created["id"], reason="x")

@@ -107,6 +107,34 @@ async def test_trigger_ingest_creates_real_site_and_approved_snapshot(conn):
 
 
 @pytest.mark.asyncio
+async def test_trigger_ingest_rejects_second_url_for_same_domain(conn):
+    """Regression test (2026-08-03): repeated /api/admin/ingest calls for
+    different sub-page URLs on the same domain each created their own
+    site-worth of search results (www.szekesfehervar.hu ended up with 9).
+    The second ingest for an already-active domain must be rejected, not
+    silently create another parallel candidate."""
+    domain = f"jobsapi-dup-{uuid.uuid4().hex[:8]}.hu"
+    first = client.post(
+        "/api/admin/ingest",
+        headers={"Authorization": f"Bearer {ARCHIVIST_TOKEN}"},
+        json={"seed_url": f"https://{domain}/cikk-1"},
+    )
+    assert first.status_code == status.HTTP_202_ACCEPTED
+    data = first.json()
+
+    second = client.post(
+        "/api/admin/ingest",
+        headers={"Authorization": f"Bearer {ARCHIVIST_TOKEN}"},
+        json={"seed_url": f"https://{domain}/cikk-2"},
+    )
+    assert second.status_code == status.HTTP_409_CONFLICT
+
+    await conn.execute("DELETE FROM lifecycle_events WHERE snapshot_id = $1", data["snapshot_id"])
+    await conn.execute("DELETE FROM archived_snapshots WHERE id = $1", data["snapshot_id"])
+    await conn.execute("DELETE FROM sites WHERE id = $1", data["site_id"])
+
+
+@pytest.mark.asyncio
 async def test_trigger_ingest_rejects_url_without_domain(conn):
     response = client.post(
         "/api/admin/ingest",
@@ -186,6 +214,59 @@ async def test_quality_review_list_and_decide_against_real_db(conn):
     await conn.execute("DELETE FROM lifecycle_events WHERE snapshot_id = $1", created["id"])
     await conn.execute("DELETE FROM archived_snapshots WHERE id = $1", created["id"])
     await conn.execute("DELETE FROM sites WHERE id = $1", site_row["id"])
+
+
+@pytest.mark.asyncio
+async def test_admin_document_preview_works_before_publication(conn):
+    """Regression test for the 2026-08-02 incident: the quality-review
+    tab's "Visszajátszás megnyitása" replay link pointed at the PUBLIC
+    /api/documents/{id} endpoint, which only ever returns 'published'
+    snapshots — but every item in the review queue is, by definition, not
+    yet published. The curator could never actually preview what they
+    were being asked to accept/reject. This admin-scoped endpoint must
+    return the document (including a real wacz_url) for an 'archived'
+    snapshot with a recorded WACZ, not just for 'published' ones."""
+    # try/finally, not just sequential cleanup at the end: TEST_DSN is the
+    # shared dev database (see module docstring), not an isolated
+    # container — an assertion failure between creation and cleanup once
+    # left this exact fixture ("T" / jobsapi-preview-*.hu) sitting in the
+    # real quality-review queue, visibly confusing a real user who had
+    # never approved any such thing (2026-08-02 incident).
+    domain = f"jobsapi-preview-{uuid.uuid4().hex[:8]}.hu"
+    site_row = await conn.fetchrow(
+        "INSERT INTO sites (tenant_id, domain, base_url, display_name) VALUES ($1, $2, $3, $4) RETURNING id",
+        "00000000-0000-0000-0000-000000000001", domain, f"https://{domain}/", domain,
+    )
+    from app.crud import archive
+    created = await archive.create_candidate_snapshot(
+        conn, site_id=str(site_row["id"]), seed_url=f"https://{domain}/",
+        dc_title="T", discovery_reason="r", discovery_metadata={},
+    )
+    try:
+        await archive.approve_candidate(conn, created["id"], user_id=None)
+        await archive.mark_crawling(conn, created["id"])
+        await archive.record_crawl_result(conn, created["id"], "wacz/preview-test.wacz", "a" * 64, 100)
+        # No QC result yet — mirrors exactly what the screenshot showed
+        # ("Nincs QC eredmény") that triggered this fix.
+
+        # (The public /api/documents/{id} endpoint's own published-only gate
+        # is covered by test_search_api.py; this app instance only wires
+        # jobs_router.)
+        admin_res = client.get(
+            f"/api/admin/documents/{created['id']}",
+            headers={"Authorization": f"Bearer {CURATOR_TOKEN}"},
+        )
+        assert admin_res.status_code == status.HTTP_200_OK
+        body = admin_res.json()
+        assert body["lifecycle_status"] == "archived"
+        assert body["wacz_url"] is not None
+
+        unauth_res = client.get(f"/api/admin/documents/{created['id']}")
+        assert unauth_res.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
+    finally:
+        await conn.execute("DELETE FROM lifecycle_events WHERE snapshot_id = $1", created["id"])
+        await conn.execute("DELETE FROM archived_snapshots WHERE id = $1", created["id"])
+        await conn.execute("DELETE FROM sites WHERE id = $1", site_row["id"])
 
 
 @pytest.mark.asyncio

@@ -42,8 +42,16 @@ async def execute_hybrid_search(
         params.append(municipality_slug)
         where_clauses.append(f"municipality_slug = ${len(params)}")
     if category:
-        params.append(f"%{category}%")
-        where_clauses.append(f"site_category ILIKE ${len(params)}")
+        # site_category is a Postgres enum (site_category_enum), and ILIKE
+        # has no operator against an enum — comparing directly raised
+        # "operator does not exist: site_category_enum ~~* unknown" (HTTP
+        # 500) for every category, which broke the only navigation path
+        # from /collections into the archive. Cast to text to compare.
+        # Exact match, not a %wildcard%: the frontend passes the real enum
+        # id (see the /collections page), and substring matching across
+        # enum values would silently over-match.
+        params.append(category)
+        where_clauses.append(f"site_category::text = ${len(params)}")
 
     where_sql = " AND ".join(where_clauses)
 
@@ -147,6 +155,41 @@ async def get_document_by_id(conn: asyncpg.Connection, doc_id: str, minio_client
     if row is None:
         return None
 
+    return _document_row_to_dict(row, minio_client)
+
+
+async def get_document_by_id_for_curator(conn: asyncpg.Connection, doc_id: str, minio_client) -> Optional[Dict[str, Any]]:
+    """Admin-scoped equivalent of get_document_by_id, WITHOUT the
+    published-only gate — a curator reviewing the quality-review queue
+    needs to preview 'archived'/'indexed' snapshots that aren't public yet
+    (that's the whole point of reviewing them before publication).
+
+    Regression fix for 2026-08-02: the quality-review tab's replay link
+    pointed at the public get_document_by_id, which always 404s for
+    anything not yet published — i.e. every single item ever shown in
+    that queue. Curators had no way to actually inspect what they were
+    accepting/rejecting."""
+    try:
+        row = await conn.fetchrow(
+            f"""
+            SELECT {_DOCUMENT_COLUMNS}
+            FROM archived_snapshots s
+            JOIN sites si ON si.id = s.site_id
+            LEFT JOIN municipalities m ON m.id = s.municipality_id
+            WHERE s.id = $1
+            """,
+            doc_id,
+        )
+    except (ValueError, asyncpg.DataError):
+        return None
+
+    if row is None:
+        return None
+
+    return _document_row_to_dict(row, minio_client)
+
+
+def _document_row_to_dict(row, minio_client) -> Dict[str, Any]:
     doc = dict(row)
     doc["id"] = str(doc["id"])
     doc["crawl_timestamp"] = doc["crawl_timestamp"].isoformat() if doc["crawl_timestamp"] else None
@@ -155,8 +198,10 @@ async def get_document_by_id(conn: asyncpg.Connection, doc_id: str, minio_client
     municipality_slug = doc.pop("municipality_slug", None)
     doc["municipality"] = {"name": municipality_name, "slug": municipality_slug} if municipality_name else None
 
-    doc["wacz_url"] = (
-        minio_client.generate_presigned_wacz_url(doc["wacz_minio_path"])
-        if doc.get("wacz_minio_path") else None
-    )
+    # A same-origin path, NOT a presigned MinIO URL: presigned URLs pointed
+    # at MINIO_ENDPOINT (localhost:9002), which a real user's browser can't
+    # reach and which is mixed content on an https:// page — replay died
+    # with "TypeError: Failed to fetch" (2026-08-02). Served by
+    # app/api/v1/search.py::get_wacz (public) and jobs.py's curator route.
+    doc["wacz_url"] = f"/api/wacz/{doc['id']}" if doc.get("wacz_minio_path") else None
     return doc

@@ -7,18 +7,27 @@ registry, no simulated qc_score.
 
 import uuid
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import urlparse
 
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from jose import JWTError, jwt
 from pydantic import BaseModel, HttpUrl
 
 from app.api.deps import require_role
 from app.core.arq_pool import get_arq_pool
 from app.core.config import settings
 from app.core.db import get_db_connection
+from app.core.minio_client import minio_client
+from app.api.v1.search import stream_wacz_response
 from app.crud import archive
+from app.services.search_service import get_document_by_id_for_curator
+
+# Short enough to limit exposure if a URL leaks, long enough to replay a
+# large archive without the token expiring mid-session.
+WACZ_TOKEN_TTL_MINUTES = 60
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +37,8 @@ router = APIRouter(prefix="/api/admin", tags=["Admin"])
 class IngestRequestSchema(BaseModel):
     seed_url: HttpUrl
     dc_title: Optional[str] = None
-    depth: int = 3
-    max_pages: int = 100
+    depth: int = 2
+    max_pages: int = 20
 
 
 class CandidateDecisionSchema(BaseModel):
@@ -59,12 +68,15 @@ async def trigger_ingest(
     site = await archive.get_or_create_site_by_domain(
         conn, domain=domain, base_url=str(body.seed_url), display_name=body.dc_title,
     )
-    candidate = await archive.create_candidate_snapshot(
-        conn, site_id=str(site["id"]), seed_url=str(body.seed_url),
-        dc_title=body.dc_title or domain,
-        discovery_reason="Manual ingest via admin API",
-        discovery_metadata={"source": "manual_ingest"},
-    )
+    try:
+        candidate = await archive.create_candidate_snapshot(
+            conn, site_id=str(site["id"]), seed_url=str(body.seed_url),
+            dc_title=body.dc_title or domain,
+            discovery_reason="Manual ingest via admin API",
+            discovery_metadata={"source": "manual_ingest"},
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e))
     approved = await archive.approve_candidate(conn, candidate["id"], user_id=None, reason="Manual ingest: admin-approved on submission")
 
     job_id = uuid.uuid4()
@@ -117,8 +129,8 @@ async def approve_candidate_endpoint(
             "site_id": str(row["site_id"]),
             "snapshot_id": str(snapshot_id),
             "seed_url": row["seed_url"],
-            "depth": 3,
-            "max_pages": 100,
+            "depth": 2,
+            "max_pages": 20,
         },
         _job_id=str(job_id),
     )
@@ -158,3 +170,65 @@ async def decide_quality_review_endpoint(
         )
     except ValueError as e:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
+
+
+@router.get("/documents/{doc_id}", dependencies=[Depends(require_role("curator"))])
+async def get_document_for_review(doc_id: str, conn: asyncpg.Connection = Depends(get_db_connection)):
+    """Admin-scoped document preview — unlike the public /api/documents/{id}
+    (which only shows 'published' snapshots), this returns any snapshot
+    with a recorded WACZ regardless of lifecycle_status, so a curator can
+    actually replay/inspect content still awaiting a publish decision.
+    See app/services/search_service.py::get_document_by_id_for_curator."""
+    doc = await get_document_by_id_for_curator(conn, doc_id, minio_client)
+    if not doc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "A dokumentum nem található.")
+    # Point replay at the curator WACZ route below, not the published-only
+    # public one — a snapshot under review is by definition not published.
+    if doc.get("wacz_url"):
+        doc["wacz_url"] = f"/api/admin/wacz/{doc_id}?token={_wacz_access_token(doc_id)}"
+    return doc
+
+
+def _wacz_access_token(doc_id: str) -> str:
+    """Short-lived token scoping WACZ access to one snapshot.
+
+    ReplayWeb.page fetches the WACZ itself, from inside a Service Worker —
+    it does not carry the dashboard's Authorization header, so a normal
+    require_role dependency can't protect that fetch. A signed,
+    snapshot-scoped, short-TTL query token keeps pre-publication content
+    from being readable by anyone who merely guesses a UUID, without
+    needing the header."""
+    expire = datetime.now(timezone.utc) + timedelta(minutes=WACZ_TOKEN_TTL_MINUTES)
+    return jwt.encode(
+        {"sub": str(doc_id), "type": "wacz", "exp": expire},
+        settings.SECRET_KEY,
+        algorithm="HS256",
+    )
+
+
+@router.get("/wacz/{doc_id}")
+async def get_wacz_for_review(
+    doc_id: str,
+    token: str = Query(...),
+    range: Optional[str] = Header(None),
+    conn: asyncpg.Connection = Depends(get_db_connection),
+):
+    """Streams the WACZ of a snapshot that is not (yet) published, so a
+    curator can actually replay what they're reviewing. Authorised by the
+    scoped token from _wacz_access_token, not the Authorization header —
+    see that function for why."""
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+    except JWTError:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Érvénytelen vagy lejárt hozzáférési token.")
+    if payload.get("type") != "wacz" or payload.get("sub") != str(doc_id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "A token nem ehhez a dokumentumhoz tartozik.")
+
+    try:
+        row = await conn.fetchrow("SELECT wacz_minio_path FROM archived_snapshots WHERE id = $1", doc_id)
+    except (ValueError, asyncpg.DataError):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "A dokumentum nem található.")
+    if row is None or not row["wacz_minio_path"]:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Az archív állomány nem található.")
+
+    return stream_wacz_response(row["wacz_minio_path"], range)

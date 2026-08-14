@@ -56,7 +56,31 @@ async def create_candidate_snapshot(
     """A discovered candidate enters the workflow here — lifecycle_status
     starts at 'candidate', nothing is crawled yet. discovery_metadata (e.g.
     matched locality terms, source search query) is recorded in
-    lifecycle_events for later review of why the discovery filter flagged it."""
+    lifecycle_events for later review of why the discovery filter flagged it.
+
+    Regression fix (2026-08-03): this had NO dedup check at all — every call
+    unconditionally inserted a new row, so repeated ingests of different
+    sub-page URLs on the same domain (site_id) each became their own
+    "site" in search results (www.szekesfehervar.hu ended up with 9). A
+    site may have at most one snapshot in play — anything short of
+    withdrawn/deprecated — at a time; withdraw or let the existing one
+    reach a terminal state before ingesting a new seed_url for that site."""
+    existing = await conn.fetchrow(
+        """
+        SELECT id, seed_url, lifecycle_status FROM archived_snapshots
+        WHERE site_id = $1 AND lifecycle_status NOT IN ('withdrawn', 'deprecated')
+        LIMIT 1
+        """,
+        site_id,
+    )
+    if existing:
+        raise ValueError(
+            f"Ehhez a webhelyhez (site_id={site_id}) már van folyamatban lévő "
+            f"jelölt/archívum ({existing['seed_url']}, státusz: {existing['lifecycle_status']}) "
+            "— előbb azt kell lezárni (withdrawn/deprecated), mielőtt új URL-t "
+            "lehetne ingestálni ugyanerre a webhelyre."
+        )
+
     row = await conn.fetchrow(
         """
         INSERT INTO archived_snapshots
@@ -116,6 +140,59 @@ async def reject_candidate(
     )
     if row is None:
         raise ValueError(f"Snapshot {snapshot_id} not found or not in 'candidate' status.")
+    return dict(row)
+
+
+async def list_stale_approved(conn: asyncpg.Connection, older_than_minutes: int) -> List[Dict[str, Any]]:
+    """Approved snapshots whose crawl job never started — either the enqueue
+    call failed, or (the 2026-08-02 incident) the job sat in Redis until it
+    silently expired during a worker outage. Nothing else notices this;
+    app/workers/arq_worker.py's reconcile_stalled_snapshots cron uses this
+    to re-enqueue them."""
+    rows = await conn.fetch(
+        """
+        SELECT id, site_id, seed_url
+        FROM archived_snapshots
+        WHERE lifecycle_status = 'approved'
+          AND updated_at < now() - make_interval(mins => $1)
+        """,
+        older_than_minutes,
+    )
+    return [dict(r) for r in rows]
+
+
+async def list_stale_crawling(conn: asyncpg.Connection, older_than_minutes: int) -> List[Dict[str, Any]]:
+    """Snapshots stuck in 'crawling' well past a sane duration — the crawl
+    job crashed rather than reaching run_crawl_job's own failure return
+    (e.g. worker killed mid-job). Same silent-loss failure mode as
+    list_stale_approved above."""
+    rows = await conn.fetch(
+        """
+        SELECT id, site_id, seed_url
+        FROM archived_snapshots
+        WHERE lifecycle_status = 'crawling'
+          AND updated_at < now() - make_interval(mins => $1)
+        """,
+        older_than_minutes,
+    )
+    return [dict(r) for r in rows]
+
+
+async def revert_stalled_crawl(conn: asyncpg.Connection, snapshot_id: str, reason: str) -> Dict[str, Any]:
+    """crawling -> candidate (a schema-allowed transition): sends a stalled
+    crawl back for a curator to knowingly re-approve, rather than the
+    reconciler retrying a possibly-broken crawl unattended forever."""
+    row = await conn.fetchrow(
+        """
+        UPDATE archived_snapshots
+        SET lifecycle_status = 'candidate', lifecycle_reason = $2
+        WHERE id = $1 AND lifecycle_status = 'crawling'
+        RETURNING id, lifecycle_status
+        """,
+        snapshot_id, reason,
+    )
+    if row is None:
+        raise ValueError(f"Snapshot {snapshot_id} not found or not in 'crawling' status.")
     return dict(row)
 
 

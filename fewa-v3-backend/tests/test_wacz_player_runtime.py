@@ -108,10 +108,13 @@ async def test_real_wacz_upload_presign_and_fetch_roundtrip():
         doc_data = doc_resp.json()
         assert doc_data["wacz_url"] is not None
 
-        # The critical assertion: the presigned URL is real and fetchable,
-        # and returns the exact bytes that were uploaded — not a fabricated
-        # "it probably works" placeholder.
-        fetch_resp = httpx.get(doc_data["wacz_url"], timeout=10.0)
+        # The critical assertion: the URL the frontend is handed is really
+        # fetchable and returns the exact bytes that were uploaded — not a
+        # fabricated "it probably works" placeholder. Fetched through the
+        # app itself now that wacz_url is a same-origin /api/wacz/{id} path
+        # rather than a presigned MinIO URL (see search_service.py for why
+        # that changed).
+        fetch_resp = client.get(doc_data["wacz_url"])
         assert fetch_resp.status_code == 200
         assert fetch_resp.content == wacz_bytes
 
