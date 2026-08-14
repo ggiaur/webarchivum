@@ -108,6 +108,16 @@ def test_malformed_canonical_or_redirect_final_is_not_a_valid_external_skip():
         assert build_manifest(seed, "p", [malformed], {seed: True})["status"] == "crawl_incomplete"
 
 
+def test_terminal_dns_dot_case_and_default_port_remain_in_scope():
+    seed = "https://example.org/"
+    child = "https://EXAMPLE.org.:443/a"
+    event_with_alias = EdgeEvent(child, child, seed, 1, True, "capture", None, "p", final_url=child,
+                                 edge_source_page=seed, policy_decision="allowed", robots_decision="allowed",
+                                 security_decision="allowed", scope_decision="in_scope", observed_at="now")
+    manifest = build_manifest(seed, "p", [event_with_alias], {seed: True, child: True})
+    assert manifest["status"] == "complete"
+
+
 def test_hash_bound_replay_evidence_is_required_for_a_positive_gate():
     seed = "https://example.org/"
     manifest = build_manifest(seed, "p", [event("https://example.org/a", seed, 1)],

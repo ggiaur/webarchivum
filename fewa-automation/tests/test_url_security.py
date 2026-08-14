@@ -14,6 +14,10 @@ def test_pins_complete_public_dns_answer_and_strips_fragment():
     assert pinned.pinned_ip == "2606:2800:220:1:248:1893:25c8:1946"
 
 
+def test_terminal_dot_case_idna_and_default_port_share_one_authority():
+    assert normalize_url("HTTPS://EXAMPLE.org.:443/a") == "https://example.org/a"
+
+
 @pytest.mark.parametrize("url", ["file:///etc/passwd", "http://127.0.0.1/", "http://2130706433/",
                                   "http://user@example.com/", "https://example.com:8080/", "https://[::1]/"])
 def test_rejects_ssrf_and_url_ambiguity(url):

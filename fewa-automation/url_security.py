@@ -80,9 +80,14 @@ def normalize_url(value: str) -> str:
     """Return canonical HTTP(S) URL without a fragment, or reject it."""
     parts = _canonical_parts(value)
     try:
-        host = parts.hostname.encode("idna").decode("ascii").lower()
+        # DNS terminal root dots are presentation syntax, not a different
+        # authority.  Remove them before IDNA/case canonicalisation so every
+        # S2 consumer (scope, FEWA self exclusion, pin plans) sees one host.
+        host = parts.hostname.rstrip(".").encode("idna").decode("ascii").lower()
     except UnicodeError as exc:
         raise URLSecurityError("invalid hostname") from exc
+    if not host:
+        raise URLSecurityError("invalid hostname")
     netloc = host
     path = parts.path or "/"
     return urlunsplit((parts.scheme.lower(), netloc, path, parts.query, ""))
