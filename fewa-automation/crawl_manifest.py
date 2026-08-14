@@ -38,16 +38,20 @@ def verify_manifest(manifest: dict) -> bool:
     return isinstance(supplied, str) and supplied == _hash(manifest)
 
 
-def _same_host(left: str, right: str) -> bool:
-    """Compare the host scope after the same URL normalisation as planning.
+def _host_relation(seed: str, value: str) -> str:
+    """Return ``in_scope``, ``external`` or ``invalid`` for one event URL.
 
     Event facts are telemetry, not authority.  A malformed, numeric or other
     non-canonical URL therefore cannot claim the seed's scope by spelling.
+    ``invalid`` is deliberately distinct from an external host: an attacker
+    must not turn parse failure into a valid external-skip observation.
     """
     try:
-        return urlsplit(normalize_url(left)).hostname == urlsplit(normalize_url(right)).hostname
+        seed_host = urlsplit(normalize_url(seed)).hostname
+        value_host = urlsplit(normalize_url(value)).hostname
     except URLSecurityError:
-        return False
+        return "invalid"
+    return "in_scope" if seed_host == value_host else "external"
 
 
 _POLICY = {"allowed", "denied"}
@@ -73,7 +77,11 @@ def _semantic_edge_valid(seed: str, event: EdgeEvent) -> bool:
     # the discovered canonical URL and the post-redirect final URL must remain
     # on the planned seed host.  A redirect onto a different host is external
     # even when its pre-redirect canonical URL was in scope.
-    objectively_in_scope = _same_host(seed, event.canonical_url) and _same_host(seed, event.final_url or "")
+    canonical_scope = _host_relation(seed, event.canonical_url)
+    final_scope = _host_relation(seed, event.final_url or "")
+    if "invalid" in {canonical_scope, final_scope}:
+        return False
+    objectively_in_scope = canonical_scope == final_scope == "in_scope"
     if not objectively_in_scope:
         return (event.scope_decision == "external" and not event.eligible
                 and event.decision == "skip" and event.skip_reason == "external")

@@ -98,6 +98,16 @@ def test_objectively_external_edge_is_only_valid_as_external_skip_evidence():
     assert external not in manifest["required_capture_urls"]
 
 
+def test_malformed_canonical_or_redirect_final_is_not_a_valid_external_skip():
+    seed = "https://example.org/"
+    for canonical, final in (("https://example.org:not-a-port/", "https://evil.example/a"),
+                             ("https://example.org/a", "https://evil.example:not-a-port/")):
+        malformed = EdgeEvent(canonical, canonical, seed, 1, False, "skip", "external", "p", final_url=final,
+                              edge_source_page=seed, policy_decision="allowed", robots_decision="allowed",
+                              security_decision="allowed", scope_decision="external", observed_at="now")
+        assert build_manifest(seed, "p", [malformed], {seed: True})["status"] == "crawl_incomplete"
+
+
 def test_hash_bound_replay_evidence_is_required_for_a_positive_gate():
     seed = "https://example.org/"
     manifest = build_manifest(seed, "p", [event("https://example.org/a", seed, 1)],
