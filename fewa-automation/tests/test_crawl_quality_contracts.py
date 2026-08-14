@@ -54,7 +54,6 @@ def test_every_deny_or_unknown_policy_fact_forces_ineligible_skip():
         ("policy_decision", "denied", "policy_denied"),
         ("robots_decision", "denied", "robots_denied"),
         ("security_decision", "rejected", "security_rejected"),
-        ("scope_decision", "external", "external"),
     ):
         facts = {"policy_decision": "allowed", "robots_decision": "allowed",
                  "security_decision": "allowed", "scope_decision": "in_scope"}
@@ -66,10 +65,37 @@ def test_every_deny_or_unknown_policy_fact_forces_ineligible_skip():
         # it never becomes a capture requirement or eligible page.
         assert status == "complete"
         assert child not in build_manifest(seed, "p", [candidate], {seed: True})["required_capture_urls"]
+    # Scope is derived from URLs; a same-host edge cannot self-label external.
+    forged_scope = EdgeEvent(child, child, seed, 1, False, "skip", "external", "p", final_url=child,
+                             edge_source_page=seed, observed_at="now", policy_decision="allowed",
+                             robots_decision="allowed", security_decision="allowed", scope_decision="external")
+    assert build_manifest(seed, "p", [forged_scope], {seed: True})["status"] == "crawl_incomplete"
     unknown = EdgeEvent(child, child, seed, 1, False, "skip", "policy_denied", "p", final_url=child,
                         edge_source_page=seed, observed_at="now", policy_decision="unknown",
                         robots_decision="allowed", security_decision="allowed", scope_decision="in_scope")
     assert build_manifest(seed, "p", [unknown], {seed: True})["status"] == "crawl_incomplete"
+
+
+def test_scope_is_derived_from_canonical_and_redirect_final_urls_not_caller_claim():
+    seed = "https://example.org/"
+    for canonical, final in (("https://evil.example/a", "https://evil.example/a"),
+                             ("https://example.org/a", "https://evil.example/final")):
+        forged = EdgeEvent(canonical, canonical, seed, 1, True, "capture", None, "p",
+                            final_url=final, edge_source_page=seed, policy_decision="allowed",
+                            robots_decision="allowed", security_decision="allowed", scope_decision="in_scope",
+                            observed_at="2026-08-14T00:00:00Z")
+        assert build_manifest(seed, "p", [forged], {seed: True, canonical: True})["status"] == "crawl_incomplete"
+
+
+def test_objectively_external_edge_is_only_valid_as_external_skip_evidence():
+    seed = "https://example.org/"
+    external = "https://evil.example/a"
+    skipped = EdgeEvent(external, external, seed, 1, False, "skip", "external", "p", final_url=external,
+                        edge_source_page=seed, policy_decision="allowed", robots_decision="allowed",
+                        security_decision="allowed", scope_decision="external", observed_at="now")
+    manifest = build_manifest(seed, "p", [skipped], {seed: True})
+    assert manifest["status"] == "complete"
+    assert external not in manifest["required_capture_urls"]
 
 
 def test_hash_bound_replay_evidence_is_required_for_a_positive_gate():

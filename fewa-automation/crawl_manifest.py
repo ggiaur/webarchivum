@@ -5,6 +5,8 @@ from hashlib import sha256
 import json
 from urllib.parse import urlsplit
 
+from url_security import URLSecurityError, normalize_url
+
 
 @dataclass(frozen=True)
 class EdgeEvent:
@@ -37,7 +39,15 @@ def verify_manifest(manifest: dict) -> bool:
 
 
 def _same_host(left: str, right: str) -> bool:
-    return urlsplit(left).hostname == urlsplit(right).hostname
+    """Compare the host scope after the same URL normalisation as planning.
+
+    Event facts are telemetry, not authority.  A malformed, numeric or other
+    non-canonical URL therefore cannot claim the seed's scope by spelling.
+    """
+    try:
+        return urlsplit(normalize_url(left)).hostname == urlsplit(normalize_url(right)).hostname
+    except URLSecurityError:
+        return False
 
 
 _POLICY = {"allowed", "denied"}
@@ -53,11 +63,21 @@ _SKIP_REASON = {
 }
 
 
-def _semantic_edge_valid(event: EdgeEvent) -> bool:
+def _semantic_edge_valid(seed: str, event: EdgeEvent) -> bool:
     """The policy decision matrix; unknown facts never default to allow."""
     if (event.policy_decision not in _POLICY or event.robots_decision not in _ROBOTS
             or event.security_decision not in _SECURITY or event.scope_decision not in _SCOPE
             or event.decision not in {"capture", "skip"}):
+        return False
+    # `scope_decision` is a recorded conclusion, never trusted input.  Both
+    # the discovered canonical URL and the post-redirect final URL must remain
+    # on the planned seed host.  A redirect onto a different host is external
+    # even when its pre-redirect canonical URL was in scope.
+    objectively_in_scope = _same_host(seed, event.canonical_url) and _same_host(seed, event.final_url or "")
+    if not objectively_in_scope:
+        return (event.scope_decision == "external" and not event.eligible
+                and event.decision == "skip" and event.skip_reason == "external")
+    if event.scope_decision != "in_scope":
         return False
     capture_allowed = (event.hop in {1, 2} and event.policy_decision == "allowed"
                        and event.robots_decision == "allowed" and event.security_decision == "allowed"
@@ -72,8 +92,6 @@ def _semantic_edge_valid(event: EdgeEvent) -> bool:
         expected = "robots_denied"
     elif event.security_decision == "rejected":
         expected = "security_rejected"
-    elif event.scope_decision == "external":
-        expected = "external"
     else:
         expected = "depth_limit"  # only remaining non-capture case is H3
     return not event.eligible and event.decision == "skip" and event.skip_reason == expected
@@ -102,7 +120,7 @@ def build_manifest(seed: str, plan_hash: str, events: list[EdgeEvent], captures:
         if event.plan_hash != plan_hash or event.hop not in {1, 2, 3} or not all(required):
             valid = False
             continue
-        if not _semantic_edge_valid(event):
+        if not _semantic_edge_valid(seed, event):
             valid = False
             continue
         key = (event.canonical_url, event.hop, event.parent_canonical_url)
