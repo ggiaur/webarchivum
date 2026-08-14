@@ -3216,3 +3216,77 @@ tulajdonosváltása szükséges, amit ez a szelet szándékosan nem érintett.
 
 Production deploy, Nginx vagy titok módosítás továbbra sincs autorizálva —
 kizárólag BJ külön, explicit jóváhagyásával történhet.
+
+## [2026-08-14 16:39 UTC] SONNET 5 — kritikus regresszió találat és javítás: legacy lifecycle transitionök
+
+MODEL=Sonnet 5, fő szál. BJ utasítására a korábban "más gazdájú, in-flight"
+státuszú, nem-ARCH-01 fájlok (crawler.py, jobs.py, minio_client.py,
+archive.py, search.py, search_service.py, arq_worker.py, frontend) tényleges
+átvétele és commitolása közben, tesztfuttatás során találtam.
+
+**A találat:** a saját magam által korábban ELFOGADVA minősített
+`005_arch_01_pipeline.sql` `arch01_validate_lifecycle_transition()`
+triggere csak az ÚJ ARCH-01 állapotokra (crawling → archived_pending_qc →
+...) definiált átmeneteket — a `candidate`, `archived`, `indexed` legacy
+állapotokra soha nem volt `WHEN` ág, ezért minden belőlük induló átmenet a
+`CASE` `ELSE` ágán (üres tömb) landolt, és feltétel nélkül elutasult. Ez
+némán eltörte a **ma is élesben használt** admin jóváhagyási/minőség-
+ellenőrzési munkafolyamat mind a hét lépését:
+`candidate→approved`, `candidate→withdrawn`, `crawling→candidate`,
+`crawling→archived`, `archived→indexed`, `archived→candidate`,
+`indexed→published`. Ezt egyetlen korábbi QA-kör vagy acceptance-teszt sem
+vette észre, mert mindegyik kizárólag az ÚJ release/publish határt
+(`qc_passed_pending_release→published`) és a withdrawal-kaput vizsgálta.
+
+**Miért fontos:** ez azt jelentette volna, hogy a jelenleg élő "Jóváhagyás"
+és "Minőség-ellenőrzés" admin gombok mind hibával elszállnak, amint valaki
+rájuk kattint — miután ma reggel élesítettem az S1 migrációt.
+
+**A javítás (`spec/migrations/007_restore_legacy_lifecycle_transitions.sql`,
+új, checksummal védett migráció, 005/006 érintetlen):** a hiányzó `WHEN`
+ágak pótlása a triggerben, pontosan a legacy kód által ténylegesen használt
+élekre szűkítve (nem tágabban). A `published` és `withdrawn` célállapotok
+saját belső ellenőrzését is kiegészítettem egy szűk kivétellel a legacy
+`indexed→published` és `candidate→withdrawn` esetekre — az ÚJ, `qc_passed_
+pending_release→published` release-kapu (artifact-kötés, kétszemélyes
+első-domain ellenőrzés) és a withdrawal-kapu minden más forrásállapotra
+VÁLTOZATLAN, szigorú marad.
+
+**Termékdöntés BJ-vel egyeztetve:** felmerült, hogy a legacy automatikus
+publikálás (`record_qc_result` magas QC-pontszámnál) pontosan az a
+sebezhetőség, amit az egész ARCH-01 munka be akart zárni. BJ döntése (2026-
+08-14 16:2x UTC): "ha kurátorilag el van fogadva ÉS jó minőségű (≥95%) a
+mentés, akkor legyen publikálva; ha az egyezés 95% alatti, akkor NE." A
+`QUALITY_AUTO_ACCEPT_THRESHOLD` már ma is 96 (szigorúbb, mint a kért 95%),
+tehát az automatikus út csak valódi, magas-egyezésű tartalomra publikál —
+ráadásul a ma szintén átvett `arq_worker.py`/`crawler.py` javítás
+(`seed_http_status` ellenőrzés) kifejezetten lezárja a korábban ismert
+hamis-pozitív esetet (egy 404-es oldal önmagával 96%-ban "egyezik"). A
+kurátori elfogadás (`decide_quality_review`) mindig valódi, rögzített
+emberi döntés (`approved_by`, indoklás). Emiatt mindkét út helyreállítása
+indokolt, nem nyitja vissza az eredeti, védtelen sebezhetőséget.
+
+**Saját ellenőrzés:**
+```
+friss adatbázis (001-007) + upgrade-teszt (meglévő 001-006-ra 007)  -> mindkettő PASS
+pytest tests/test_archive_crud.py                                    -> 18/18 passed (előtte: 12 failed)
+pytest tests/ (teljes backend)                                       -> 124 passed, 20 skipped
+pytest fewa-automation/ (teljes S2)                                  -> 187 passed
+```
+
+**Egy másik, nem-ARCH-01 hibát is találtam és VISSZAÁLLÍTOTTAM (nem
+javítottam kóddal, hanem nem fogadtam el a törlést):** `fewa-v3-frontend/
+next.config.js` törölve volt a munkakönyvtárban, magyarázat/commit nélkül —
+a fájl saját kommentje szerint a `trailingSlash: true` beállítás
+"Required for ReplayWeb.page's self-hosted embed". A Dockerfile nem
+használja a `standalone` build-módot, tehát ahhoz nem kellett a törlés; a
+`trailingSlash` beállításnak viszont semmi köze a Dockerfile-hoz, és pont
+azt a hibaosztályt nyitná vissza (SW scope 404), amit a ma átvett többi
+frontend-javítás olyan alaposan dokumentálva zárt le. Feltételezésem szerint
+véletlen törlés volt — visszaállítottam a fájlt, nem commitoltam a törlést.
+
+Ezután a ma átvett, korábban "más tulajdonú, in-flight" jelzésű, valódi
+éles-incidens javításokat (crawler.py, jobs.py, minio_client.py, archive.py,
+search.py, search_service.py, arq_worker.py, frontend) commitolom — mindet
+egyenként elolvastam, a hozzájuk tartozó teszteket lefuttattam, mind valós,
+jól indokolt, éles hibákra írt javítás volt.
