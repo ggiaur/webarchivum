@@ -118,6 +118,15 @@ def test_terminal_dns_dot_case_and_default_port_remain_in_scope():
     assert manifest["status"] == "complete"
 
 
+def test_unicode_dot_same_origin_remains_in_scope_after_authority_canonicalization():
+    seed = "https://example.org/"
+    child = "https://EXAMPLE\u3002org/a"
+    aliased = EdgeEvent(child, child, seed, 1, True, "capture", None, "p", final_url=child,
+                        edge_source_page=seed, policy_decision="allowed", robots_decision="allowed",
+                        security_decision="allowed", scope_decision="in_scope", observed_at="now")
+    assert build_manifest(seed, "p", [aliased], {seed: True, child: True})["status"] == "complete"
+
+
 def test_hash_bound_replay_evidence_is_required_for_a_positive_gate():
     seed = "https://example.org/"
     manifest = build_manifest(seed, "p", [event("https://example.org/a", seed, 1)],

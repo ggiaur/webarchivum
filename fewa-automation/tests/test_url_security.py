@@ -36,6 +36,17 @@ def test_multiple_terminal_dns_dots_are_invalid_before_resolution(url):
         resolve_and_pin(url, lambda _: ["93.184.216.34"])
 
 
+@pytest.mark.parametrize("separator", ["\u3002", "\uff0e", "\uff61"])
+def test_unicode_dns_dot_numeric_host_is_rejected_before_resolution(separator):
+    with pytest.raises(URLSecurityError):
+        resolve_and_pin(f"https://0x7f000001{separator}/", lambda _: ["93.184.216.34"])
+
+
+@pytest.mark.parametrize("separator", ["\u3002", "\uff0e", "\uff61"])
+def test_unicode_dns_dot_is_canonicalized_for_same_origin(separator):
+    assert normalize_url(f"HTTPS://EXAMPLE{separator}org:443/a") == "https://example.org/a"
+
+
 def test_mixed_dns_rejected_before_any_connection():
     with pytest.raises(URLSecurityError, match="mixed"):
         resolve_and_pin("https://example.org", lambda _: ["93.184.216.34", "169.254.169.254"])

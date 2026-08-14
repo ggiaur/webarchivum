@@ -18,6 +18,12 @@ class URLSecurityError(ValueError):
     pass
 
 
+# WHATWG/IDNA dot-equivalent code points.  Translate before *any* URL parser,
+# host/IP/numeric validation or authority comparison; otherwise a numeric
+# literal can evade checks and a same origin can split into a false external.
+_UNICODE_DOT_TRANSLATION = str.maketrans({"\u3002": ".", "\uff0e": ".", "\uff61": "."})
+
+
 def _strip_single_terminal_root_dot(hostname: str) -> str:
     """Normalise one DNS root dot; reject ambiguous repeated-dot spellings."""
     if hostname.endswith(".."):
@@ -50,6 +56,7 @@ class DNSResolution:
 
 
 def _canonical_parts(value: str) -> SplitResult:
+    value = value.translate(_UNICODE_DOT_TRANSLATION)
     try:
         parts = urlsplit(value)
     except ValueError as exc:
