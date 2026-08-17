@@ -84,7 +84,38 @@ def run_crawl(
     click_selector: str = DEFAULT_COOKIE_CONSENT_SELECTOR,
     progress_callback: Optional[Callable[[int, int], None]] = None,
 ) -> CrawlResult:
-    """Run a real, SCOPE-LIMITED Browsertrix crawl of `url`."""
+    """Run a real, SCOPE-LIMITED Browsertrix crawl of `url`.
+
+    Defaults are deliberately conservative — this archives "a site", not
+    "the web reachable from a site":
+
+    - scope_type="host": only follows links on the SAME hostname as the
+      seed (e.g. www.vmk.hu stays on www.vmk.hu; it will NOT follow an
+      external link to facebook.com or another town's site). Use "page"
+      for a single page with no link-following at all (what the original
+      proof-of-concept crawl used).
+    - depth=2: follows links at most 2 clicks from the seed page.
+    - page_limit=25: hard cap on total pages captured, regardless of what
+      depth/scope would otherwise allow.
+    - size_limit_bytes=500MB / time_limit_seconds=600: extra safety nets —
+      the crawler saves what it has and stops if either is exceeded (e.g.
+      a page with unexpectedly large embedded media).
+    - click_selector: autoclick target, defaults to common cookie-consent
+      accept buttons plus a fallback to any link — see
+      DEFAULT_COOKIE_CONSENT_SELECTOR. Pass "" to disable autoclick.
+
+    progress_callback(pages_crawled, current_depth) is invoked as Browsertrix
+    emits its periodic JSON "crawlStatus" log lines on stdout — verified
+    empirically (2026-08-17, `docker run webrecorder/browsertrix-crawler
+    crawl` against a real page) rather than assumed from docs. The real
+    shape is nested:
+        {"context":"crawlStatus","message":"Crawl statistics",
+         "details":{"crawled":1,"total":1,"pending":0,...,
+                     "pendingPages":["{\\"depth\\":0,...}", ...]}}
+    NOT a top-level "crawled"/"pages"/"depth" field — do not "simplify"
+    this back to a flat lookup without re-verifying against a real run.
+    """
+    import threading
     import time
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -116,47 +147,71 @@ def run_crawl(
     pages_crawled = 0
     current_depth = 0
     stdout_lines = []
+    timed_out = threading.Event()
 
     try:
         process = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
         )
-        start_t = time.time()
 
-        if process.stdout:
-            for line in iter(process.stdout.readline, ""):
-                stdout_lines.append(line)
-                if time.time() - start_t > timeout_seconds:
-                    process.kill()
-                    return CrawlResult(
-                        success=False, wacz_path=None, returncode=-1,
-                        stderr_tail="Crawl timed out — check --shm-size is set.",
-                    )
+        # readline() blocks indefinitely if the crawler produces no output at
+        # all (e.g. hung inside headless Chrome) — a per-line timeout check
+        # never fires in that case, silently defeating the timeout entirely.
+        # A watchdog thread enforces the deadline regardless of output activity,
+        # matching the guarantee the old subprocess.run(timeout=...) gave.
+        def _watchdog():
+            timed_out.set()
+            try:
+                process.kill()
+            except Exception:
+                pass
 
-                line_str = line.strip()
-                if not line_str:
-                    continue
+        watchdog = threading.Timer(timeout_seconds, _watchdog)
+        watchdog.daemon = True
+        watchdog.start()
 
-                try:
-                    if line_str.startswith("{") and line_str.endswith("}"):
-                        rec = json.loads(line_str)
-                        d = rec.get("depth")
-                        p = rec.get("crawled") or rec.get("pages") or rec.get("pageCount")
-                        updated = False
-                        if isinstance(d, int) and d > current_depth:
-                            current_depth = d
-                            updated = True
-                        if isinstance(p, int) and p > pages_crawled:
-                            pages_crawled = p
-                            updated = True
-                        if updated and progress_callback:
-                            progress_callback(pages_crawled, current_depth)
-                except Exception:
-                    pass
+        try:
+            if process.stdout:
+                for line in iter(process.stdout.readline, ""):
+                    stdout_lines.append(line)
+                    line_str = line.strip()
+                    if not line_str:
+                        continue
+
+                    try:
+                        if line_str.startswith("{") and line_str.endswith("}"):
+                            rec = json.loads(line_str)
+                            if rec.get("context") == "crawlStatus":
+                                details = rec.get("details") or {}
+                                p = details.get("crawled")
+                                updated = False
+                                if isinstance(p, int) and p > pages_crawled:
+                                    pages_crawled = p
+                                    updated = True
+                                for raw_pending in details.get("pendingPages") or []:
+                                    try:
+                                        pending = json.loads(raw_pending)
+                                    except Exception:
+                                        continue
+                                    d = pending.get("depth")
+                                    if isinstance(d, int) and d > current_depth:
+                                        current_depth = d
+                                        updated = True
+                                if updated and progress_callback:
+                                    progress_callback(pages_crawled, current_depth)
+                    except Exception:
+                        pass
+        finally:
+            watchdog.cancel()
 
         process.wait()
         returncode = process.returncode
         stderr_tail = "".join(stdout_lines[-50:])
+        if timed_out.is_set():
+            return CrawlResult(
+                success=False, wacz_path=None, returncode=-1,
+                stderr_tail="Crawl timed out — check --shm-size is set.",
+            )
     except Exception as e:
         return CrawlResult(
             success=False, wacz_path=None, returncode=-1,

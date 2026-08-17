@@ -4856,6 +4856,65 @@ ez a review le nem zárul, nehogy elavult kódra építsen.
 foglalkozom** — egy valós aratás fut most, figyelem, tényleg frissül-e
 `pages_crawled`/`current_depth` a javításom után.
 
+------------------------------------------------------------------------------
+
+## [2026-08-17 21:1x UTC] SONNET 5 — crawler.py mezőnév-javítás PUSHOLVA, DE ÚJ, SÚLYOSABB PROBLÉMÁT TALÁLTAM: a valódi job élesben lefagyott, a subprocess pipe soha nem adott vissza semmit
+
+MODEL=Sonnet 5, fő szál.
+
+### Amit javítottam és bizonyítottan helyes
+
+`fewa-automation/crawler.py`: a korábbi kód (`49f8e1d`) rossz JSON
+mezőket olvasott (`rec.get("crawled")` legfelső szinten). Saját, valódi
+`docker run webrecorder/browsertrix-crawler crawl` futtatással
+ellenőriztem a tényleges kimenetet — a helyes útvonal
+`rec["details"]["crawled"]`, a mélység pedig a `pendingPages`
+string-kódolt JSON elemeiben. Kijavítottam, plusz egy watchdog-szálat
+adtam a korábban jelzett timeout-blokkolási hiba ellen, és visszaraktam
+a törölt docstringet. **A mezőnév-javítás önmagában bizonyítottan
+helyes** — ezt commitolom/pusholom.
+
+### DE: élesben egy valódi crawl job lefagyott, sosem adott vissza semmit
+
+Miután bekötöttem és újraindítottam a workert, egy valós ingest+approve
+után a job (`b2d5bae5`) **7+ percig egyáltalán nem naplózott semmit** —
+sem haladást, sem hibát, sem befejezést, és **egyetlen
+browsertrix-crawler konténer sem indult el hozzá** (ellenőriztem
+`docker ps`-sel). Eközben **manuálisan, a worker konténerből futtatva,
+pontosan ugyanazt a docker parancsot**, amit a kód összeállít — az
+tökéletesen működött, valós idejű `crawlStatus` sorokkal.
+
+**Ez azt jelenti: nem a mezőnevekkel volt csak baj — a Python
+`subprocess.Popen(..., stdout=subprocess.PIPE, text=True, bufsize=1)`
++ `readline()` kombináció élesben soha nem kapott vissza egyetlen sort
+sem, miközben ugyanaz a parancs shell-ből simán ment.** Ez klasszikus
+tünete annak, hogy a **Node.js (amiben a Browsertrix-crawler fut) nem
+sor-pufferel, hanem teljesen pufferel, ha az stdout-ja nem TTY, hanem
+pipe** — ilyenkor a Python oldali `readline()` addig nem kap semmit,
+amíg a Node-oldali belső puffer meg nem telik vagy a folyamat ki nem
+lép. Nem 100%-ig bizonyított (nem futtattam le a teljes 900s
+timeout-ot, hogy lássam, a végén legalább egyszer megjön-e minden
+egyszerre), de a tünet pontosan ide mutat.
+
+**Ha ez igaz, a jelenlegi Popen+readline megközelítés strukturálisan
+megbízhatatlan** — nem elég a mezőneveket javítani. Két lehetséges
+javítás:
+1. Kényszerítsd a gyerekfolyamatot sor-pufferelésre: `stdbuf -oL` a
+   `docker run` elé (működik, ha a docker CLI maga nem pufferel tovább —
+   ezt is empirikusan ellenőrizni kell), vagy
+2. **Megbízhatóbb út**: ne a stdout-ot parse-old — a Browsertrix a saját
+   crawl-állapotát fájlba is írja a `/crawls/collections/<collection>/`
+   alá futás közben. Olvasd inkább azt periodikusan (pl. 2 másodpercenként
+   egy külön polling task-ból), ez nem függ semmilyen pipe-pufferelési
+   viselkedéstől.
+
+**Nem jelölöm elfogadottnak ezt a feladatot.** A mezőnév-részét
+pusholom, mert önmagában helyes és javítás, de a progress-funkció
+**összességében továbbra sem működik megbízhatóan élesben** — ezt még
+valakinek (bárkinek, aki ráér) tovább kell vinnie a fenti 2 irány
+valamelyikével, és **tényleg végig kell futtatni egy valós, élő aratást
+a végéig**, nem csak percekig figyelni.
+
 
 
 
