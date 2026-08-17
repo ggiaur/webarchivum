@@ -4135,6 +4135,65 @@ bizonyíték (ahogy eddig is) — ne csak "elkészült" állítás.
 
 ------------------------------------------------------------------------------
 
+## [2026-08-17 20:3x UTC] SONNET 5 — ARCHITEKTÚRA DÖNTÉS: admin frontend mostantól Refine-nal épül, nem kézzel
+
+MODEL=Sonnet 5, fő szál. BJ döntése: "azt csináljuk, ami hosszú távon a
+legkifizetődőbb, legprofibb és rugalmas." Ez a döntés **kizárólag az
+admin-frontend hogyan-épül kérdését érinti** — a lentebb és fentebb már
+kiadott backend-feladatok (approved_by fix, withdraw endpoint, users API,
+rights-holder mezők, kötelező jóváhagyás policy, élő progress) **mind
+változatlanul érvényesek és szükségesek**, mert Refine-nak is kell egy
+valódi, működő API, amire rá tud kötni — ez nem váltja ki azokat.
+
+### A döntés
+
+[Refine](https://refine.dev) (v5, 2026 február, React 19 + TanStack
+Query v5, valódi Next.js App Router SSR-támogatással) — **headless**
+admin keretrendszer, ami a **meglévő FastAPI REST API-ra épül rá** saját
+data-provider adapteren keresztül, nem nyúl közvetlenül az adatbázishoz.
+Ezért minden meglévő védelmi réteg (RBAC, ARCH-01 jóváhagyási kapuk,
+audit-lánc, `require_role`) érintetlen marad — a Refine-on keresztüli
+minden írás ugyanazon a valódi API-n megy át, amit már felépítettünk.
+
+Megfontoltam a Directust is (ami közvetlenül a Postgres sémára épülne) —
+elvetve: az megkerülné az ARCH-01 triggereket és a JWT-alapú
+jogosultságkezelést, ez ennél a projektnél elfogadhatatlan kockázat.
+
+### FELADAT — Státusz: RÁD VÁR (Builder)
+
+**1. Alapozás:**
+- Telepítsd a Refine core-t + a Next.js App Router integrációt a
+  `fewa-v3-frontend`-be, az `(admin)` route group alá.
+- Írj egy **egyedi data providert**, ami a Refine `getList/getOne/create/
+  update/deleteOne`-t a tényleges API-alakra képezi (a végpontok NEM
+  Refine "simple-rest" konvenciót követnek — pl. `/api/admin/sites`,
+  `/api/admin/candidates` egyedi válaszformával, ezt kezelni kell).
+- Írj egy **auth providert**, ami a meglévő `/api/auth/login` +
+  `/api/auth/refresh` JWT-folyamatra köt (a `fetchWithAuth` logikáját,
+  `apiConfig.ts`-t újrahasznosítva, ne írd újra).
+
+**2. Első bizonyíték (a meglévő 3 működő API-ra, hogy lásd, tényleg
+működik, mielőtt az új képernyőkre mész):**
+- Migráld a "Webhelyek & Prioritások" táblázatot Refine `<List>` +
+  `<Edit>` resource-ra (a meglévő `GET/POST/PATCH /api/admin/sites`-ra).
+- Migráld a "Jóváhagyási Sor"-t és a "Minőségi Felülvizsgálat"-ot
+  hasonlóan.
+
+**3. Utána, a fentebb/lentebb már kiadott backend-munkával párhuzamosan/
+azután, ÚGYANEZZEL a Refine-mintával** (ne kézzel React-tel):
+- Felhasználókezelés (miután a backend `/api/admin/users` elkészült)
+- "Aratási előzmények" + "Jelenleg fut" + withdraw gomb (miután a
+  backend snapshot-history és withdraw endpoint elkészült)
+- Jogtulajdonos/kapcsolattartó mezők a site-formban
+
+**Elfogadási bizonyíték:** screenshot vagy DOM-dump a Refine-nal
+felépített 3 meglévő táblázatról, működő szűréssel/rendezéssel/
+szerkesztéssel, ugyanazon adaton, mint most.
+
+**Következő tulajdonos:** Gemini (Builder) → utána Sonnet review.
+
+------------------------------------------------------------------------------
+
 ## [2026-08-17 20:1x UTC] SONNET 5 — ÚJ FELADAT: felhasználókezelés (nincs sehol) + jogtulajdonos/kapcsolattartó adatok a webhelyekhez
 
 MODEL=Sonnet 5, fő szál. BJ két hiányt jelzett, mindkettőt ellenőriztem —
