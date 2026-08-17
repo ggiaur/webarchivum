@@ -4174,6 +4174,66 @@ kiegészítéseként.
 
 ------------------------------------------------------------------------------
 
+## [2026-08-17 20:5x UTC] SONNET 5 — ÚJ FELADAT: Minőségi Felülvizsgálat UX-hiányosságok + dashboard-fülek nincsenek URL-hez kötve
+
+MODEL=Sonnet 5, fő szál. BJ három kérdést tett fel élő használat közben,
+mindhármat ellenőriztem kódból/adatból.
+
+### A) "Visszaküldésnél mi történik?" — működik, de nincs megmagyarázva
+
+`archive.py::decide_quality_review(accept=False)`: a snapshot
+`lifecycle_status='candidate'`-re kerül — **visszamegy a Jóváhagyási
+Sorba**, nem törlődik, nem vész el. Ez helyes viselkedés, de a
+"Visszaküldés" gomb mellett/a visszaküldés után sehol nincs kiírva, hova
+kerül — a kurátor nem tudja, mi történt. **Kérés:** a Visszaküldés gomb
+mellé (vagy egy toast/megerősítő üzenetbe) írd ki: "Visszakerült a
+Jóváhagyási Sorba, ott újra jóváhagyható vagy véglegesen visszavonható."
+
+### B) "Miért nincs pontos % 96 alatt" — nem hiba, csak nincs megmagyarázva a várakozás
+
+A 18-ból ma csak 2-nek készült el a `qc_score` (a `run_enrich_job` külön,
+lassú lépés, `CRAWL_CONCURRENCY_LIMIT=1` miatt sorban áll, ~15-20 perc/
+elem). **Kérés:** a "Nincs QC eredmény" szöveg helyett/mellé írd ki,
+hogy ez **folyamatban van, nem hiba** (pl. "Minőség-számítás folyamatban
+— ez akár 15-20 percet is igénybe vehet elemenként"), hogy a kurátor ne
+azt higgye, elromlott valami.
+
+### C) "A minőséghiba okát is írja" — VALÓDI HIÁNYZÓ FUNKCIÓ, az adat megvan, csak nincs megjelenítve
+
+Ellenőriztem: `archived_snapshots.qc_detail` ténylegesen tartalmazza
+oldalankénti bontásban a `textMatch` és `screenshotMatch` értékeket (l.
+`vorosmartyradio.hu` valós adata: a bare-domain főoldal
+`screenshotMatch=0.44`, ez húzza le a 93%-os összpontszámot) — ez
+pontosan a "minőséghiba oka", amiről korábban szó volt, **de sehol nincs
+a felületen megjelenítve**, csak nyers JSON-ként ül az adatbázisban.
+
+**Kérés:**
+1. Backend: `/api/admin/quality-review` már visszaadja a `qc_detail`-t
+   (ellenőrizd, hogy a lista-végpont tényleg tartalmazza-e, ne csak a
+   `qc_score`-t) — ha nem, egészítsd ki.
+2. Frontend: a Minőségi Felülvizsgálat soraiban jelenjen meg egy
+   olvasható összefoglaló, NEM a nyers JSON: pl. "12 oldal ellenőrizve,
+   átlag szövegegyezés 93%, átlag képegyezés 93% — legalacsonyabb:
+   `vorosmartyradio.hu/` főoldal, 44% képegyezés" (a legrosszabb 1-3
+   oldalt emeld ki, ne az összes 18-at listázd alapból — legyen
+   kinyitható "összes oldal" nézet, ha kell részletesebben).
+
+### D) ÚJ, KÜLÖN TALÁLT HIBA: a dashboard-fülek nincsenek URL-hez kötve, ezért a böngésző Vissza gomb kiugrik a dashboardról
+
+`app/(admin)/admin/dashboard/page.tsx:63`: `activeTab` sima
+`useState`-tel megy, nincs `useSearchParams`/`router.push` mögötte — a
+fülváltás nem hoz létre böngészési előzményt, ezért a Vissza gomb nem a
+fülek között lép, hanem elhagyja az egész dashboardot. **Kérés:** kösd az
+`activeTab`-ot egy URL query paraméterhez (`?tab=quality` stb.), shallow
+routing-gal, hogy a Vissza/Előre gomb természetesen működjön, és a fül
+linkelhető/frissíthető is legyen. (Ez a Refine-migráció után magától
+megoldódna, mert ott minden resource valódi route — de BJ most, élesben
+ütközik bele, úgyhogy ne várjunk vele a teljes migrációig.)
+
+**Következő tulajdonos:** Gemini (Builder) → utána Sonnet review.
+
+------------------------------------------------------------------------------
+
 ## [2026-08-17 20:3x UTC] SONNET 5 — ARCHITEKTÚRA DÖNTÉS: admin frontend mostantól Refine-nal épül, nem kézzel
 
 MODEL=Sonnet 5, fő szál. BJ döntése: "azt csináljuk, ami hosszú távon a
