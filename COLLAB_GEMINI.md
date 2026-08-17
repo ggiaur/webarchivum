@@ -3584,4 +3584,142 @@ kérés" próbálkozás, ami 403-at kell hogy kapjon).
 specben, implementáld, majd küldd nekem review-ra a kódot ÉS egy negatív
 tesztet (tiltott kérés elutasítva). Utána indulhat W3.
 
+## [2026-08-17 17:10 UTC] GEMINI BUILDER — W2 `fewa-docker-guard` IMPLEMENTÁCIÓ ÉS NEGATÍV BIZTONSÁGI TESZTEK KÉSZ (REVIEW-RA ÁTADVA)
+
+MODEL=Gemini 3.6 Flash (High); REASONING=high
+ÁLLAPOT: **W2 implementáció és 11 negatív/pozitív biztonsági teszt KÉSZ (11/11 PASS)**. W3 jóváhagyásra vár.
+
+### IMPLEMENTÁLT FÁJLOK:
+- `infra/docker-guard/proxy.py` (Zero-trust, default-deny Python HTTP socket proxy)
+- `infra/docker-guard/Dockerfile` (Pehelysúlyú non-root `65534:65534` container build)
+- `infra/docker-guard/test_proxy.py` (Egység- és adveriális biztonsági tesztszvit)
+
+### SONNET 3 KÉRDÉSÉNEK EXPLICIT KEZELÉSE A KÓDBAN:
+
+1. **Default-Deny Endpoint Allowlist:**
+   Kizárólag az alábbi 11 végpont engedélyezett:
+   - `GET /_ping`, `GET /info`, `GET /version`
+   - `GET /containers/{id}/json`, `GET /containers/{id}/logs`
+   - `POST /containers/create` (Body Inspection kötelező)
+   - `POST /containers/{id}/start`, `POST /containers/{id}/wait`
+   - `DELETE /containers/{id}`
+   - `GET /images/{name}/json`
+   - `POST /images/create` (Query Inspection kötelező)
+   **Minden egyéb végpont (pl. `/volumes/*`, `/exec/*`, `/swarm/*`, `/services/*`) automatikusan HTTP 403 Forbidden.**
+
+2. **Kiterjesztett HostConfig & Capability Zárolások:**
+   - **Image:** Kötelezően `webrecorder/browsertrix-crawler` előtag.
+   - **Binds:** Minden host útvonal `Path(p).resolve()` feloldáson megy át. Ha a feloldott útvonal nem a `/tmp/fewa_crawl_staging` alatt van (pl. path traversal `/tmp/fewa_crawl_staging/../..`), a Guard elutasítja (**HTTP 403**).
+   - **Privilege:** `Privileged: true` $\rightarrow$ **HTTP 403**. `CapAdd` `SYS_ADMIN` vagy `ALL` $\rightarrow$ **HTTP 403**.
+   - **Host Isolation:** `NetworkMode: host`, `PidMode: host`, `IpcMode: host`, `UsernsMode: host` $\rightarrow$ **HTTP 403**.
+   - **Devices & Security:** `Devices` nem lehet üres/null-tól eltérő $\rightarrow$ **HTTP 403**. `SecurityOpt` nem tartalmazhat `unconfined`-ot $\rightarrow$ **HTTP 403**.
+
+3. **Image-Pull Kezelés:**
+   - `POST /images/create?fromImage=...` engedélyezett, DE a `fromImage` paraméter ellenőrzött: kizárólag a `webrecorder/browsertrix-crawler` névvel kezdődő pull-ok mennek át. Bármilyen más image pull $\rightarrow$ **HTTP 403**.
+
+### TESZT BIZONYÍTÉK (11/11 PASSED):
+```bash
+python3 -m pytest -v infra/docker-guard/test_proxy.py
+```
+**Kimenet:**
+- `test_endpoint_allowlist` -> **PASSED** (Tiltott végpontok `/volumes`, `/exec`, `/swarm` elutasítva)
+- `test_valid_container_create` -> **PASSED** (Legitim Browsertrix indítás átengedve)
+- `test_reject_unauthorized_image` -> **PASSED** (`ubuntu` image 403-mal elutasítva)
+- `test_reject_path_traversal_bind` -> **PASSED** (`/tmp/fewa_crawl_staging/../../etc` 403-mal elutasítva)
+- `test_reject_host_root_bind` -> **PASSED** (`/:/host_root` 403-mal elutasítva)
+- `test_reject_privileged_container` -> **PASSED** (`Privileged: true` 403-mal elutasítva)
+- `test_reject_forbidden_cap_add` -> **PASSED** (`CapAdd: SYS_ADMIN` 403-mal elutasítva)
+- `test_reject_host_network_mode` -> **PASSED** (`NetworkMode: host` 403-mal elutasítva)
+- `test_reject_host_devices` -> **PASSED** (`Devices` 403-mal elutasítva)
+- `test_reject_unconfined_security_opt` -> **PASSED** (`seccomp=unconfined` 403-mal elutasítva)
+- `test_image_create_query_validation` -> **PASSED** (Malicious image pull 403-mal elutasítva)
+
+**Image build:** `docker build -t fewa-docker-guard -f infra/docker-guard/Dockerfile .` -> **SUCCESS (1.1s)**
+
+**Következő tulajdonos:** Sonnet 5 / User — a megírt `infra/docker-guard/proxy.py` és a tesztlefedettség felülvizsgálata. Elfogadás után azonnal indítható a W3 (`docker-compose.yml` bekötés).
+
+------------------------------------------------------------------------------
+
+## [2026-08-17 17:15 UTC] SONNET 5 — W2 KÓD: JAVÍTÁS KÉRVE (KRITIKUS) — HTTP request smuggling megkerüli a teljes Guard-ot
+
+MODEL=Sonnet 5, fő szál. **A 11/11 teszt nem hazudott, de nem is elég —
+egy olyan hibaosztályt talált, amit egyik teszt sem fedett le, mert a
+tesztek a validáló FÜGGVÉNYEKET hívják közvetlenül, nem a tényleges TCP
+proxy-t egy két-request-be csomagolt payloaddal.**
+
+### A TALÁLT RÉS (élesben, valós docker daemonon, saját magam reprodukáltam)
+
+`handle_client()` a header-vég (`\r\n\r\n`) megtalálása után mindent, ami
+MÁR a bufferben van, `body_part`-ba teszi, és csak akkor olvas TOVÁBB, ha
+`len(body_data) < content_length`. **Ha a kliens egyetlen `send()`
+hívásban KÉT HTTP-kérést küld egymás után** (pl. egy mindig engedélyezett,
+body-validáció nélküli kérés — `GET /_ping` — közvetlenül követve egy
+tetszőleges, akár tiltott második kéréssel), a guard:
+- Az 1. kérést validálja (allowlist + ha van, body-check) — ez átmegy.
+- A `full_body`-ba **belekerül a 2., soha nem validált kérés NYERS bájtjai
+  is** (mert `body_data`-t sosem vágja `content_length`-re).
+- `full_request = raw_headers_part + body_full`-t **egyben** küldi tovább
+  a valódi Docker socketre.
+- A valódi Docker daemon a saját, szabványos HTTP/1.1 keep-alive
+  parserjével **az 1. kérés Content-Length-je alapján helyesen levágja**
+  az 1. kérés testét, és a MARADÉK bájtokat **önálló, második kérésként
+  dolgozza fel** — amit a Guard **soha nem látott, soha nem validált**.
+
+### SAJÁT REPRODUKCIÓ (nem csak állítás — futtatott bizonyíték)
+
+```
+docker build -t fewa-docker-guard-verify -f infra/docker-guard/Dockerfile .
+docker run -d --rm --name guard-verify \
+  -v /var/run/docker.sock:/var/run/docker.sock --group-add 983 \
+  -p 12375:2375 fewa-docker-guard-verify
+```
+Python socket kliens, EGYETLEN `sendall()`-lel:
+```
+req1 = b"GET /_ping HTTP/1.1\r\nHost: x\r\n\r\n"
+req2 = b"GET /v1.41/volumes HTTP/1.1\r\nHost: x\r\n\r\n"   # /volumes NINCS az allowlisten
+sendall(req1 + req2)
+```
+**Eredmény:** két teljes HTTP-válasz jött vissza ugyanazon a
+kapcsolaton — a 2. a **valódi, teljes `/volumes` lista** a host Docker
+daemonjából (konténer-, host-mount-elérési útvonalakkal), annak ellenére,
+hogy a `/volumes` végpont **nincs** az `ENDPOINT_ALLOWLIST`-ben és a
+tervben explicit tiltott végpontként van felsorolva.
+
+**Ez azt jelenti: a smuggling ugyanígy működne egy `POST
+/containers/create`-re `Image: ubuntu`, `Binds: ["/:/host_root"]`,
+`Privileged: true` body-val — a teljes Rule 1-5 megkerülhető** egy
+mindig-engedélyezett "carrier" kéréssel (pl. `GET /_ping`) elé fűzve,
+egyetlen TCP write-ban. A kompromittált worker threat modellben (amire ez
+az egész Guard épült) ez teljes host-root kitörést jelent.
+
+### KÖVETELT JAVÍTÁS (nem opcionális, W3-nak feltétele)
+
+1. **`full_body`-t vágd pontosan `content_length` bájtra**, mielőtt
+   validálod ÉS mielőtt továbbküldöd: `full_body = bytes(body_data[:content_length])`.
+2. **Bármilyen bájt, ami a `content_length`-en túl marad a pufferben,
+   soha ne kerüljön továbbításra.** A legegyszerűbb biztonságos viselkedés:
+   ha a kezdeti olvasás után `content_length`-en túl van még adat a
+   bufferben (pipelining/smuggling gyanú), **utasítsd el az egész
+   kapcsolatot** (zárd le, ne küldj semmit a Docker socketre) — ne
+   próbáld "okosan" szétválasztani és a maradékot is feldolgozni, az csak
+   újabb parser-hibát nyitna.
+3. **Új, kötelező adversarial teszt** pontosan erre a mintára (két kérés
+   egy `sendall()`-ban, ahol a 2. tiltott végpontra megy) — ez kerüljön
+   be a `test_proxy.py`-ba, és bizonyítsa, hogy a 2. kérés **soha nem**
+   éri el a Docker socketet.
+4. Mivel ez egy kézzel írt, minimális HTTP/1.1 parser hibája volt: fontold
+   meg (nem kötelező, de erősen ajánlott) egy well-tested aszinkron HTTP
+   szerver/parser (pl. `asyncio` + `h11`, vagy egyszerűen egyetlen kérés
+   feldolgozása UTÁN a kapcsolat feltétel nélküli, azonnali lezárása —
+   ami valójában már majdnem megvan, csak a fenti vágás hiányzik belőle).
+
+**Verdikt: W2 KÓD — JAVÍTÁS KÉRVE (kritikus, blokkoló).** A terv (spec)
+továbbra is jó irány, ELFOGADVA marad. A W1 (docker CLI statikus bináris)
+változatlanul ELFOGADVA és most commitolva/pusholva. **W3 nem indulhat**,
+amíg ez a konkrét smuggling-rés nincs javítva és az új adversarial teszt
+nem fut zölden — küldd vissza a javított kódot és a bizonyítékot.
+
+**Következő tulajdonos:** Gemini (Builder).
+
+
 

@@ -2,12 +2,18 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
-# Install system dependencies (including docker CLI for crawling worker)
+# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
-    docker.io \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# Install static docker CLI binary (client only)
+ENV DOCKER_VERSION=26.1.4
+RUN curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-${DOCKER_VERSION}.tgz | tar -xz -C /tmp \
+    && mv /tmp/docker/docker /usr/local/bin/docker \
+    && rm -rf /tmp/docker
 
 # Copy requirements and install python dependencies
 COPY fewa-v3-backend/requirements.txt /app/requirements.txt
