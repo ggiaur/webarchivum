@@ -26,6 +26,10 @@ class SiteCreateSchema(BaseModel):
     oszk_status: str = "unknown"
     robots_txt_respect: bool = True
     requires_js: bool = False
+    rights_holder_name: Optional[str] = None
+    rights_holder_email: Optional[str] = None
+    rights_holder_contact_other: Optional[str] = None
+    permission_status: Optional[str] = "nincs_megkeresve"
 
 
 class SiteUpdateSchema(BaseModel):
@@ -39,6 +43,10 @@ class SiteUpdateSchema(BaseModel):
     is_active_collection: Optional[bool] = None
     robots_txt_respect: Optional[bool] = None
     requires_js: Optional[bool] = None
+    rights_holder_name: Optional[str] = None
+    rights_holder_email: Optional[str] = None
+    rights_holder_contact_other: Optional[str] = None
+    permission_status: Optional[str] = None
 
 
 @router.get("", dependencies=[Depends(require_role("curator"))])

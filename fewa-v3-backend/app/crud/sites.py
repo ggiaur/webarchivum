@@ -19,6 +19,7 @@ _SITE_COLUMNS = """
     s.category, s.crawl_frequency, s.curator_notes, s.oszk_status,
     s.is_active_collection, s.robots_txt_respect, s.requires_js,
     s.scope_restriction, s.municipality_id, s.last_crawled_at,
+    s.rights_holder_name, s.rights_holder_email, s.rights_holder_contact_other, s.permission_status,
     s.created_at, s.updated_at,
     m.name AS municipality_name, m.slug AS municipality_slug,
     m.county AS municipality_county, m.is_active AS municipality_is_active,
@@ -167,9 +168,10 @@ async def create_site(
                 INSERT INTO sites (
                     tenant_id, domain, base_url, display_name, priority, category,
                     crawl_frequency, curator_notes, oszk_status, robots_txt_respect,
-                    requires_js, municipality_id
+                    requires_js, municipality_id,
+                    rights_holder_name, rights_holder_email, rights_holder_contact_other, permission_status
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
                 RETURNING id
                 """,
                 tenant_id, data["domain"], data["base_url"], data.get("display_name") or data["domain"],
@@ -177,6 +179,8 @@ async def create_site(
                 data.get("crawl_frequency", "monthly"), data.get("curator_notes"),
                 data.get("oszk_status", "unknown"), data.get("robots_txt_respect", True),
                 data.get("requires_js", False), data.get("municipality_id"),
+                data.get("rights_holder_name"), data.get("rights_holder_email"),
+                data.get("rights_holder_contact_other"), data.get("permission_status", "nincs_megkeresve"),
             )
         except asyncpg.UniqueViolationError:
             raise ValueError(f"Domain {data['domain']} is already registered.")
@@ -193,6 +197,7 @@ async def create_site(
 _UPDATABLE_FIELDS = [
     "display_name", "priority", "category", "crawl_frequency", "municipality_id",
     "curator_notes", "oszk_status", "is_active_collection", "robots_txt_respect", "requires_js",
+    "rights_holder_name", "rights_holder_email", "rights_holder_contact_other", "permission_status",
 ]
 
 

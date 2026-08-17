@@ -43,6 +43,7 @@ class MinIOClient:
         """
         Uploads WACZ stream to MinIO and returns file metadata including SHA-256 and size.
         """
+        self.ensure_bucket_exists()
         sha256_hash = hashlib.sha256()
         size = 0
         data.seek(0)

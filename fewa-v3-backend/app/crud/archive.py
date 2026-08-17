@@ -9,6 +9,7 @@ function here takes a real asyncpg.Connection and does real SQL.
 """
 
 import json
+import uuid
 from typing import Any, Dict, List, Optional
 
 import asyncpg
@@ -141,6 +142,15 @@ async def reject_candidate(
     if row is None:
         raise ValueError(f"Snapshot {snapshot_id} not found or not in 'candidate' status.")
     return dict(row)
+
+
+async def update_crawl_progress(
+    conn: asyncpg.Connection, snapshot_id: str, pages_crawled: int, current_depth: int,
+) -> None:
+    await conn.execute(
+        "UPDATE archived_snapshots SET pages_crawled = $2, current_depth = $3, updated_at = now() WHERE id = $1",
+        snapshot_id, pages_crawled, current_depth,
+    )
 
 
 async def list_stale_approved(conn: asyncpg.Connection, older_than_minutes: int) -> List[Dict[str, Any]]:
@@ -326,3 +336,53 @@ async def decide_quality_review(
         if accept:
             row = await _publish(conn, snapshot_id, "Published after human quality-review acceptance")
         return dict(row)
+
+
+async def withdraw_published_snapshot(
+    conn: asyncpg.Connection,
+    snapshot_id: str,
+    actor_id: str,
+    reason: str,
+) -> Dict[str, Any]:
+    """Withdraws a previously published snapshot by inserting an ARCH-01 release_decisions
+    audit row and setting lifecycle_status='withdrawn' within the same transaction."""
+    async with conn.transaction():
+        snapshot = await conn.fetchrow(
+            "SELECT id, wacz_sha256 FROM archived_snapshots WHERE id = $1 AND lifecycle_status = 'published'",
+            snapshot_id,
+        )
+        if not snapshot:
+            raise ValueError(f"Snapshot {snapshot_id} not found or not in 'published' status.")
+
+        artifact_sha256 = snapshot["wacz_sha256"] or "0" * 64
+        idempotency_key = f"withdraw-{snapshot_id}-{uuid.uuid4()}"
+
+        await conn.execute(
+            """
+            INSERT INTO release_decisions
+                (snapshot_id, operation, decision_origin, outcome, gate_matrix_hash,
+                 artifact_sha256, actor_id, actor_reason,
+                 idempotency_key, request_hash, response_hash)
+            VALUES ($1::uuid, 'withdraw', 'arch01_gate', 'withdrawn', encode(sha256('arch01_v1'::bytea), 'hex'),
+                    $2, $3::uuid, $4,
+                    $5, encode(sha256($1::text::bytea), 'hex'), encode(sha256($1::text::bytea), 'hex'))
+            """,
+            snapshot_id,
+            artifact_sha256,
+            actor_id,
+            reason,
+            idempotency_key,
+        )
+
+        row = await conn.fetchrow(
+            """
+            UPDATE archived_snapshots
+            SET lifecycle_status = 'withdrawn', lifecycle_reason = $2
+            WHERE id = $1
+            RETURNING id, lifecycle_status
+            """,
+            snapshot_id,
+            reason,
+        )
+        return dict(row)
+

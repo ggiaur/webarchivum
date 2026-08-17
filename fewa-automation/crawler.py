@@ -35,7 +35,7 @@ import subprocess
 GRACEFUL_STOP_RETURN_CODES = {0, 14, 15}
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 # Best-effort selector covering common cookie-consent-plugin "accept" buttons
 # (CookieYes, OneTrust, Cookiebot, Complianz, generic patterns). This is a
@@ -82,36 +82,10 @@ def run_crawl(
     time_limit_seconds: int = 600,
     timeout_seconds: int = 900,
     click_selector: str = DEFAULT_COOKIE_CONSENT_SELECTOR,
+    progress_callback: Optional[Callable[[int, int], None]] = None,
 ) -> CrawlResult:
-    """Run a real, SCOPE-LIMITED Browsertrix crawl of `url`.
-
-    Defaults are deliberately conservative — this archives "a site", not
-    "the web reachable from a site":
-
-    - scope_type="host": only follows links on the SAME hostname as the
-      seed (e.g. www.vmk.hu stays on www.vmk.hu; it will NOT follow an
-      external link to facebook.com or another town's site). Use "page"
-      for a single page with no link-following at all (what the original
-      proof-of-concept crawl used).
-    - depth=2: follows links at most 2 clicks from the seed page.
-    - page_limit=25: hard cap on total pages captured, regardless of what
-      depth/scope would otherwise allow.
-    - size_limit_bytes=500MB / time_limit_seconds=600: extra safety nets —
-      the crawler saves what it has and stops if either is exceeded (e.g.
-      a page with unexpectedly large embedded media).
-    - click_selector: autoclick target, defaults to common cookie-consent
-      accept buttons plus a fallback to any link — see
-      DEFAULT_COOKIE_CONSENT_SELECTOR. Pass "" to disable autoclick.
-
-    Also captures a viewport screenshot per page (--screenshot view) and
-    both to-pages and to-warc text extraction, so the resulting WACZ can
-    later be fed into run_qa() (Browsertrix's own official QA comparison)
-    as well as fewa-automation's quality_index.py.
-
-    These are defaults for "archive one site reasonably", not universal
-    constants — tune per-seed if a site genuinely needs deeper/shallower
-    coverage, but never remove the caps entirely.
-    """
+    """Run a real, SCOPE-LIMITED Browsertrix crawl of `url`."""
+    import time
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -139,24 +113,64 @@ def run_crawl(
     if click_selector:
         cmd += ["--clickSelector", click_selector]
 
+    pages_crawled = 0
+    current_depth = 0
+    stdout_lines = []
+
     try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=timeout_seconds,
+        process = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
         )
-    except subprocess.TimeoutExpired:
+        start_t = time.time()
+
+        if process.stdout:
+            for line in iter(process.stdout.readline, ""):
+                stdout_lines.append(line)
+                if time.time() - start_t > timeout_seconds:
+                    process.kill()
+                    return CrawlResult(
+                        success=False, wacz_path=None, returncode=-1,
+                        stderr_tail="Crawl timed out — check --shm-size is set.",
+                    )
+
+                line_str = line.strip()
+                if not line_str:
+                    continue
+
+                try:
+                    if line_str.startswith("{") and line_str.endswith("}"):
+                        rec = json.loads(line_str)
+                        d = rec.get("depth")
+                        p = rec.get("crawled") or rec.get("pages") or rec.get("pageCount")
+                        updated = False
+                        if isinstance(d, int) and d > current_depth:
+                            current_depth = d
+                            updated = True
+                        if isinstance(p, int) and p > pages_crawled:
+                            pages_crawled = p
+                            updated = True
+                        if updated and progress_callback:
+                            progress_callback(pages_crawled, current_depth)
+                except Exception:
+                    pass
+
+        process.wait()
+        returncode = process.returncode
+        stderr_tail = "".join(stdout_lines[-50:])
+    except Exception as e:
         return CrawlResult(
             success=False, wacz_path=None, returncode=-1,
-            stderr_tail="Crawl timed out — check --shm-size is set (see module docstring).",
+            stderr_tail=str(e),
         )
 
     wacz_path = output_dir / collection / f"{collection}.wacz"
-    success = result.returncode in GRACEFUL_STOP_RETURN_CODES and wacz_path.exists()
+    success = returncode in GRACEFUL_STOP_RETURN_CODES and wacz_path.exists()
 
     return CrawlResult(
         success=success,
         wacz_path=wacz_path if wacz_path.exists() else None,
-        returncode=result.returncode,
-        stderr_tail=result.stderr[-2000:] if result.stderr else "",
+        returncode=returncode,
+        stderr_tail=stderr_tail,
         seed_http_status=_read_seed_http_status(output_dir / collection),
     )
 

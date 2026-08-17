@@ -181,3 +181,39 @@ def test_get_malformed_site_id_returns_404_not_500():
         headers={"Authorization": f"Bearer {ARCHIVIST_TOKEN}"},
     )
     assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_rights_holder_fields_create_and_update(conn):
+    domain = f"rightsholder-{uuid.uuid4().hex[:8]}.hu"
+    payload = {
+        "domain": domain,
+        "base_url": f"https://{domain}",
+        "display_name": "Rights Holder Test Site",
+        "rights_holder_name": "Kovács János",
+        "rights_holder_email": "janos@example.com",
+        "rights_holder_contact_other": "+36 30 123 4567",
+        "permission_status": "engedélyezve",
+    }
+    create_res = client.post(
+        "/api/admin/sites",
+        headers={"Authorization": f"Bearer {CURATOR_TOKEN}"},
+        json=payload,
+    )
+    assert create_res.status_code == status.HTTP_201_CREATED
+    site = create_res.json()
+    site_id = site["id"]
+    assert site["rights_holder_name"] == "Kovács János"
+    assert site["rights_holder_email"] == "janos@example.com"
+    assert site["permission_status"] == "engedélyezve"
+
+    patch_res = client.patch(
+        f"/api/admin/sites/{site_id}",
+        headers={"Authorization": f"Bearer {CURATOR_TOKEN}"},
+        json={"permission_status": "visszavonva"},
+    )
+    assert patch_res.status_code == status.HTTP_200_OK
+    assert patch_res.json()["permission_status"] == "visszavonva"
+
+    await conn.execute("DELETE FROM crawl_policies WHERE site_id = $1", site_id)
+    await conn.execute("DELETE FROM sites WHERE id = $1", site_id)

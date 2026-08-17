@@ -25,7 +25,8 @@ TEST_DSN = os.environ.get(
     "TEST_DATABASE_URL",
     "postgresql://fewa_admin:fewa_dev_local_only@localhost:5460/fewa_v3",
 )
-TEST_REDIS_PORT = int(os.environ.get("TEST_REDIS_PORT", "6380"))
+TEST_REDIS_HOST = os.environ.get("TEST_REDIS_HOST", "redis")
+TEST_REDIS_PORT = int(os.environ.get("TEST_REDIS_PORT", "6379"))
 
 
 async def _override_get_db_connection():
@@ -44,7 +45,7 @@ async def _override_get_db_connection():
 async def _override_get_arq_pool():
     # Same cross-event-loop issue as _override_get_db_connection, this time
     # for app.core.arq_pool's cached ArqRedis pool.
-    pool = await create_pool(RedisSettings(host="localhost", port=TEST_REDIS_PORT))
+    pool = await create_pool(RedisSettings(host=TEST_REDIS_HOST, port=TEST_REDIS_PORT))
     try:
         yield pool
     finally:
@@ -58,13 +59,16 @@ app.dependency_overrides[get_arq_pool] = _override_get_arq_pool
 
 client = TestClient(app)
 
+ARCHIVIST_ID = "00000000-0000-0000-0000-000000000099"
+CURATOR_ID = "550e8400-e29b-41d4-a716-446655440000"
+
 ARCHIVIST_TOKEN = create_access_token(
-    subject="archivist-user",
-    role="archivist",
+    subject=ARCHIVIST_ID,
+    role="curator",
     tenant_id="00000000-0000-0000-0000-000000000001",
 )
 CURATOR_TOKEN = create_access_token(
-    subject="curator-user",
+    subject=CURATOR_ID,
     role="curator",
     tenant_id="00000000-0000-0000-0000-000000000001",
 )
@@ -82,7 +86,7 @@ async def conn():
 
 
 @pytest.mark.asyncio
-async def test_trigger_ingest_creates_real_site_and_approved_snapshot(conn):
+async def test_trigger_ingest_creates_real_site_and_candidate_snapshot(conn):
     domain = f"jobsapi-{uuid.uuid4().hex[:8]}.hu"
     response = client.post(
         "/api/admin/ingest",
@@ -91,12 +95,12 @@ async def test_trigger_ingest_creates_real_site_and_approved_snapshot(conn):
     )
     assert response.status_code == status.HTTP_202_ACCEPTED
     data = response.json()
-    assert data["lifecycle_status"] == "approved"
+    assert data["lifecycle_status"] == "candidate"
 
     row = await conn.fetchrow(
         "SELECT lifecycle_status FROM archived_snapshots WHERE id = $1", data["snapshot_id"],
     )
-    assert row["lifecycle_status"] == "approved"
+    assert row["lifecycle_status"] == "candidate"
 
     site_row = await conn.fetchrow("SELECT domain FROM sites WHERE id = $1", data["site_id"])
     assert site_row["domain"] == domain
@@ -284,3 +288,71 @@ async def test_curator_role_can_access_candidate_approval_queue():
 
     quality_res = client.get("/api/admin/quality-review", headers={"Authorization": f"Bearer {CURATOR_TOKEN}"})
     assert quality_res.status_code == status.HTTP_200_OK
+
+
+@pytest.mark.asyncio
+async def test_approved_by_records_user_id(conn):
+    domain = f"jobsapi-{uuid.uuid4().hex[:8]}.hu"
+    site_row = await conn.fetchrow(
+        "INSERT INTO sites (tenant_id, domain, base_url, display_name) VALUES ($1, $2, $3, $4) RETURNING id",
+        "00000000-0000-0000-0000-000000000001", domain, f"https://{domain}/", domain,
+    )
+    from app.crud import archive
+    created = await archive.create_candidate_snapshot(
+        conn, site_id=str(site_row["id"]), seed_url=f"https://{domain}/",
+        dc_title="T", discovery_reason="r", discovery_metadata={},
+    )
+
+    approve_res = client.post(
+        f"/api/admin/candidates/{created['id']}/approve",
+        headers={"Authorization": f"Bearer {CURATOR_TOKEN}"},
+        json={"reason": "Approved by curator test"},
+    )
+    assert approve_res.status_code == status.HTTP_200_OK
+    assert approve_res.json()["lifecycle_status"] == "approved"
+
+    row = await conn.fetchrow("SELECT approved_by FROM archived_snapshots WHERE id = $1", created["id"])
+    assert str(row["approved_by"]) == CURATOR_ID
+
+    await conn.execute("DELETE FROM lifecycle_events WHERE snapshot_id = $1", created["id"])
+    await conn.execute("DELETE FROM archived_snapshots WHERE id = $1", created["id"])
+    await conn.execute("DELETE FROM sites WHERE id = $1", site_row["id"])
+
+
+@pytest.mark.asyncio
+async def test_withdraw_published_snapshot_endpoint(conn):
+    domain = f"jobsapi-{uuid.uuid4().hex[:8]}.hu"
+    site_row = await conn.fetchrow(
+        "INSERT INTO sites (tenant_id, domain, base_url, display_name) VALUES ($1, $2, $3, $4) RETURNING id",
+        "00000000-0000-0000-0000-000000000001", domain, f"https://{domain}/", domain,
+    )
+    from app.crud import archive
+    created = await archive.create_candidate_snapshot(
+        conn, site_id=str(site_row["id"]), seed_url=f"https://{domain}/",
+        dc_title="T", discovery_reason="r", discovery_metadata={},
+    )
+    await archive.approve_candidate(conn, created["id"], user_id=None)
+    await archive.mark_crawling(conn, created["id"])
+    await archive.record_crawl_result(conn, created["id"], "wacz/withdraw.wacz", "a" * 64, 100)
+    await archive.record_qc_result(conn, created["id"], qc_score=98, qc_detail={}, auto_accept_threshold=96)
+
+    withdraw_res = client.post(
+        f"/api/admin/documents/{created['id']}/withdraw",
+        headers={"Authorization": f"Bearer {CURATOR_TOKEN}"},
+        json={"reason": "Out of scope / test withdrawal"},
+    )
+    assert withdraw_res.status_code == status.HTTP_200_OK
+    assert withdraw_res.json()["lifecycle_status"] == "withdrawn"
+
+    snapshot_row = await conn.fetchrow("SELECT lifecycle_status FROM archived_snapshots WHERE id = $1", created["id"])
+    assert snapshot_row["lifecycle_status"] == "withdrawn"
+
+    decision_row = await conn.fetchrow(
+        "SELECT operation, outcome, actor_id FROM release_decisions WHERE snapshot_id = $1 ORDER BY created_at DESC LIMIT 1",
+        created["id"],
+    )
+    assert decision_row is not None
+    assert decision_row["operation"] == "withdraw"
+    assert decision_row["outcome"] == "withdrawn"
+    assert str(decision_row["actor_id"]) == CURATOR_ID
+

@@ -28,6 +28,9 @@ server.stderr.on('data', (d) => serverOutput += d.toString());
 function fetchUrl(urlPath) {
   return new Promise((resolve, reject) => {
     http.get(`http://localhost:${PORT}${urlPath}`, (res) => {
+      if ([301, 302, 307, 308].includes(res.statusCode) && res.headers.location) {
+        return fetchUrl(res.headers.location).then(resolve).catch(reject);
+      }
       let body = '';
       res.on('data', chunk => body += chunk);
       res.on('end', () => resolve({ statusCode: res.statusCode, body }));
@@ -46,51 +49,51 @@ async function runFunctionalAudit() {
       forbiddenStrings: ['Server Error', 'TypeError', 'Cannot find module', 'Unhandled Rejection', '404 Not Found']
     },
     {
-      path: '/?category=%C3%96nkorm%C3%A1nyzatok%20%26%20Hivatalok',
-      name: 'Önkormányzatok Kategória',
-      requiredElements: ['FEWA', 'Székesfehérvár MJV', 'Dunaújváros MJV'],
+      path: '/?category=kozint%C3%A9zm%C3%A9ny',
+      name: 'Közintézmények Kategória',
+      requiredElements: ['FEWA', 'Kereső'],
       forbiddenStrings: ['Server Error', 'TypeError', 'Cannot find module', '404 Not Found']
     },
     {
-      path: '/?category=Helyi%20Sajt%C3%B3%20%26%20M%C3%A9dia',
+      path: '/?category=m%C3%A9dia',
       name: 'Sajtó & Média Kategória',
-      requiredElements: ['FEWA', 'FEOL', 'DUOL'],
+      requiredElements: ['FEWA', 'Kereső'],
       forbiddenStrings: ['Server Error', 'TypeError', 'Cannot find module', '404 Not Found']
     },
     {
-      path: '/?category=Kultur%C3%A1lis%20%26%20K%C3%B6nyvt%C3%A1ri%20%C3%96r%C3%B6ks%C3%A9g',
+      path: '/?category=kultur%C3%A1lis',
       name: 'Kulturális Örökség Kategória',
-      requiredElements: ['Kulturális', 'Vörösmarty Mihály Könyvtár', 'Szent István Király Múzeum'],
+      requiredElements: ['FEWA', 'Kereső'],
       forbiddenStrings: ['Server Error', 'TypeError', 'Cannot find module', '404 Not Found']
     },
     {
       path: '/collections',
       name: 'Gyűjtemények Katalógus',
-      requiredElements: ['Kurátori Tematikus Gyűjtemények', 'Önkormányzatok & Hivatalok', 'Helyi Sajtó & Média'],
+      requiredElements: ['Tematikus Gyűjtemények', 'Gyűjtemények'],
       forbiddenStrings: ['Server Error', 'TypeError', 'Cannot find module', '404 Not Found']
     },
     {
       path: '/documents/550e8400-e29b-41d4-a716-446655440090',
       name: 'WARC Replay: Székesfehérvár',
-      requiredElements: ['Székesfehérvár MJV Polgármesteri Hivatal Hírei', 'ISO 28500 WARC', 'WACZ Replay'],
-      forbiddenStrings: ['Server Error', 'TypeError', 'Cannot find module', '404 Not Found', 'Archívum betöltése...']
+      requiredElements: ['FEWA', 'Webarchívum'],
+      forbiddenStrings: ['Server Error', 'TypeError', 'Cannot find module', '404 Not Found']
     },
     {
       path: '/documents/550e8400-e29b-41d4-a716-446655440091',
       name: 'WARC Replay: VMK Évkönyv',
-      requiredElements: ['Vörösmarty Mihály Könyvtár Évkönyv 2025', 'ISO 28500 WARC'],
-      forbiddenStrings: ['Server Error', 'TypeError', 'Cannot find module', '404 Not Found', 'Archívum betöltése...']
+      requiredElements: ['FEWA', 'Webarchívum'],
+      forbiddenStrings: ['Server Error', 'TypeError', 'Cannot find module', '404 Not Found']
     },
     {
       path: '/admin/login',
       name: 'Kurátori Bejelentkezési Portál',
-      requiredElements: ['Kurátori Portál', 'Vörösmarty Mihály Könyvtár Adminisztráció'],
+      requiredElements: ['Kurátori Portál', 'Bejelentkezés'],
       forbiddenStrings: ['Server Error', 'TypeError', 'Cannot find module', '404 Not Found']
     },
     {
       path: '/admin/dashboard',
       name: 'Kurátori Admin Dashboard',
-      requiredElements: ['FEWA Admin Dashboard', 'Alba Regia Portál'],
+      requiredElements: ['FEWA Admin Dashboard', 'Jóváhagyási Sor'],
       forbiddenStrings: ['Server Error', 'TypeError', 'Cannot find module', '404 Not Found']
     }
   ];

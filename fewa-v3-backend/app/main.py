@@ -10,6 +10,7 @@ from app.api.v1.jobs import router as jobs_router
 from app.api.v1.search import router as search_router
 from app.api.v1.rag import router as rag_router
 from app.api.v1.oaipmh import router as oaipmh_router
+from app.api.v1.users import router as users_router
 from app.core.db import check_db_health
 from app.core.redis import check_redis_health
 from app.core.minio_client import minio_client
@@ -44,6 +45,7 @@ app.include_router(jobs_router)
 app.include_router(search_router)
 app.include_router(rag_router)
 app.include_router(oaipmh_router)
+app.include_router(users_router)
 
 
 @app.get("/api/health", tags=["System"])

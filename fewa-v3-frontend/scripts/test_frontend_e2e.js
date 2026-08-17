@@ -28,6 +28,9 @@ server.stderr.on('data', (d) => serverOutput += d.toString());
 function fetchUrl(urlPath) {
   return new Promise((resolve, reject) => {
     http.get(`http://localhost:${PORT}${urlPath}`, (res) => {
+      if ([301, 302, 307, 308].includes(res.statusCode) && res.headers.location) {
+        return fetchUrl(res.headers.location).then(resolve).catch(reject);
+      }
       let body = '';
       res.on('data', chunk => body += chunk);
       res.on('end', () => resolve({ statusCode: res.statusCode, body }));

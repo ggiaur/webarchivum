@@ -72,6 +72,14 @@ async def run_crawl_job(ctx: Dict[str, Any], payload: dict) -> dict:
     # crawl duration, serializing every job onto one at a time regardless
     # of arq's configured concurrency. to_thread moves the block off the
     # loop so other jobs keep running while this one crawls.
+    loop = asyncio.get_running_loop()
+
+    def progress_cb(pages: int, depth: int):
+        async def _update():
+            async with db_pool.acquire() as conn:
+                await archive.update_crawl_progress(conn, snapshot_id, pages, depth)
+        asyncio.run_coroutine_threadsafe(_update(), loop)
+
     async with _crawl_semaphore:
         crawl_result = await asyncio.to_thread(
             automation_run_crawl,
@@ -80,6 +88,7 @@ async def run_crawl_job(ctx: Dict[str, Any], payload: dict) -> dict:
             output_dir=CRAWL_STAGING_DIR,
             depth=parsed.depth,
             page_limit=min(parsed.max_pages, 100),  # extra safety cap regardless of what's requested
+            progress_callback=progress_cb,
         )
 
     if not crawl_result.success or crawl_result.wacz_path is None:
@@ -214,13 +223,27 @@ async def run_enrich_job(ctx: Dict[str, Any], payload: dict) -> dict:
             "duration_ms": int((time.time() - start_time) * 1000),
         }
 
-    # One snapshot = one seed page for now; average across pages if the
-    # crawl covered more than one (see crawler.py's depth/page_limit).
     screenshot_scores = [p["screenshotMatch"] for p in qa_result.per_page if p.get("screenshotMatch") is not None]
     text_scores = [p["textMatch"] for p in qa_result.per_page if p.get("textMatch") is not None]
     avg_screenshot = sum(screenshot_scores) / len(screenshot_scores) if screenshot_scores else 0.0
     avg_text = sum(text_scores) / len(text_scores) if text_scores else 0.0
     qc_score = round(min(avg_screenshot, avg_text) * 100)  # conservative: the WORSE of the two dimensions
+
+    # Task 8 — Hard lower threshold: if any single page's screenshotMatch or textMatch < 60%,
+    # force mandatory human quality review regardless of high batch average score.
+    min_single_page = 1.0
+    for p in qa_result.per_page:
+        if p.get("screenshotMatch") is not None:
+            min_single_page = min(min_single_page, p["screenshotMatch"])
+        if p.get("textMatch") is not None:
+            min_single_page = min(min_single_page, p["textMatch"])
+
+    if min_single_page < 0.60 and qc_score >= settings.QUALITY_AUTO_ACCEPT_THRESHOLD:
+        logger.warning(
+            f"EnrichJob {parsed.job_id}: Single page score ({round(min_single_page * 100)}%) < 60%. "
+            "Forcing human quality review."
+        )
+        qc_score = min(qc_score, settings.QUALITY_AUTO_ACCEPT_THRESHOLD - 1)
 
     async with db_pool.acquire() as conn:
         db_result = await archive.record_qc_result(

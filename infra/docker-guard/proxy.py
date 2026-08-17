@@ -37,14 +37,15 @@ ALLOWED_IMAGE_PREFIX = "webrecorder/browsertrix-crawler"
 # Regex patterns for Endpoint Whitelist (Allowlist)
 # Strips optional /v1.xx API prefix
 ENDPOINT_ALLOWLIST = [
-    ("GET", r"^(/v\d+\.\d+)?/_ping$"),
-    ("GET", r"^(/v\d+\.\d+)?/info$"),
-    ("GET", r"^(/v\d+\.\d+)?/version$"),
+    (("GET", "HEAD"), r"^(/v\d+\.\d+)?/_ping$"),
+    (("GET", "HEAD"), r"^(/v\d+\.\d+)?/info$"),
+    (("GET", "HEAD"), r"^(/v\d+\.\d+)?/version$"),
     ("GET", r"^(/v\d+\.\d+)?/containers/[a-zA-Z0-9_\-]+/json$"),
     ("GET", r"^(/v\d+\.\d+)?/containers/[a-zA-Z0-9_\-]+/logs$"),
     ("POST", r"^(/v\d+\.\d+)?/containers/create$"),
     ("POST", r"^(/v\d+\.\d+)?/containers/[a-zA-Z0-9_\-]+/start$"),
     ("POST", r"^(/v\d+\.\d+)?/containers/[a-zA-Z0-9_\-]+/wait$"),
+    ("POST", r"^(/v\d+\.\d+)?/containers/[a-zA-Z0-9_\-]+/attach$"),
     ("DELETE", r"^(/v\d+\.\d+)?/containers/[a-zA-Z0-9_\-]+$"),
     ("GET", r"^(/v\d+\.\d+)?/images/[^/]+/json$"),
     ("POST", r"^(/v\d+\.\d+)?/images/create$"),
@@ -54,8 +55,14 @@ ENDPOINT_ALLOWLIST = [
 def is_endpoint_allowed(method: str, raw_path: str) -> bool:
     """Check if HTTP method and path match the explicit allowlist."""
     path_without_query = raw_path.split("?")[0]
+    m_upper = method.upper()
     for allowed_method, p_regex in ENDPOINT_ALLOWLIST:
-        if method.upper() == allowed_method and re.match(p_regex, path_without_query):
+        if isinstance(allowed_method, tuple):
+            method_ok = m_upper in allowed_method
+        else:
+            method_ok = m_upper == allowed_method
+
+        if method_ok and re.match(p_regex, path_without_query):
             return True
     return False
 
@@ -242,6 +249,27 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                 return
 
         logger.info(f"ALLOWED {method} {path}")
+
+        is_upgrade = any(line.lower().startswith("upgrade:") for line in lines)
+        if is_upgrade:
+            full_request = raw_headers_part + b"\r\n\r\n" + full_body
+            doc_reader, doc_writer = await asyncio.open_unix_connection(DOCKER_SOCKET_PATH)
+            doc_writer.write(full_request)
+            await doc_writer.drain()
+
+            async def pipe(r, w):
+                try:
+                    while True:
+                        buf = await r.read(8192)
+                        if not buf:
+                            break
+                        w.write(buf)
+                        await w.drain()
+                except Exception:
+                    pass
+
+            await asyncio.gather(pipe(reader, doc_writer), pipe(doc_reader, writer))
+            return
 
         # Reconstruct sanitized request to forward to Unix socket (enforcing Connection: close)
         sanitized_headers = [line for line in lines if not line.lower().startswith("connection:")]

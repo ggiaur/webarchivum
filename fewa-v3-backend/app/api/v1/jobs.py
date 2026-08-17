@@ -50,17 +50,15 @@ class QualityReviewDecisionSchema(BaseModel):
     reason: str
 
 
-@router.post("/ingest", status_code=status.HTTP_202_ACCEPTED, dependencies=[Depends(require_role("curator"))])
+@router.post("/ingest", status_code=status.HTTP_202_ACCEPTED)
 async def trigger_ingest(
     body: IngestRequestSchema,
     conn: asyncpg.Connection = Depends(get_db_connection),
-    arq_pool=Depends(get_arq_pool),
+    current_user: dict = Depends(require_role("curator")),
 ):
     """Admin-triggered ingest of a specific seed URL: resolves/creates the
-    real site row, creates a candidate snapshot, auto-approves it (the
-    admin's explicit action IS the approval — matches the discovery-queue
-    flow where a curator approves an already-flagged candidate), and
-    enqueues a real crawl job."""
+    real site row and creates a candidate snapshot. Under the mandatory human approval
+    policy, the snapshot remains in 'candidate' status awaiting explicit curator approval."""
     domain = urlparse(str(body.seed_url)).netloc
     if not domain:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Érvénytelen seed_url: nem sikerült domaint kinyerni.")
@@ -68,36 +66,23 @@ async def trigger_ingest(
     site = await archive.get_or_create_site_by_domain(
         conn, domain=domain, base_url=str(body.seed_url), display_name=body.dc_title,
     )
+    user_id = current_user.get("sub")
     try:
         candidate = await archive.create_candidate_snapshot(
             conn, site_id=str(site["id"]), seed_url=str(body.seed_url),
             dc_title=body.dc_title or domain,
             discovery_reason="Manual ingest via admin API",
             discovery_metadata={"source": "manual_ingest"},
+            created_by=user_id,
         )
     except ValueError as e:
         raise HTTPException(status.HTTP_409_CONFLICT, str(e))
-    approved = await archive.approve_candidate(conn, candidate["id"], user_id=None, reason="Manual ingest: admin-approved on submission")
-
-    job_id = uuid.uuid4()
-    await arq_pool.enqueue_job(
-        "run_crawl_job",
-        {
-            "job_id": str(job_id),
-            "site_id": str(site["id"]),
-            "snapshot_id": str(candidate["id"]),
-            "seed_url": str(body.seed_url),
-            "depth": body.depth,
-            "max_pages": body.max_pages,
-        },
-        _job_id=str(job_id),
-    )
 
     return {
-        "job_id": str(job_id),
+        "job_id": None,
         "snapshot_id": str(candidate["id"]),
         "site_id": str(site["id"]),
-        "lifecycle_status": approved["lifecycle_status"],
+        "lifecycle_status": "candidate",
     }
 
 
@@ -108,15 +93,17 @@ async def list_candidates(conn: asyncpg.Connection = Depends(get_db_connection))
     return {"items": rows, "total": len(rows)}
 
 
-@router.post("/candidates/{snapshot_id}/approve", dependencies=[Depends(require_role("curator"))])
+@router.post("/candidates/{snapshot_id}/approve")
 async def approve_candidate_endpoint(
     snapshot_id: uuid.UUID,
     body: CandidateDecisionSchema,
     conn: asyncpg.Connection = Depends(get_db_connection),
     arq_pool=Depends(get_arq_pool),
+    current_user: dict = Depends(require_role("curator")),
 ):
+    user_id = current_user.get("sub")
     try:
-        result = await archive.approve_candidate(conn, str(snapshot_id), user_id=None, reason=body.reason)
+        result = await archive.approve_candidate(conn, str(snapshot_id), user_id=user_id, reason=body.reason)
     except ValueError as e:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
 
@@ -158,15 +145,33 @@ async def list_quality_review(conn: asyncpg.Connection = Depends(get_db_connecti
     return {"items": rows, "total": len(rows), "threshold": settings.QUALITY_AUTO_ACCEPT_THRESHOLD}
 
 
-@router.post("/quality-review/{snapshot_id}/decide", dependencies=[Depends(require_role("curator"))])
+@router.post("/quality-review/{snapshot_id}/decide")
 async def decide_quality_review_endpoint(
     snapshot_id: uuid.UUID,
     body: QualityReviewDecisionSchema,
     conn: asyncpg.Connection = Depends(get_db_connection),
+    current_user: dict = Depends(require_role("curator")),
 ):
+    user_id = current_user.get("sub")
     try:
         return await archive.decide_quality_review(
-            conn, str(snapshot_id), accept=body.accept, user_id=None, reason=body.reason,
+            conn, str(snapshot_id), accept=body.accept, user_id=user_id, reason=body.reason,
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
+
+
+@router.post("/documents/{snapshot_id}/withdraw")
+async def withdraw_published_document_endpoint(
+    snapshot_id: uuid.UUID,
+    body: CandidateDecisionSchema,
+    conn: asyncpg.Connection = Depends(get_db_connection),
+    current_user: dict = Depends(require_role("curator")),
+):
+    user_id = current_user.get("sub")
+    try:
+        return await archive.withdraw_published_snapshot(
+            conn, str(snapshot_id), actor_id=user_id, reason=body.reason,
         )
     except ValueError as e:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
