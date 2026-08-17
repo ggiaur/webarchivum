@@ -4135,6 +4135,67 @@ bizonyíték (ahogy eddig is) — ne csak "elkészült" állítás.
 
 ------------------------------------------------------------------------------
 
+## [2026-08-17 20:1x UTC] SONNET 5 — ÚJ FELADAT: felhasználókezelés (nincs sehol) + jogtulajdonos/kapcsolattartó adatok a webhelyekhez
+
+MODEL=Sonnet 5, fő szál. BJ két hiányt jelzett, mindkettőt ellenőriztem —
+mindkettő valódi, teljes hiány, nem csak UI-probléma.
+
+### A) Felhasználókezelés — TELJESEN HIÁNYZIK
+
+A `user_role_enum` 6 szerepkört definiál (`admin`, `archivist`,
+`curator`, `indexer`, `viewer`, `guest`), a `require_role()` hierarchikus
+minimum-jogosultság ellenőrzést tud (`app/api/deps.py` +
+`app/core/security.py::has_required_role`) — **de nincs semmilyen API
+végpont vagy admin UI felhasználó felvételére, szerepkör módosítására
+vagy deaktiválására.** `app/crud/users.py` csak
+`get_user_by_email`/`get_user_by_id`/`mark_login`-t tud, ezeket is csak a
+login-folyamat hívja. Jelenleg **kizárólag SQL-migrációval** (l.
+`spec/migrations/004_seed_default_users.sql`) lehet usert létrehozni.
+
+**Kért munka:**
+1. Backend: `app/api/v1/users.py` (vagy hasonló) — `GET /api/admin/users`
+   (lista), `POST /api/admin/users` (új felhasználó, bcrypt hash-elt
+   jelszóval — használd az meglévő `app.core.security.hash_password`-öt),
+   `PATCH /api/admin/users/{id}` (szerepkör/aktív státusz módosítás),
+   mindegyik **`require_role("admin")`** (nem `curator`!) mögé zárva —
+   csak admin kezelhessen usereket.
+2. Frontend: új "Felhasználók" fül a dashboardon (csak `admin` role-nak
+   látszódjon), lista + új felhasználó form (email, név, szerepkör
+   választó a 6 lehetőségből) + szerepkör-váltás/deaktiválás meglévő
+   sornál.
+3. **Saját magát ne tudja senki leértékelni/deaktiválni** (véletlen
+   admin-kizárás elleni védelem) — ezt kezeld explicit ellenőrzéssel a
+   backend endpointban.
+
+### B) Jogtulajdonos / kapcsolattartó adatok a webhelyekhez — HIÁNYZIK A SÉMÁBÓL
+
+BJ: "kitől kell engedélyt kérni" — ki a webhely jogtulajdonosa, milyen
+elérhetőségen kereshető meg. Ellenőriztem: a `sites` tábla (`spec/schema.sql`)
+**nem tartalmaz semmilyen tulajdonos/kapcsolattartó mezőt** — ez
+egyébként ugyanaz a hiány, amit a korábbi, `docs/FEWA_FEJLESZTESI_STRATEGIA.md`
+stratégiai elemzés is jelzett (a régi FEWA munkafolyamat "Jogtulajdonos
+személy"/"Jogtulajdonos testület" mezői sosem kerültek át az új sémába).
+
+**Kért munka (minimál kör, NEM a teljes authority-control modell — az
+külön, nagyobb feladat, l. a stratégiai dokumentumot):**
+1. Migráció: `sites` táblához `rights_holder_name TEXT`,
+   `rights_holder_email TEXT`, `rights_holder_contact_other TEXT`
+   (telefon/egyéb, szabad szöveg), `permission_status` enum vagy szöveg
+   (pl. `nincs_megkeresve` / `megkeresve` / `engedélyezett` /
+   `elutasított` — kérdezd meg BJ-t pontos elnevezésre, ha nem
+   egyértelmű, ne találgass).
+2. Backend: `SiteUpdateSchema` és a site-létrehozó endpoint bővítése
+   ezekkel a mezőkkel.
+3. Frontend: az "Új Site Hozzáadása" formba és a (fentebb már kért)
+   szerkesztő UI-ba kerüljenek be ezek a mezők.
+
+**Következő tulajdonos:** Gemini (Builder) → utána Sonnet review. Ha a
+`permission_status` pontos értékkészletében bizonytalan vagy, tedd fel a
+kérdést ide, ne találgass — ez pont az a fajta mező, amit utólag
+fájdalmas átnevezni.
+
+------------------------------------------------------------------------------
+
 ## [2026-08-17 20:0x UTC] SONNET 5 — KIEGÉSZÍTÉS a fenti feladathoz: kötelező emberi jóváhagyás (policy) + élő aratási progress (%, mélység)
 
 MODEL=Sonnet 5, fő szál. BJ két további, fontos pontot jelzett — az
