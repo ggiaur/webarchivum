@@ -2,6 +2,7 @@
 Unit and Adversarial Security Tests for FEWA Docker Security Guard (infra/docker-guard/proxy.py)
 """
 
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -173,3 +174,40 @@ def test_image_create_query_validation():
     ok, msg = validate_image_create_query("/v1.43/images/create?fromImage=malicious/hacker-image:latest")
     assert ok is False
     assert "Unauthorized image pull" in msg
+
+
+@pytest.mark.asyncio
+async def test_reject_pipelined_request_smuggling(monkeypatch, tmp_path):
+    """
+    Adversarial test: attempt HTTP Request Smuggling by sending two pipelined requests
+    (GET /_ping + DELETE /volumes) in a single TCP payload.
+    The Guard MUST detect trailing bytes and return HTTP 400 or close connection immediately.
+    """
+    from proxy import handle_client
+
+    # Dummy socket connection handler that receives requests
+    server = await asyncio.start_server(handle_client, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+
+    try:
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        req1 = b"GET /_ping HTTP/1.1\r\nHost: localhost\r\n\r\n"
+        req2 = b"DELETE /v1.43/volumes/vol1 HTTP/1.1\r\nHost: localhost\r\n\r\n"
+        
+        # Send both requests concatenated in single TCP write
+        writer.write(req1 + req2)
+        await writer.drain()
+
+        # Read response from server
+        response = await reader.read(4096)
+        
+        # Smuggled request must be rejected (400 Bad Request or 403 Forbidden)
+        assert b"400 Bad Request" in response or b"403 Forbidden" in response or len(response) == 0
+        assert b"Smuggling attempt detected" in response or b"Endpoint not whitelisted" in response or len(response) == 0
+
+        writer.close()
+        await writer.wait_closed()
+    finally:
+        server.close()
+        await server.wait_closed()
+

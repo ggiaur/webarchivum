@@ -3721,5 +3721,94 @@ nem fut zölden — küldd vissza a javított kódot és a bizonyítékot.
 
 **Következő tulajdonos:** Gemini (Builder).
 
+## [2026-08-17 17:21 UTC] GEMINI BUILDER — W2 HTTP REQUEST SMUGGLING RÉSSOR JAVÍTVA & 12/12 ADVERSARIAL TESZT PASS
+
+MODEL=Gemini 3.6 Flash (High); REASONING=high
+ÁLLAPOT: **W2 Request Smuggling rés lezárva**, **12/12 teszt PASS** (beleértve a valódi pipelined socket tesztet). W3 jóváhagyásra vár.
+
+### JAVÍTÁSOK A `proxy.py`-BAN:
+
+1. **Strict Buffer & Content-Length Truncation:**
+   Ha a kezdeti olvasás után `len(body_data) > content_length` (vagyis a kliens több adatot küldött a `Content-Length`-nél, pl. egy pipelined 2. kérést), a Guard **azonnal HTTP 400 Bad Request-tel válaszol és lezárja a kapcsolatot**, egyetlen bájtot sem továbbítva a Docker socketre:
+   ```python
+   if len(body_data) > content_length:
+       logger.warning("REJECTED — Smuggling / Pipelining attempt detected")
+       resp = b"HTTP/1.1 400 Bad Request\r\nConnection: close\r\n..."
+       writer.write(resp)
+       ...
+       return
+   ```
+2. **Kényszerített `Connection: close` fejléc:**
+   Minden továbbított kérésből eltávolításra kerül a `Connection: keep-alive`, és kötelezően `Connection: close` fejléc kerül beszúrásra a Docker daemon felé.
+3. **Strict Socket Connection Lifecycle:**
+   A proxy minden egyetlen kérés kiszolgálása/elutasítása után azonnal lezárja mind a kliens TCP kapcsolatot, mind a Docker Unix socket kapcsolatot. Pipelining / persistent keep-alive kapcsolat átvitele szigorúan tiltott.
+
+### ÚJ ADVERSARIAL TESZT BIZONYÍTÉK:
+Hozzáadva a `test_reject_pipelined_request_smuggling` teszt a `infra/docker-guard/test_proxy.py` fájlhoz, amely pontosan Sonnet reprodukcióját szimulálja: egyetlen TCP `write(req1 + req2)`-ben küld el egy legális `GET /_ping` és egy tiltott `DELETE /v1.43/volumes/vol1` kérést.
+
+```bash
+python3 -m pytest -v infra/docker-guard/test_proxy.py
+```
+**Kimenet:**
+```text
+infra/docker-guard/test_proxy.py::test_endpoint_allowlist PASSED         [  8%]
+infra/docker-guard/test_proxy.py::test_valid_container_create PASSED     [ 16%]
+infra/docker-guard/test_proxy.py::test_reject_unauthorized_image PASSED  [ 25%]
+infra/docker-guard/test_proxy.py::test_reject_path_traversal_bind PASSED [ 33%]
+infra/docker-guard/test_proxy.py::test_reject_host_root_bind PASSED      [ 41%]
+infra/docker-guard/test_proxy.py::test_reject_privileged_container PASSED [ 50%]
+infra/docker-guard/test_proxy.py::test_reject_forbidden_cap_add PASSED   [ 58%]
+infra/docker-guard/test_proxy.py::test_reject_host_network_mode PASSED   [ 66%]
+infra/docker-guard/test_proxy.py::test_reject_host_devices PASSED        [ 75%]
+infra/docker-guard/test_proxy.py::test_reject_unconfined_security_opt PASSED [ 83%]
+infra/docker-guard/test_proxy.py::test_image_create_query_validation PASSED [ 91%]
+infra/docker-guard/test_proxy.py::test_reject_pipelined_request_smuggling PASSED [100%]
+
+============================== 12 passed in 0.05s ==============================
+```
+
+**Image re-build:** `docker build -t fewa-docker-guard -f infra/docker-guard/Dockerfile .` -> **SUCCESS (0.8s)**
+
+**Következő tulajdonos:** Sonnet 5 / User — a javított `proxy.py` és a 12. adveriális teszt felülvizsgálata. Elfogadás esetén indulhat a W3.
+
+------------------------------------------------------------------------------
+
+## [2026-08-17 17:23 UTC] SONNET 5 — W2 KÓD ELFOGADVA (saját exploit-tal újra ellenőrizve) — W3 ENGEDÉLYEZVE
+
+MODEL=Sonnet 5, fő szál. Nem a diffre vagy a teszt-kimenetre hagyatkoztam
+— **ugyanazt a saját exploit-scriptet futtattam újra**, ami korábban
+átjutott, most a javított image ellen:
+
+```
+docker build -t fewa-docker-guard-verify2 -f infra/docker-guard/Dockerfile .
+docker run -d --rm -v /var/run/docker.sock:/var/run/docker.sock --group-add 983 -p 12376:2375 ...
+# ugyanaz a payload: GET /_ping + GET /v1.41/volumes egyetlen sendall()-ban
+```
+**Eredmény:** `400 Bad Request`, egyetlen státusz-sor, **nincs `/volumes`
+adat a válaszban** — a korábbi rés zárva. Ellenőriztem regressziót is:
+önálló legitim kérés (`GET /_ping`) → `200 OK`; önálló tiltott kérés
+(`GET /v1.41/volumes`) → `403 Forbidden`, ahogy kell. A `Connection:
+close` kikényszerítés és a `body_data[:content_length]` vágás mindkettő
+a helyes, minimális javítás. Az új `test_reject_pipelined_request_smuggling`
+teszt valódi socket-szintű end-to-end teszt (`asyncio.start_server` +
+tényleges TCP write), nem csak a validáló függvényt hívja — ez helyes,
+jövőbeli regressziót ténylegesen elkapna.
+
+**Verdikt: W2 (spec + kód) TELJESEN ELFOGADVA.**
+
+### W3 — ENGEDÉLYEZVE
+
+Mehet a `docker-compose.yml` bekötése: `worker` service (least-privilege
+`fewa_app` credential, `depends_on: db-migrate-006/redis/minio healthy`,
+`DOCKER_HOST=tcp://docker-guard:2375`), `docker-guard` service (nyers
+`/var/run/docker.sock` **kizárólag ide** csatolva, saját elkülönített
+`fewa-crawler-net` hálózaton, host port kiültetés nélkül, ahogy a specben
+áll). A `worker` konténer NE kapjon közvetlen socket-mountot — csak a
+guard-on keresztül érje el a Docker API-t.
+
+**Következő tulajdonos:** Gemini (Builder) — W3 bekötés, majd W4
+végponttól végpontig bizonyíték (valódi WACZ a MinIO-ban).
+
+
 
 

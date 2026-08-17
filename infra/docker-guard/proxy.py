@@ -191,12 +191,25 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                 break
             body_data.extend(chunk)
 
-        full_body = bytes(body_data)
+        # SECURITY FIX: HTTP Request Smuggling / Pipelining Protection
+        if len(body_data) > content_length:
+            logger.warning(
+                f"REJECTED {method} {path} — Smuggling / Pipelining attempt detected: "
+                f"body length ({len(body_data)}) > content-length ({content_length})"
+            )
+            resp = b"HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Type: application/json\r\n\r\n{\"error\": \"Smuggling attempt detected: Trailing bytes forbidden\"}"
+            writer.write(resp)
+            await writer.drain()
+            writer.close()
+            await writer.wait_closed()
+            return
+
+        full_body = bytes(body_data[:content_length])
 
         # 1. Endpoint Whitelist Verification
         if not is_endpoint_allowed(method, path):
             logger.warning(f"REJECTED {method} {path} — Endpoint not in whitelist")
-            resp = b"HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\n\r\n{\"error\": \"Forbidden by FEWA Security Policy: Endpoint not whitelisted\"}"
+            resp = b"HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Type: application/json\r\n\r\n{\"error\": \"Forbidden by FEWA Security Policy: Endpoint not whitelisted\"}"
             writer.write(resp)
             await writer.drain()
             writer.close()
@@ -209,7 +222,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             ok, msg = validate_container_create_payload(full_body)
             if not ok:
                 logger.warning(f"REJECTED {method} {path} — {msg}")
-                resp = f"HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\n\r\n{{\"error\": \"Forbidden by FEWA Security Policy: {msg}\"}}".encode("utf-8")
+                resp = f"HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Type: application/json\r\n\r\n{{\"error\": \"Forbidden by FEWA Security Policy: {msg}\"}}".encode("utf-8")
                 writer.write(resp)
                 await writer.drain()
                 writer.close()
@@ -221,7 +234,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
             ok, msg = validate_image_create_query(path)
             if not ok:
                 logger.warning(f"REJECTED {method} {path} — {msg}")
-                resp = f"HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\n\r\n{{\"error\": \"Forbidden by FEWA Security Policy: {msg}\"}}".encode("utf-8")
+                resp = f"HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Type: application/json\r\n\r\n{{\"error\": \"Forbidden by FEWA Security Policy: {msg}\"}}".encode("utf-8")
                 writer.write(resp)
                 await writer.drain()
                 writer.close()
@@ -230,8 +243,10 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
 
         logger.info(f"ALLOWED {method} {path}")
 
-        # Reconstruct raw request to forward to Unix socket
-        full_request = raw_headers_part + b"\r\n\r\n" + full_body
+        # Reconstruct sanitized request to forward to Unix socket (enforcing Connection: close)
+        sanitized_headers = [line for line in lines if not line.lower().startswith("connection:")]
+        sanitized_headers.append("Connection: close")
+        full_request = "\r\n".join(sanitized_headers).encode("iso-8859-1") + b"\r\n\r\n" + full_body
 
         # Forward to Docker Unix socket
         doc_reader, doc_writer = await asyncio.open_unix_connection(DOCKER_SOCKET_PATH)
