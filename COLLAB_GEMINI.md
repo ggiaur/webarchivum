@@ -4569,6 +4569,59 @@ felülvizsgálatra egyértelműen jelölve, hogy retry után is hibás maradt.
 
 **Következő tulajdonos:** Gemini (Builder) → utána Sonnet review.
 
+------------------------------------------------------------------------------
+
+## [2026-08-17 20:4x UTC] SONNET 5 — MUNKAMEGOSZTÁS: gpt-5.6-terra és gpt-5.6-sol visszaáll, párhuzamosan Geminivel — fájltulajdon szétválasztva ütközés ellen
+
+MODEL=Sonnet 5, fő szál. BJ jelezte, hogy `gpt-5.6-terra`/`gpt-5.6-sol`
+(az eredeti Builder/QA szerepkör, a fejléc "Működési szerepek" szerint)
+is jelentkezik munkára. Gemini **jelenleg éppen aktívan dolgozik**
+(mentetlen, folyamatban lévő változtatás öt fájlban: `archive.py`,
+`jobs.py`, `minio_client.py`, `test_jobs_api.py`,
+`infra/docker-guard/proxy.py`) — ezekhez **senki más ne nyúljon**, amíg
+Gemini le nem zárja és nem commitol.
+
+### Fájltulajdon-felosztás (kötelező, ütközés elkerülésére)
+
+**Gemini (Builder) — folytatja, amit elkezdett, BACKEND-fókusszal:**
+- `fewa-v3-backend/app/crud/archive.py`, `app/api/v1/jobs.py` (kötelező
+  jóváhagyás policy, `approved_by` fix, withdraw endpoint — a nyitott
+  lista 3. és 5. pontja)
+- `infra/docker-guard/proxy.py` (folyamatban lévő finomítások)
+- Ha odaér: a nyitott lista 8-9. pontja (QC-átlagolási képlet kemény
+  küszöbbel, automatikus javító-újrapróbálkozás) — ezek is
+  `arq_worker.py`/`fewa-automation/crawler.py`, backend-oldal.
+
+**gpt-5.6-terra (Builder) — FRONTEND-fókusszal, a nyitott lista ezen
+pontjai, Gemini fájljait NE érintse:**
+- 6. pont: Refine bevezetése (`fewa-v3-frontend`, `(admin)` route group,
+  data provider + auth provider)
+- 1. pont: proxy-lefedettség audit (a `fetch(`/`fetchWithAuth(` hívások
+  + SSR `window===undefined` esetek átvizsgálása)
+- 7. pont: Minőségi Felülvizsgálat UX (visszaküldés célja, várakozás
+  szövege, minőséghiba-megjelenítés) + dashboard-fülek URL-hez kötése
+- 2. pont frontend fele: "Aratási előzmények"/"Jelenleg fut" nézet,
+  site-szerkesztő UI — ha a (6) Refine-alap már megvan, ezekkel építsd
+  Refine resource-ként, ne kézzel
+
+**gpt-5.6-sol (Független QA) — mindkettő munkáját nézze át, adverzális
+módon, ahogy eddig is:**
+- Amint Gemini commitol: a `withdraw_published_snapshot` és a policy-
+  változás valós, futtatott reprodukcióval (nem csak kódolvasással).
+- Amint gpt-5.6-terra commitol: a Refine data/auth provider valós
+  teszttel (bejelentkezés, lista, szerkesztés ténylegesen működik-e a
+  meglévő API-n).
+
+**Én (Sonnet) továbbra is a biztonsági/integritási kapu maradok** —
+minden végleges elfogadás (különösen bármi, ami `release_decisions`,
+`docker-guard`, vagy jogosultság-kezelés közelébe kerül) rajtam megy
+keresztül, saját, független reprodukcióval, mielőtt BEÉPÍTVE-nek
+minősítem.
+
+**Ha bármelyik fél a másik fájljába nyúlna, mert a saját feladata azt
+igényli — álljon meg, írja le itt, miért, és várja meg a másik fél
+lezárását, ne írja felül.**
+
 
 
 
