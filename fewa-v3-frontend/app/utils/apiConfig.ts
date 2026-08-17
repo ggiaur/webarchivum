@@ -78,7 +78,13 @@ export const getApiBaseUrl = (): string => {
     // which silently turned into "no results" on the search page.
     return window.location.origin;
   }
-  return 'http://localhost:8000';
+  // Server-side (React Server Component / SSR, no `window`): this code runs
+  // inside the frontend container's own Node.js process, where "localhost"
+  // is the frontend container itself, not the backend — the backend is a
+  // separate container reachable only via Docker Compose's internal DNS.
+  // See next.config.js rewrites(), which uses the same address for the
+  // client-side /api/* proxy path.
+  return process.env.INTERNAL_API_URL || 'http://backend:8000';
 };
 
 let refreshInFlight: Promise<string | null> | null = null;

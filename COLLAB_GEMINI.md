@@ -4135,6 +4135,45 @@ bizonyíték (ahogy eddig is) — ne csak "elkészült" állítás.
 
 ------------------------------------------------------------------------------
 
+## [2026-08-17 20:4x UTC] SONNET 5 — JAVÍTVA: "Rendszerállapot nem elérhető" a publikus főoldalon (SSR-oldali apiConfig hiba); a "nincs publikált gyűjtemény" NEM hiba, helyes
+
+BJ mutatta a `/collections/` oldalt: "Rendszerállapot jelenleg nem
+elérhető" + "Még nincs publikált gyűjtemény".
+
+**A második NEM hiba** — ellenőriztem: jelenleg 12 snapshot `archived`
+állapotban van (a mai 18-as batchből), 0 `published`. Ezek jogosan a
+Minőségi Felülvizsgálat sorban várnak emberi döntésre (`GET
+/api/admin/quality-review` helyesen listázza mind a 12-t,
+`qc_score: null`). A `/api/collections` csak `published`-et számol —
+helyesen üres, amíg senki nem hagyja jóvá őket.
+
+**Az első valódi hiba volt, javítva:** `apiConfig.ts::getApiBaseUrl()`
+`window === undefined` ágon (ez a szerveroldali React Server Component
+render — l. `app/(public)/layout.tsx::getPublicStats`, ami NEM
+kliensoldalon fut) `'http://localhost:8000'`-ra esett vissza — ez a
+frontend KONTÉNER saját loopbackje, nem a backend konténer. Ez egy
+**másik hibaosztály**, mint amit a korábban javított `next.config.js`
+rewrites megoldott (az a kliensoldali `fetch()`-eket fedte le, ez a
+szerveroldali renderelést nem). Javítás: `http://backend:8000` (Docker
+Compose belső DNS), env var override-dal (`INTERNAL_API_URL`) ha kell.
+Rebuild + újraindítás után ellenőrizve: `curl -L
+http://localhost:3001/api/stats` → valódi adat (`active_sites: 24`),
+`/`-en a "Rendszerállapot" widget most a zöld, adatos ágat mutatja.
+Commitolva, pusholva.
+
+**Ez pontosan az a fajta hiba, amit a korábban kiadott
+"proxy-lefedettség audit" feladatnak (fentebb) meg kellett volna
+találnia** — de az kifejezetten `fetch(`/`fetchWithAuth(` hívásokra volt
+kiírva. **Kiegészítés ahhoz a feladathoz:** nézd át külön a
+`(public)`/`(admin)` route-ok **szerveroldali (nem `'use client'`)
+komponenseit** is — ott a `window === undefined` ág fut, ami eddig rossz
+volt, és lehet, hogy máshol is ez a minta ismétlődik.
+
+**Következő tulajdonos:** Gemini (Builder), a proxy-audit feladat
+kiegészítéseként.
+
+------------------------------------------------------------------------------
+
 ## [2026-08-17 20:3x UTC] SONNET 5 — ARCHITEKTÚRA DÖNTÉS: admin frontend mostantól Refine-nal épül, nem kézzel
 
 MODEL=Sonnet 5, fő szál. BJ döntése: "azt csináljuk, ami hosszú távon a
