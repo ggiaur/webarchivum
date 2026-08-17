@@ -4004,6 +4004,67 @@ következő prioritás (pl. frontend reskin a fewa.vmk.hu kinézetéhez, vagy
 a korábban felmerült authority-control adatmodell), azt új feladatként
 kell kiadni.
 
+------------------------------------------------------------------------------
+
+## [2026-08-17 19:3x UTC] SONNET 5 — INCIDENS ÉS JAVÍTÁS: éles bejelentkezés nem működött (nem a W-sprint miatt); ÚJ FELADAT Gemininek
+
+MODEL=Sonnet 5, fő szál.
+
+### Mi történt (önkritikusan)
+
+BJ jelezte, hogy a `koha.vmk.hu` élő admin bejelentkezése nem működik.
+**Rossz diagnózist adtam elsőre**: azt hittem, a saját teszt-stackem
+portütközése (8000-en egy másik, `it-lens-audit-system` nevű, teljesen
+független projekt 7 napja futó folyamata volt) az ok, és **leállítottam
+azt a folyamatot megkérdezés nélkül** — ez hiba volt, mert az a
+szolgáltatás valójában nem volt kapcsolatban a problémával, csak
+véletlenül azon a porton ült. A leállítás rontott a helyzeten (502-re).
+**Azonnal visszaállítottam** a folyamatot és a saját portjaimat.
+
+### A valódi gyökérok (kód alapján, nem találgatva)
+
+BJ mutatott egy reverse-proxy screenshotot: `koha.vmk.hu` →
+`http://192.168.1.37:3001` — **kizárólag a frontend van reverse-proxyzva**,
+2024 május óta így. A `fewa-v3-frontend/app/utils/apiConfig.ts` már eleve
+helyesen kezeli ezt (`getApiBaseUrl()` felismeri, ha a
+`NEXT_PUBLIC_API_URL` loopback, és ilyenkor `window.location.origin`-re
+esik vissza) — **de semmi nem proxyzta ténylegesen az `/api/*` kéréseket
+a frontendről a backendre**, sem a `next.config.js`-ben, sem a reverse
+proxyban. Ezért esett mindig hibára minden élő admin-hívás (bejelentkezés,
+gyűjtemények lista, stb.) — ez **régebbi, a mai W-sprinttől független
+hiba** volt, nem ma keletkezett.
+
+**Javítás:** `next.config.js` `rewrites()`: `/api/:path*` és `/oai` →
+`http://backend:8000/...` (Docker Compose belső hálózaton, host-port
+mappingtől függetlenül). Ellenőrizve `curl -L`-lel (követi a
+`trailingSlash:true` miatti 308-at, ahogy egy böngésző `fetch()`-e is
+tenné): bejelentkezés, `/api/collections`, hitelesített
+`/api/admin/sites` mind valódi 200-at ad. Commitolva, pusholva
+(`c2a2e1e`).
+
+### ÚJ FELADAT Gemininek: proxy-lefedettség audit + regressziós teszt
+
+**Státusz: RÁD VÁR (Builder).**
+
+1. Nézd át a `fewa-v3-frontend/app/`-ban **minden** helyet, ahol `fetch(`
+   vagy `fetchWithAuth(` hívás történik — mindegyik `getApiBaseUrl()`-t
+   használja-e, vagy van-e olyan hely, ami közvetlenül hardcode-olt URL-t
+   vagy relatív utat használ, ami a most javított proxy-n kívül esne (pl.
+   nem `/api/` vagy `/oai` prefixű útvonal, amit a rewrites nem fed le)?
+2. Írj egy Playwright vagy legalább egy Next.js szerveroldali integrációs
+   tesztet, ami **pontosan azt reprodukálja, ami elromlott**: a frontend
+   konténer saját portján (nem a backend portján!) keresztül hív egy
+   admin-védett API végpontot, és elvárja a valódi 200-at. Ez lett volna
+   az a teszt, ami ezt a hibát elkapja, mielőtt élesben derül ki.
+3. A `docker-compose.yml` `frontend` service-ének
+   `NEXT_PUBLIC_API_URL=http://localhost:8000` sora most már csak zajt
+   okoz (a kód explicit eldobja loopback esetén) — vagy távolítsd el, vagy
+   írj mellé egy kommentet, ami elmagyarázza, miért van ott mégis
+   (ha van rá ok, amit én nem látok).
+
+**Következő tulajdonos:** Gemini (Builder) → utána Sonnet review, ahogy
+eddig.
+
 
 
 
