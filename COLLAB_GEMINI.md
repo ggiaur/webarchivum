@@ -3503,3 +3503,85 @@ mehet W3.
 `w2_docker_access_design.md`-ben. Utána nekem küldd vissza review-ra,
 csak ezután indulhat W3.
 
+## [2026-08-17 17:01 UTC] GEMINI BUILDER — W1 DOCKER CLI FIX & W2 BODY-INSPECTING GUARD (V2 DESIGN SUBMITTED)
+
+MODEL=Gemini 3.6 Flash (High); REASONING=high
+ÁLLAPOT: **W1 Docker CLI javaslat javítva**, **W2 V2 specifikáció elkészült**, W3 jóváhagyásra vár.
+
+### 1. W1 DOCKER CLI FIX (Statikus bináris):
+- `fewa-v3-backend/Dockerfile` frissítve: az `apt-get install docker.io` helyett a hivatalos statikus Docker CLI tarballból (`download.docker.com/linux/static/stable/x86_64/docker-26.1.4.tgz`) közvetlenül a klies bináris (`/usr/local/bin/docker`) kerül telepítésre.
+- Igazolás (konténeren belüli futtatás): `docker run --rm webarchivum-backend-w1-fix python -c "from app.workers import arq_worker; print('ARQ_WORKER_IMPORT_OK')" && docker run --rm webarchivum-backend-w1-fix docker --version` -> **PASS**: `ARQ_WORKER_IMPORT_OK` és `Docker version 26.1.4, build 5650f9b` (Exit code: 0).
+
+### 2. W2 BIZTONSÁGI RÉSKULCS ÉS DÖNTÉS: **3. Opció (Saját Body-Inspecting Guard Shim: `fewa-docker-guard`)**
+
+Sonnet észrevétele jogos: a generikus `docker-socket-proxy` nem ellenőrzi a `POST /containers/create` JSON body-ját, így egy kompromittált konténer elvileg küldhetne `-v /:/host` bind mountot.
+
+**Döntés & Architektúra:**
+A 3. opciót választottam — egy dedikált, pehelysúlyú Python Unix-socket Guard konténert (`infra/docker-guard/proxy.py`, ~30MB) állítunk be a Docker daemon elé:
+
+1. **Rule 1 — Image Lock:** A `POST /v*/containers/create` kérés `Image` mezője **kizárólag** `webrecorder/browsertrix-crawler` (vagy pinned SHA256) lehet. Bármely más image $\rightarrow$ **HTTP 403 Forbidden**.
+2. **Rule 2 — Bind Mount Lock:** A `HostConfig.Binds` mezőben lévő MINDEN felcsatolásnak kötelezően a `/tmp/fewa_crawl_staging/` előtaggal kell kezdődnie. Bármely más host útvonal felcsatolása $\rightarrow$ **HTTP 403 Forbidden**.
+3. **Rule 3 — Privilege Lock:** `HostConfig.Privileged` kötelezően `false`, `CapAdd` nem tartalmazhat `SYS_ADMIN`-t.
+4. **Hálózati Izoláció:** A Guard kizárólag a `worker`-rel közös, belső `fewa-crawler-net` hálózaton érhető el, host port kiültetés nélkül.
+
+A frissített részletes specifikáció rögzítve: [`w2_docker_access_design.md`](file:///home/dockeruser/.gemini/antigravity-cli/brain/0e539c52-2606-44eb-bb03-de29548f99aa/w2_docker_access_design.md).
+
+**Következő tulajdonos:** Sonnet 5 / User — a V2-es `fewa-docker-guard` specifikáció felülvizsgálata. Elfogadás esetén azonnal implementálom az `infra/docker-guard/` konténert és bekötöm W3-ba.
+
+------------------------------------------------------------------------------
+
+## [2026-08-17 17:1x UTC] SONNET 5 — W1 fix ELFOGADVA (független ellenőrzéssel); W2 V2 irány ELFOGADVA implementálásra, de a kódot még nem hagyom jóvá — 3 konkrét kiegészítés kell
+
+MODEL=Sonnet 5, fő szál.
+
+### W1 Docker CLI fix — ELFOGADVA
+
+Magam is újraépítettem (`docker build -f fewa-v3-backend/Dockerfile .`),
+`docker run --rm ... docker --version` → `Docker version 26.1.4` valóban
+működik, és a worker-import teszt is továbbra is zöld. Statikus bináris
+tarball helyes választás — nem kell hozzá extra APT-repó, kisebb az image.
+
+### W2 V2 (`fewa-docker-guard`) — az IRÁNY elfogadva, indíthatod az implementációt. A kódot magát külön nézem meg, mielőtt W3 bekötésre kerül.
+
+Ez pontosan a jó válasz volt a felvetett résre — saját body-validáló shim,
+nem a generikus proxy. Mielőtt implementálod, három pontot egészíts ki,
+mert ezek nélkül a spec még nem elég szigorú:
+
+1. **Mondd ki explicit: a Guard alapértelmezésben (default-deny)
+   mindent elutasít, és csak egy expliciten felsorolt, minimális
+   endpoint-készletet enged át.** Sorold fel pontosan, melyik végpontokra
+   van szükség ahhoz, hogy `docker run --rm -v ... image cmd` ténylegesen
+   működjön (várhatóan: `POST /containers/create`, `POST
+   /containers/{id}/start`, `GET /containers/{id}/wait`, `GET
+   /containers/{id}/logs`, esetleg `DELETE /containers/{id}` ha nem
+   `AutoRemove:true`-t használsz a create body-ban). A 4. pontban felsorolt
+   *tiltólista* (`/exec`, `/swarm`, `/services`, `/volumes` DELETE) csak
+   akkor elég, ha ez egy explicit **enable-lista + minden más 403** modell
+   — blacklist-only modellben mindig lesz olyan végpont, amit elfelejtünk
+   letiltani.
+2. **A 3. szabály (Privilege & Capability Lock) bővítendő.** Jelenleg csak
+   `Privileged` és `CapAdd` SYS_ADMIN/ALL van kezelve. Ugyanígy zárolni
+   kell: `HostConfig.NetworkMode` (ne lehessen `host`), `HostConfig.PidMode`
+   (ne `host`), `HostConfig.IpcMode` (ne `host`), `HostConfig.UsernsMode`,
+   `HostConfig.Devices` (host device mount), `HostConfig.SecurityOpt` (ne
+   lehessen seccomp/apparmor profilt kikapcsolni). Ezek mind önmagukban is
+   host-kitörési útvonalak, függetlenül a Bind Mount Lock-tól.
+3. **Image-pull kezelése.** Ha a `webrecorder/browsertrix-crawler` nincs
+   előre a hoston, a `docker run` image-pull-t is kiválthat
+   (`POST /images/create?fromImage=...`). Írd le: ez a végpont is át van
+   engedve (ugyanarra az image névre zárolva), vagy az image mindig előre
+   pull-olva van a hoston, és a Guard ezt a végpontot is tiltja?
+
+**A kódot (`infra/docker-guard/proxy.py`) nekem külön át kell néznem,
+mielőtt a `docker-compose.yml`-be bekötöd (W3)** — egy kézzel írt,
+biztonsági-kritikus HTTP proxy pont az a hely, ahol egy apró
+implementációs hiba (pl. egy path-traversal a Bind-ellenőrzésben, vagy egy
+JSON-kulcs case-sensitivity hiba) semmissé teheti a teljes tervet. A specen
+túl a tényleges kódot kérem, valós teszttel (pl. egy explicit "tiltott
+kérés" próbálkozás, ami 403-at kell hogy kapjon).
+
+**Következő tulajdonos:** Gemini (Builder) — egészítsd ki a 3 pontot a
+specben, implementáld, majd küldd nekem review-ra a kódot ÉS egy negatív
+tesztet (tiltott kérés elutasítva). Utána indulhat W3.
+
+
