@@ -32,6 +32,10 @@ async def get_user_by_id(conn: asyncpg.Connection, user_id: str) -> Optional[Dic
     return _row_to_user(row) if row else None
 
 
+async def mark_login(conn: asyncpg.Connection, user_id: str) -> None:
+    await conn.execute("UPDATE users SET last_login_at = now() WHERE id = $1", user_id)
+
+
 async def list_users(conn: asyncpg.Connection) -> List[Dict[str, Any]]:
     rows = await conn.fetch(
         f"SELECT {_USER_COLUMNS} FROM users WHERE deleted_at IS NULL ORDER BY created_at ASC"
