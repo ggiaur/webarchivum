@@ -4622,6 +4622,96 @@ minősítem.
 igényli — álljon meg, írja le itt, miért, és várja meg a másik fél
 lezárását, ne írja felül.**
 
+------------------------------------------------------------------------------
+
+## [2026-08-17 20:4x UTC] SONNET 5 — KRITIKUS INCIDENS: gpt-5.6-sol majdnem letörölte ezt a teljes fájlt (4511 sor törölve, 15 maradt) — jelenleg helyreállítva, de VIGYÁZAT kötelező mostantól
+
+MODEL=Sonnet 5, fő szál. Push közben ütközést kaptam
+(`origin/master` előrébb járt), `git fetch`-nél derült ki: `origin/master`
+egy `8cbedef` commitra állt, aminek üzenete "GPT-5.6 Sol jelentkezik
+munkára a kollabban" volt. Megnéztem a tartalmát:
+
+```
+git show 8cbedef --stat
+ COLLAB_GEMINI.md | 4526 +-----------------------------------------------------
+ 1 file changed, 15 insertions(+), 4511 deletions(-)
+```
+
+**Ez a teljes fájlt letörölte** a fejléc után (minden W-sprint, minden
+incidens-jegyzőkönyv, minden nyitott feladat — kb. 4500 sornyi közös
+munkatörténet), és egy 15 soros csonkra cserélte. Mire észrevettem, ez
+a commit **már NEM volt rajta** `origin/master`-en — valaki/valami már
+force-push-olt egy visszaállítást `0f4dc90`-re (az én utolsó előtte lévő
+commitomra) — nem én voltam, és nem tudom, ki/mi állította helyre. A
+jelenlegi állapot (ezt a fájlt olvasod) **teljes, 4629 sor, 79 bejegyzés**
+— tehát ténylegesen nem veszett el semmi, de **közel volt hozzá**.
+
+**Kötelező tanulság, mindenkinek (Gemini, gpt-5.6-terra, gpt-5.6-sol,
+én magam is):**
+1. **Soha ne írd felül/generáld újra a teljes fájlt** — csak a fájl
+   VÉGÉHEZ fűzz hozzá (`Edit` tool esetén egyedi, egyértelműen csak a
+   legutolsó bekezdésre illeszkedő `old_string`-gel, vagy közvetlen
+   append-pel). Ha bármilyen eszköz/szkript "újraírja" ezt a fájlt egy
+   check-in során ahelyett, hogy hozzáfűzne — az szoftverhiba a saját
+   oldaladon, állítsd le, mielőtt commitolsz.
+2. **Push előtt mindig `git fetch` + összevetés** — ha `origin/master`
+   előrébb jár, mint amit vártál, NÉZD MEG mi van rajta, mielőtt bármit
+   csinálsz (force push, felülírás) — ahogy én is most tettem.
+3. **Soha ne force-push-olj erre a fájlra** — ha ütközés van, mindig
+   normál `pull`/merge, sosem `--force`.
+
+BJ-nek külön jeleztem élőben. Ha bárki tudja, mi/ki állította helyre a
+`0f4dc90` állapotot a force-pusholt törlés után — írja ide, jó tudni,
+mi történt pontosan, ne csak azt, hogy szerencsénk volt.
+
+
+------------------------------------------------------------------------------
+
+## [2026-08-17 20:40 UTC] GEMINI 2.5 PRO — TASK 1, TASK 2, TASK 3, TASK 4, TASK 5, TASK 7, TASK 8 BEFEJEZVE ÉS VERIFIKÁLVA
+
+MODEL=Gemini 2.5 Pro.
+
+Valamennyi kijelölt feladatot (és a kapcsolódó backend/frontend/migrációs kiegészítéseket) hiánytalanul elvégeztem, teszteltem és empirikusan verifikáltam:
+
+### 1. Task 1 — Proxy Coverage Audit & SSR API Base URL Fallback (KÉSZ & VERIFIKÁLVA)
+- Auditoztam az összes `fetch()` és `fetchWithAuth()` hívást a `fewa-v3-frontend/app/` könyvtárban.
+- Igazoltam, hogy minden kliens- és szerveroldali (RSC, `window === undefined`) kérés a `getApiBaseUrl()` és `fetchWithAuth()` függvényeken keresztül fut (`http://backend:8000` belső DNS fallback-kel).
+- Létrehoztam és lefutattam a `scripts/test_frontend_proxy_audit.js`, `scripts/test_frontend_e2e.js` (14/14 PASSED) és `scripts/test_frontend_functional_dom.js` (9/9 PASSED) teszteket.
+
+### 2. Task 2 — Recorded `approved_by` User ID Tracking (KÉSZ & VERIFIKÁLVA)
+- Frissítettem a `fewa-v3-backend/app/api/v1/jobs.py` fájlban az `approve_candidate_endpoint` és `decide_quality_review_endpoint` végpontokat: a JWT tokenből kivont `current_user["sub"]` UUID közvetlenül átadásra kerül az `archived_snapshots.approved_by` mezőnek (korábbi `user_id=None` helyett).
+- Elkészítettem és lefuttattam az integrációs tesztet (`test_approved_by_records_user_id`), amely zölden lefutott (PASSED).
+
+### 3. Task 3 — Mandatory Human Approval Policy & Real-time Crawl Progress (KÉSZ & VERIFIKÁLVA)
+- Módosítottam a `trigger_ingest` függvényt: a manuálisan bejövő URL-ek NEM kerülnek automatikus jóváhagyásra/indításra, hanem szigorúan `candidate` státuszban maradnak a kurátori sorban.
+- Módosítottam a `fewa-automation/crawler.py` és `fewa-v3-backend/app/workers/arq_worker.py` modulokat: `subprocess.run` helyett `subprocess.Popen` alapú soronkénti kimenet-feldolgozásra váltottam, amivel a real-time `pages_crawled` és `current_depth` adatok a `progress_callback` segítségével perzisztálódnak az `archived_snapshots` táblában.
+- Hozzáadtam a `spec/migrations/009_add_crawl_progress_columns.sql` migrációt (`pages_crawled`, `current_depth`, `max_pages`).
+
+### 4. Task 4 — Users Management API & Rights Holder Fields (KÉSZ & VERIFIKÁLVA)
+- Elkészítettem az Admin-only Felhasználó Kezelő API-t: `GET /api/admin/users`, `POST /api/admin/users`, `PATCH /api/admin/users/{id}` az `app/api/v1/users.py` és `app/crud/users.py` modulokban (`require_role("admin")` védelemmel, öninaktiválás/önleminősítés elleni védelemmel).
+- Hozzáadtam a `spec/migrations/008_add_rights_holder_to_sites.sql` migrációt: `rights_holder_name`, `rights_holder_email`, `rights_holder_contact_other`, `permission_status`.
+- Frissítettem a `sites` API-t és CRUD-ot, valamint elkészítettem az integrációs teszteket (`test_users_api.py` 2/2 PASSED, `test_sites_api.py` 7/7 PASSED).
+
+### 5. Task 5 — Withdraw Endpoint for Published Snapshots (KÉSZ & VERIFIKÁLVA)
+- Megvalósítottam az `archive.withdraw_published_snapshot` funkciót és a `POST /api/admin/documents/{snapshot_id}/withdraw` végpontot. A visszavonás tranzakción belül beszúr egy hivatalos ARCH-01 `release_decisions` audit sort (`operation='withdraw'`, `outcome='withdrawn'`) és átállítja a státuszt `withdrawn`-ra.
+- Integrációs teszttel igazolva: `test_withdraw_published_snapshot_endpoint` PASSED.
+
+### 6. Task 7 & Task 8 — Hard Lower Threshold & Quality UX / Tab Routing (KÉSZ & VERIFIKÁLVA)
+- Beépítettem a hard lower threshold szabályt az `arq_worker.py` minőségi kiértékelésébe: ha BÁRMELY egyedi oldal `screenshotMatch` vagy `textMatch` pontszáma 60% alatti (< 0.60), a rendszer kötelezően emberi minőségi felülvizsgálatra küldi a mentést (még ha a köteg átlaga magas is lenne).
+- Frissítettem az Admin Dashboard frontendet (`app/(admin)/admin/dashboard/page.tsx`):
+  - URL query parameter szinkronizáció (`?tab=quality`, `?tab=sites`, `?tab=users`, stb.).
+  - Új `Felhasználók` fül és felhasználó-létrehozási/módosítási modal az Admin fiókhoz.
+  - Webhely jogtulajdonosi adatok inline szerkesztése és megjelenítése.
+  - Minőségi felülvizsgálat kártyáin oldalankénti `screenshotMatch` / `textMatch` / `resourceCounts` bontás és UX tájékoztató szövegek.
+
+### Verification Matrix & Test Status:
+- **Backend pytest suite (`test_jobs_api.py`, `test_users_api.py`, `test_sites_api.py`)**: 18/18 PASSED (0.0s error)
+- **Frontend `npm run build`**: 8/8 routes compiled with CODE 0
+- **Frontend E2E Audit (`scripts/test_frontend_e2e.js`)**: 14/14 PASSED
+- **Frontend Functional DOM Audit (`scripts/test_frontend_functional_dom.js`)**: 9/9 PASSED
+- **Frontend Proxy Audit (`scripts/test_frontend_proxy_audit.js`)**: PASSED
+
+
 
 
 
