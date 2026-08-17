@@ -4133,6 +4133,74 @@ bizonyíték (ahogy eddig is) — ne csak "elkészült" állítás.
 
 **Következő tulajdonos:** Gemini (Builder) → utána Sonnet review.
 
+------------------------------------------------------------------------------
+
+## [2026-08-17 20:0x UTC] SONNET 5 — KIEGÉSZÍTÉS a fenti feladathoz: kötelező emberi jóváhagyás (policy) + élő aratási progress (%, mélység)
+
+MODEL=Sonnet 5, fő szál. BJ két további, fontos pontot jelzett — az
+egyik szándékos irányváltás a jelenlegi tervezéshez képest, a másik új
+funkció. Mindkettőt ehhez a nyitott feladathoz csatolom, ne külön
+szeletként.
+
+### A) Kötelező emberi jóváhagyás — SZÁNDÉKOS POLICY VÁLTÁS
+
+Ellenőriztem: a jelenlegi `POST /api/admin/ingest`
+(`app/api/v1/jobs.py::trigger_ingest`) **explicit dokumentáltan**
+automatikusan jóváhagyja a saját maga által létrehozott candidate-et
+("the admin's explicit action IS the approval"). BJ ezt **most
+felülbírálja**: semmilyen crawl nem indulhat el emberi jóváhagyás nélkül,
+**még a kurátor által kézzel beírt URL-eknél sem** — legyen egységes a
+folyamat az AI-felfedezett candidate-ekkel: mindig a `Jóváhagyási Sor`-on
+keresztül, explicit "Jóváhagyás" kattintással.
+
+**Kért módosítás:** `trigger_ingest` NE hívja meg `archive.approve_candidate`-et
+automatikusan — álljon meg `candidate` állapotban, a válasz jelezze ezt
+(`lifecycle_status: "candidate"`), és NE kerüljön be a crawl job az arq
+sorba, amíg a kurátor a `Jóváhagyási Sor`-ban explicit jóvá nem hagyja
+(ami már a fentebb javítandó, valódi `approved_by`-jal fog menni).
+
+**Ne nyúlj hozzá a ma már elindított/futó 18 teszt-snapshothoz** — azok
+BJ saját, explicit kérésére indultak, fussanak le rendben.
+
+### B) Élő aratási progress: % és aktuális mélység
+
+Jelenleg a `fewa-automation/crawler.py::run_crawl` `subprocess.run(...)`-t
+használ (134-159. sor) — ez **blokkoló hívás**, csak a crawl teljes
+befejezése után ad vissza bármit. Emiatt ma **semmilyen köztes állapot
+nincs sehol tárolva** — sem `progress`, sem `depth`, sem `pages_crawled`
+oszlop nincs a `spec/schema.sql`-ben.
+
+**Kért munka:**
+1. **Először empirikusan derítsd ki**, milyen formátumban ír progress-t a
+   `webrecorder/browsertrix-crawler` a saját stdout/stderr-jére futás
+   közben (van `--logging` / structured JSON log opciója — nézd meg
+   `docker run --rm webrecorder/browsertrix-crawler crawl --help`-ben és
+   egy valós, megfigyelt futtatással, ne dokumentációból feltételezz
+   mezőneveket).
+2. `crawler.py::run_crawl`: cseréld `subprocess.run` → `subprocess.Popen`,
+   olvasd a stdout-ot sorfolytonosan, amíg fut, és minden progress-sorból
+   szűrd ki: aktuális lementett oldalak száma, cél (max_pages), aktuális
+   mélység.
+3. Migráció: `archived_snapshots`-hoz `pages_crawled SMALLINT`,
+   `current_depth SMALLINT` (a `progress_percent`-et számold
+   `pages_crawled/max_pages`-ből, ne tárold külön redundánsan, kivéve ha
+   jó okod van rá).
+4. `arq_worker.py::run_crawl_job`: a Popen-ből olvasott progress-t
+   periodikusan (pl. 2-3 másodpercenként, ne minden sornál — ne
+   terheld a DB-t) írd vissza a snapshot sorba.
+5. API: egészítsd ki a snapshot-listázó admin végpontot (vagy adj hozzá
+   egy könnyű, gyakran pollozható `GET
+   /api/admin/snapshots/{id}/progress`-t) ezekkel a mezőkkel.
+6. Frontend: a fentebb kért "Jelenleg fut" szekcióban jelenjen meg
+   progress-sávval és mélység-jelzéssel soronként, rövid (pl. 3s)
+   pollozással.
+
+**Elfogadási bizonyíték:** egy valós, éles crawl közben készült
+képernyőkép/API-válasz-sorozat, ami mutatja a %-ot ténylegesen
+növekedni, nem csak a végállapotot.
+
+**Következő tulajdonos:** Gemini (Builder) → utána Sonnet review.
+
 
 
 
