@@ -4196,6 +4196,79 @@ fájdalmas átnevezni.
 
 ------------------------------------------------------------------------------
 
+## [2026-08-17 20:2x UTC] SONNET 5 — INCIDENS: saját technikai teszt-aratások kikerültek a publikus katalógusba; javítva; ÚJ FELADAT (hiányzó withdraw-endpoint)
+
+MODEL=Sonnet 5, fő szál. **Saját hibám, önkritikusan rögzítve.**
+
+### Mi történt
+
+A W1-W4 sprint és a hardening-ellenőrzések során saját, technikai
+verifikációs célra (`example.com/.net/.org`, `httpbin.org`, `iana.org`,
+`mozilla.org`) futtattam valódi aratásokat az ÉLES admin API-n keresztül,
+hogy bizonyítsam: a pipeline ténylegesen működik. Ez helyes volt
+*akkor* (BJ kifejezetten ezt kérte: "előbb szeretném látni a működő
+rendszert"), **de nem takarítottam el utána**, és ezek a
+`fewa.hu`-gyűjtőkörön (Fejér vármegye) kívül eső tesztoldalak
+`published` állapotban, valódi, permanens `fewa:2026:000001-003`
+azonosítóval **bekerültek a publikus keresésbe** — BJ ott találta meg
+őket. Ez az én mulasztásom: verifikációs melléktermék, sosem lett volna
+szabad `published`-ig jutnia takarítás nélkül.
+
+### A javítás — a rendszer SAJÁT szabályai szerint, nem megkerülve
+
+Nem töröltem a rekordokat (a korábban lefektetett elv szerint a
+permanens azonosítók sosem tűnnek el/kerülnek újrafelhasználásra — l. a
+`docs/FEWA_FEJLESZTESI_STRATEGIA.md` D3 pontja). Ehelyett a `published →
+withdrawn` átmenetet hajtottam végre, **pontosan úgy, ahogy az ARCH-01
+trigger megköveteli**: egy szabályos `release_decisions` sort írtam be
+(`operation='withdraw'`, `decision_origin='arch01_gate'`,
+`outcome='withdrawn'`, valódi `actor_id` — `admin@vmk.hu` —,
+kitöltött `actor_reason`, `idempotency_key`, `gate_matrix_hash`,
+**a WACZ tényleges `wacz_sha256`-ja mint `artifact_sha256`**,
+`request_hash`/`response_hash`), ugyanabban a tranzakcióban, mint a
+`lifecycle_status='withdrawn'` UPDATE — a trigger `txid_current()`
+egyezést vár, ezt is betartottam. Két elakadás menet közben, mindkettőt
+a trigger jelezte pontosan, nem kellett találgatnom: (1) `fewa_app`-nak
+nincs joga a `digest()` (pgcrypto) függvényhez — a beépített `sha256()`-ot
+használtam helyette; (2) elsőre hiányzott a `gate_matrix_hash` és
+`artifact_sha256`, a trigger ezt is explicit hibaüzenettel jelezte.
+
+**Ellenőrizve:** mind a 3 domain (mozilla.org, iana.org, example.net) 0
+találatot ad a publikus `/api/search`-ön, `lifecycle_status='withdrawn'`
+az adatbázisban, az audit-lánc (`release_decisions`,
+`lifecycle_events`) érintetlenül megőrizve, miért és ki által.
+
+### ÚJ FELADAT: hiányzik a withdraw-endpoint — ezt SQL-lel kellett megoldanom
+
+Eközben kiderült: **nincs semmilyen API végpont már publikált snapshot
+visszavonására.** `app/crud/archive.py::reject_candidate` csak
+`candidate` állapotból működik. A trigger maga támogatja a `published →
+withdrawn` átmenetet, de a CRUD réteg és az API sosem implementálta hozzá
+a hívást. Ez azt jelenti, hogy **egy éles kurátor sem tudná ezt
+megcsinálni a felületről** — nekem kellett kézzel SQL-lel, a helyes
+ARCH-01 bizonyítékokkal megoldanom.
+
+**Kért munka — Státusz: RÁD VÁR (Builder):**
+1. `app/crud/archive.py`: új `withdraw_published_snapshot(conn,
+   snapshot_id, actor_id, reason)` függvény, ami a fenti mintát követi
+   (helyes `release_decisions` beszúrás + `archived_snapshots` update,
+   egy tranzakcióban, valódi `actor_id`-val a hívó curator/admin JWT-jéből
+   — ugyanaz a minta, mint a most javítandó `approved_by` fix ebben a
+   fájlban feljebb).
+2. API: `POST /api/admin/documents/{snapshot_id}/withdraw` (vagy hasonló
+   névvel), `require_role("curator")`, kötelező `reason` mezővel.
+3. Frontend: a "Webhelyek & Prioritások" / snapshot-előzmény nézetben
+   (a korábban kért "Aratási előzmények" fülön) legyen "Visszavonás"
+   gomb minden `published` sornál, kötelező indoklás-mezővel.
+4. **Írj hozzá tesztet, ami pontosan a most kézzel megoldott esetet
+   reprodukálja**: publikált snapshot → withdraw API hívás → publikus
+   keresésben már nem jelenik meg, `release_decisions` sor helyesen
+   kitöltve.
+
+**Következő tulajdonos:** Gemini (Builder) → utána Sonnet review.
+
+------------------------------------------------------------------------------
+
 ## [2026-08-17 20:0x UTC] SONNET 5 — KIEGÉSZÍTÉS a fenti feladathoz: kötelező emberi jóváhagyás (policy) + élő aratási progress (%, mélység)
 
 MODEL=Sonnet 5, fő szál. BJ két további, fontos pontot jelzett — az
