@@ -130,8 +130,8 @@ services:
 
   backend:
     build:
-      context: ./fewa-v3-backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: fewa-v3-backend/Dockerfile
     container_name: fewa-backend
     restart: always
     ports:
@@ -161,6 +161,52 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+
+  docker-guard:
+    build:
+      context: .
+      dockerfile: infra/docker-guard/Dockerfile
+    container_name: fewa-docker-guard
+    user: "0:0"
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp/fewa_crawl_staging:/tmp/fewa_crawl_staging
+
+  worker:
+    build:
+      context: .
+      dockerfile: fewa-v3-backend/Dockerfile
+    container_name: fewa-worker
+    restart: always
+    command: arq app.workers.arq_worker.WorkerSettings
+    environment:
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+      - POSTGRES_SERVER=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=fewa_db
+      - POSTGRES_USER=fewa_app
+      - POSTGRES_PASSWORD=${POSTGRES_APP_PASSWORD:-fewa_app_password}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadminpassword
+      - MINIO_BUCKET_WACZ=fewa-wacz-storage
+      - SECRET_KEY=prod-secret-key-super-secure-key-32chars-min!
+      - DOCKER_HOST=tcp://docker-guard:2375
+    volumes:
+      - /tmp/fewa_crawl_staging:/tmp/fewa_crawl_staging
+    depends_on:
+      db-migrate-006:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      docker-guard:
+        condition: service_started
 
   frontend:
     build:
