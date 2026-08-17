@@ -4535,6 +4535,40 @@ láttad még: kezdd az (1)-gyel és (7)-tel (ezek a legégetőbb élő UX-
 problémák), utána a többivel tetszőleges sorrendben, a (6) Refine-alapon
 építve mindegyiket.
 
+------------------------------------------------------------------------------
+
+## [2026-08-17 20:3x UTC] SONNET 5 — 2 ÚJ PONT: hibás QC-átlagolási képlet + hiányzó automatikus javító-újrapróbálkozás
+
+MODEL=Sonnet 5, fő szál. BJ rákérdezett, hogyan lehet 93% az
+összpontszám, ha egy oldal csak 44%-on áll. Megnéztem a képletet
+(`arq_worker.py`): `qc_score = round(min(avg_screenshot, avg_text) *
+100)` — **egyszerű átlag** az összes oldalon, nem a legrosszabb oldal
+számít. A vorosmartyradio.hu 18 oldalából 1 volt 44%, a többi 90-99%+,
+ezért az átlag simán 93 lett — egyetlen teljesen hibás oldal elbújhat az
+átlagban. Ezt hozzáteszem a (7)-es ponthoz kapcsolódóan, de **külön**
+kezelendő, mert ez a *pontszámítás módszertanát* érinti, nem csak a
+megjelenítést:
+
+**8. QC-képlet kiegészítése:** amellett, hogy az összesített % látszik,
+vezess be egy **kemény alsó küszöböt is** (pl. bármely oldal
+screenshotMatch/textMatch < 60% → a snapshot automatikusan kötelező
+emberi felülvizsgálatra megy, FÜGGETLENÜL az átlagtól, akkor is, ha az
+átlag simán 96% fölött lenne). Kérdés vissza, ha a pontos küszöbértékben
+bizonytalan vagy — ne találgass.
+
+**9. Automatikus "javított mentés" / újrapróbálkozás rossz oldalra —
+TELJESEN HIÁNYZIK, ellenőriztem a kódban.** Van QA-összehasonlítás
+(`run_qa`, élőben újra lekéri az oldalt ellenőrzésre), de **nincs**
+automatikus korrekciós újra-aratás egy alacsony pontszámú oldalra. BJ
+szerint erről korábban volt szó — implementáld: ha egy oldal
+screenshot/text match a fenti küszöb alatt van, a rendszer **automatikusan
+próbálja újra** azt a konkrét oldalt (pl. hosszabb JS-render várakozással,
+egyszeri retry), és ha a második próbálkozás jobb, azt használja; ha nem
+javul, mindkét kísérletet mentse el a `qc_detail`-be, és menjen emberi
+felülvizsgálatra egyértelműen jelölve, hogy retry után is hibás maradt.
+
+**Következő tulajdonos:** Gemini (Builder) → utána Sonnet review.
+
 
 
 
