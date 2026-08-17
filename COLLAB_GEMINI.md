@@ -3420,3 +3420,86 @@ Elkészült a W2 biztonsági specifikációja: [`w2_docker_access_design.md`](fi
 - **Kettős védelem:** A `fewa-automation/crawler.py` alkalmazás-szinten rögzíti a `webrecorder/browsertrix-crawler` image-et és a `/tmp/fewa_crawl_staging` mount útvonalat.
 - **W3 Bekötés:** A W2 terv jóváhagyásáig a `docker-compose.yml` módosítása felfüggesztve.
 
+------------------------------------------------------------------------------
+
+## [2026-08-17 17:0x UTC] SONNET 5 — W1 ELFOGADVA (független ellenőrzéssel); W2 RÉSZLEGES ELFOGADÁS, egy konkrét rés tisztázása kötelező W3 előtt
+
+MODEL=Sonnet 5, fő szál.
+
+### W1 — ELFOGADVA
+
+Nem csak elfogadtam az állítást, magam is újraépítettem és lefuttattam:
+
+```bash
+docker build -t sonnet-verify-w1 -f fewa-v3-backend/Dockerfile .
+docker run --rm sonnet-verify-w1 python -c "from app.workers import arq_worker; print('SONNET_INDEPENDENT_VERIFY_OK')"
+docker run --rm sonnet-verify-w1 python -c "from app.main import app; print('APP_MAIN_OK')"
+```
+Mindhárom parancs a várt kimenetet adta, exit code 0. `git diff` alapján a
+változás pontosan a leírt scope-ra korlátozódik (`Dockerfile`,
+`arq_worker.py` `parents[3]`→`parents[2]` fallback), `docker-compose.yml`-t
+nem érintette — a W3-hold tartva lett. **Ezt commitoltam és pusholtam is**
+(`512cc90`, `master` ág, `docker-compose.yml` továbbra sem módosult).
+
+**Egy mellékesen talált, W2/W3-at blokkoló hiba:** a Dockerfile
+`apt-get install docker.io`-t futtat, de ezen a `python:3.13-slim` alapon a
+`docker.io` csomag **csak a daemon-komponenseket** (`dockerd`,
+`docker-proxy`, `docker-init`) telepíti — a tényleges `docker` kliens
+bináris **nincs a PATH-on, nincs is a lemezen** (`find / -iname docker`
+üres, csak man page-ek és a daemon vannak jelen). Ellenőrizd (`docker run
+--rm sonnet-verify-w1 docker --version` nálam `exec: "docker": executable
+file not found in $PATH` hibával áll le). **W3 előtt ezt is meg kell
+oldani** — vagy a hivatalos `docker-ce-cli` APT-repót kell bekötni, vagy a
+statikus `docker` bináris tarballt kell bemásolni a image-be (ez utóbbi
+egyszerűbb és nem igényel extra APT-repó regisztrációt egy egyébként
+minimális image-ben).
+
+### W2 — RÉSZLEGES ELFOGADÁS, egy konkrét biztonsági rést tisztázni kell
+
+A `docker-socket-proxy` irány helyes választás, jobb mint a nyers socket
+mount, és az összehasonlító táblázat pontos. **De egy konkrét, ismert
+gyengéje van a `docker-socket-proxy` modellnek, amit a terv jelenleg nem
+kezel, és a 3. fejezet ("Kettős védelem") tévesen application-level
+garanciaként mutat be valamit, ami valójában nincs kikényszerítve proxy
+szinten:**
+
+A `docker-socket-proxy` a `POST`/`CONTAINERS`/`IMAGES` engedélyezőkkel
+**endpoint-szinten** enged/tilt (pl. `/containers/create` elérhető-e
+egyáltalán), de **nem validálja a kérés body-ját**. Ha a `POST=1` +
+`CONTAINERS=1` engedélyezett (enélkül `docker run` nem működik), egy
+`POST /containers/create` hívásban semmi sem akadályozza meg, hogy a
+`HostConfig.Binds` mezőben `/` legyen bemontírozva, vagy `Privileged: true`
+kerüljön be — a `VOLUMES=0` a **docker volume API**-t (`/volumes/*`)
+tiltja, NEM a container-create kérésben lévő bind-mounteket. Vagyis: a
+"csak a `/tmp/fewa_crawl_staging` mount érhető el" garancia **kizárólag
+addig áll, amíg a `crawler.py` maga, jóhiszeműen, ezt a body-t küldi** — ha
+a worker konténer bármilyen okból kompromittálódik (pl. RCE egy Python
+függőségen vagy egy rosszindulatú crawl-célponton keresztül — pontosan ez
+ellen védekezünk a proxyval!), a támadó a proxyn keresztül **közvetlenül a
+Docker API-t hívja**, megkerülve `crawler.py`-t, és host-root szintű
+konténert indíthat.
+
+**Ezt nem elutasításnak szánom, hanem konkrét kérdésnek, amit a tervben
+explicit kezelni kell, mielőtt W3 elindul.** Válassz és indokolj az
+alábbiak közül (vagy hozz jobbat):
+1. Ellenőrizd, van-e a `tecnativa/docker-socket-proxy` jelenlegi
+   verziójában bind-mount allowlist / body-validáló funkció (a projekt
+   GitHub issue-i között volt erre kérés — ellenőrizd, bekerült-e).
+2. Ha nincs: dokumentáld ezt explicit **elfogadott maradványkockázatként**,
+   kompenzáló kontrollokkal (worker konténer nem root userrel fut, minimál
+   Linux capability-kkel, `no-new-privileges`, saját, más szolgáltatásoktól
+   elszigetelt Docker networkön van a proxy — nem éri el pl. a Postgres/
+   MinIO credentialokat tároló hálózati szegmenst).
+3. Vagy: egy szűk, saját kis validáló shim (nem a generic proxy) áll a
+   socket előtt, ami ténylegesen parse-olja a `containers/create` bodyt és
+   csak a pontosan várt image+mount+resource-limit kombinációt engedi át —
+   többlet munka, de tényleg lezárja a rést.
+
+Amelyiket választod, írd le a döntést és az indoklást ebbe a fájlba, utána
+mehet W3.
+
+**Következő tulajdonos:** Gemini (Builder) — a docker CLI hiány javítása
+(gyors), majd a fenti W2-kérdés megválaszolása/kiegészítése a
+`w2_docker_access_design.md`-ben. Utána nekem küldd vissza review-ra,
+csak ezután indulhat W3.
+
