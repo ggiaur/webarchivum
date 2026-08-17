@@ -10,6 +10,9 @@ feladatok, a következő tulajdonos és a bizonyítékok rövid nyilvántartása
 - **Független QA:** `gpt-5.6-sol`, `high` — külön környezetben, támadó jellegű reprodukció.
 - **Sonnet 5:** `high` — kötelező biztonsági/integritási kapu, a fájl változásait figyeli.
 - **Architect/DevOps:** csak normatív döntés, topológia és rollout; nem ír üzleti kódot.
+- **Gemini** — a 2026-08-17-es "W" sprintre (worker bekötés) belép **Builder-szerepben**,
+  a `gpt-5.6-terra` helyett, kísérletként erre az egy szeletre. A szerepkör-tábla
+  a többi soron nem változik. BJ döntése alapján ez egyszeri próba, nem tartós csere.
 
 ## Lezárt, de release-be épülő S1 rész
 
@@ -3290,3 +3293,130 @@ Ezután a ma átvett, korábban "más tulajdonú, in-flight" jelzésű, valódi
 search.py, search_service.py, arq_worker.py, frontend) commitolom — mindet
 egyenként elolvastam, a hozzájuk tartozó teszteket lefuttattam, mind valós,
 jól indokolt, éles hibákra írt javítás volt.
+
+------------------------------------------------------------------------------
+
+## [2026-08-17T16:41 UTC] SONNET 5 — SPRINT KIADVA (Gemini, Builder-szerepben): a valós aratás bekötése és bizonyítása
+
+MODEL=Sonnet 5, fő szál. BJ utasítására: mielőtt bármi mást csinálnánk
+(frontend reskin, migráció), **be kell bizonyítani, hogy az "aratás" ténylegesen
+lefut** — eddig csak a kód létezett és a tesztek zöldek elszigetelten, de a
+teljes stack élesben elindítva soha nem futtatott le egyetlen valódi crawl-t sem.
+
+**Amit ma, most, ténylegesen ellenőriztem** (`docker compose up -d --build`,
+helyi portokra: 5433/9002/9003/8001/3001, hogy ne ütközzön a gépen már futó
+más projektekkel):
+
+- Postgres, Redis, MinIO, backend, frontend mind ténylegesen elindult,
+  health-check zöld mindegyiken.
+- Valódi bejelentkezés (`curator@vmk.hu` / bcrypt-ellenőrzött jelszó) → valódi
+  JWT.
+- `POST /api/admin/ingest` → **valódi** `site`/`archived_snapshots` sor
+  keletkezett Postgres-ben, `job_id` visszakapva, `arq:job:<id>` és
+  `arq:queue` bejegyzés ténylegesen bekerült a Redis-be.
+- **De a job soha nem fut le.** `docker-compose.yml`-ben nincs `worker`
+  service — csak `backend` (uvicorn) és `frontend` van definiálva. Semmi nem
+  fogyasztja az `arq:queue`-t.
+- Kézzel megpróbáltam elindítani a workert (`arq app.workers.arq_worker.WorkerSettings`
+  a `webarchivum-backend` image-ből) → **azonnal elszállt**:
+  `ModuleNotFoundError: No module named 'spec'`. Ok: `app/workers/arq_worker.py`
+  `from spec.pipeline_schemas import ...`-t importál, de a backend Docker
+  image build contextje `./fewa-v3-backend` (lásd `docker-compose.yml` 131-133.
+  sor) — a repo-gyökér `spec/` könyvtára soha nem kerül be az image-be.
+- Ez **mélyebb**, mint egy hiányzó import: `arq_worker.py` 18-23. sora egy
+  `sys.path.insert(..., parents[3]/"fewa-automation")` trükkel a
+  `fewa-automation/crawler.py`-t is közvetlenül importálja (`from crawler
+  import run_crawl as automation_run_crawl`), path-relatív feltevéssel, hogy
+  a `fewa-automation` könyvtár a repo-gyökér testvér-mappája. **És**
+  `fewa-automation/crawler.py` (123., 232. sor) ténylegesen `subprocess.run(["docker",
+  "run", "--rm", ..., "webrecorder/browsertrix-crawler", "crawl"/"qa", ...])`-t hív —
+  tehát bárminek is fogja futtatni a workert, Docker-szintű hozzáférés kell neki
+  (Docker socket mount vagy DinD), nem elég a Python-csomagolást megoldani.
+
+**A sprint négy résztfeladata — ebben a sorrendben, ki-ki a saját, éles
+bizonyítékával zárja:**
+
+### W1 — Worker-csomagolás
+A `spec/` és a `fewa-automation/` könyvtár is kerüljön be abba az image-be,
+amiből a worker fut. Két elfogadható irány: (a) a `backend`/`worker` image
+build contextjét a repo gyökerére állítani (`context: .`, saját
+`dockerfile:` a `fewa-v3-backend/Dockerfile`-hoz hasonlóan, COPY-k
+igazítva), vagy (b) külön worker-Dockerfile, ami mindhárom könyvtárat
+bemásolja — az `infra/migrations/Dockerfile` már mutat mintát különálló
+build contextre ebben a repóban. Indokold a választást írásban.
+**Elfogadási bizonyíték:** a megépített image-ből `python -c "from
+app.workers import arq_worker"` hibamentesen lefut, konténeren belülről.
+
+### W2 — Docker-hozzáférés a workernek (biztonsági szempontból ÉN nézem át külön)
+A worker konténernek el kell tudnia indítani `docker run
+webrecorder/browsertrix-crawler`-t. Javasolj konkrét megoldást (Docker
+socket mount + docker CLI a image-ben a legvalószínűbb), és írd le
+explicit, milyen biztonsági korlátozással (pl. socket-proxy, ami csak
+`docker run`-t enged adott image-re, ne nyers `/var/run/docker.sock`
+korlátozás nélkül) — **ne implementáld élesre a legpermisszívebb változatot
+kérdés nélkül**, mert ez host-szintű jogosultság egy konténernek. Ezt a
+részt én (Sonnet) külön átnézem, mielőtt bekötjük docker-compose-ba.
+
+### W3 — `docker-compose.yml` worker service
+Új `worker` service: `command: arq app.workers.arq_worker.WorkerSettings`,
+ugyanazok az env változók mint `backend`-nél (least-privilege `fewa_app`
+credential, ARCH-01 szerint — **nem** `fewa_migrator`, nem superuser),
+`depends_on: db-migrate-006 (service_completed_successfully), redis
+(healthy), minio (healthy)`, a W2-ben eldöntött Docker-hozzáféréssel.
+
+### W4 — Végponttól végpontig bizonyíték
+Pontosan ugyanaz a teszt, amit ma én futtattam (bejelentkezés →
+`/api/admin/ingest` valódi seed URL-lel → néhány másodperc → ellenőrzés),
+de most a jobnak **ténylegesen le kell futnia**: a snapshot állapota
+elmozdul `crawling`-ból, és egy valódi WACZ-fájl jelenik meg a MinIO
+`fewa-wacz-storage` bucketben. Küldd a pontos parancsokat és a valódi
+kimenetet (nem "sikerült", hanem a log/state bizonyíték) — ez a fájl
+konvenciója, l. a fenti Sonnet-bejegyzéseket mintaként.
+
+**Aktív fájltulajdon (W1-W4 idejére, ütközés elkerülésére):**
+`docker-compose.yml`, `fewa-v3-backend/Dockerfile`, esetlegesen új
+`fewa-v3-backend/Dockerfile.worker`, `app/workers/arq_worker.py` (csak ha az
+importútvonal-javítás ezt igényli). **Nem nyúlhatsz** hozzá: Nginx,
+secrets, `spec/migrations/*.sql`, `app/api/v1/jobs.py` üzleti logikája —
+ha ezek bármelyikét módosítanod kellene, állj meg és írd le miért, ne
+implementáld.
+
+**Következő tulajdonos:** Gemini (Builder-szerepben). Amint W1-W4 mind
+`KÉSZ` és van valódi WACZ-bizonyíték, **én (Sonnet) veszem át** teljes
+független review-ra — külön kiemelt figyelemmel W2-re (Docker-socket
+hozzáférés biztonsági következményei). Production deploy továbbra sincs
+autorizálva; ez a sprint kizárólag a helyi/dev stack bekötését célozza.
+
+**[2026-08-17 — BJ + Sonnet, zöld út W1/W2 elindítására]** Gemini elkezdheti
+W1-et és W2-t. Egy megkötés: **W2 tervét/implementációját ne kösd be élesen
+a `docker-compose.yml` hálózatába (az már W3)** — építsd/írd le elkülönítve,
+és a bekötés előtt küldd nekem (Sonnet) review-ra, mert host-szintű
+Docker-jogosultságot ad egy konténernek. W1-nél nincs ilyen megkötés,
+végigvihető a `KÉSZ` állapotig.
+
+## [2026-08-17 16:50 UTC] GEMINI BUILDER — W1 COMPLETED & W2 DESIGN SUBMITTED FOR REVIEW
+
+MODEL=Gemini 3.6 Flash (High); REASONING=high
+ÁLLAPOT: **W1 KÉSZ (igazolt)**, **W2 REVIEW-RA ÁTADVA**, W3 megváratva.
+
+### W1 VÁLASZTÁS ÉS INDOKLÁS:
+A (a) opciót választottam (root build context `context: .` és `fewa-v3-backend/Dockerfile`), mert:
+1. Az `infra/migrations/Dockerfile` mintáját követi, elkerüli a duplikált worker Dockerfile-okat és a `pip install` / `apt-get` megduplázását.
+2. A `backend` és `worker` konténerek ugyanazt az image-t használhatják, amelyben a `spec/`, `fewa-automation/` és `fewa-v3-backend/` modulok egységesen elérhetők `/app` alatt.
+3. Az `app/workers/arq_worker.py`-ban az `_FEWA_AUTOMATION_DIR` feloldása fallback mechanizmust kapott (`parents[3]` -> `parents[2]`), így a repo-gyökérben és a konténeren belüli `/app`-ban is automatikusan feloldja a `fewa-automation` csomagot.
+
+### W1 IGAZOLÓ BIZONYÍTÉK (EMPIRIKUS RUNTIME PASS):
+- **Image build:** `docker build -t webarchivum-backend-w1 -f fewa-v3-backend/Dockerfile .` -> **SUCCESS (82.3s)**
+- **Elfogadási teszt futtatás konténeren belülről:**
+  ```bash
+  docker run --rm webarchivum-backend-w1 python -c "from app.workers import arq_worker; print('W1_VERIFICATION_SUCCESS')"
+  ```
+  **Kimenet:** `W1_VERIFICATION_SUCCESS` (Exit code: 0). Az importálási hiba megszűnt.
+
+### W2 TERVEZET REVIEW-RA:
+Elkészült a W2 biztonsági specifikációja: [`w2_docker_access_design.md`](file:///home/dockeruser/.gemini/antigravity-cli/brain/0e539c52-2606-44eb-bb03-de29548f99aa/w2_docker_access_design.md).
+- **Megközelítés:** `tecnativa/docker-socket-proxy` használata RESTRICTED API gateway-ként.
+- **Házirend:** `POST=1`, `CONTAINERS=1`, `IMAGES=1`, míg `VOLUMES=0`, `NETWORKS=0`, `EXEC=0`, `SYSTEM=0` szigorúan letiltva.
+- **Kettős védelem:** A `fewa-automation/crawler.py` alkalmazás-szinten rögzíti a `webrecorder/browsertrix-crawler` image-et és a `/tmp/fewa_crawl_staging` mount útvonalat.
+- **W3 Bekötés:** A W2 terv jóváhagyásáig a `docker-compose.yml` módosítása felfüggesztve.
+

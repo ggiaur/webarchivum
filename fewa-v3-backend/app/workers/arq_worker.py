@@ -18,6 +18,8 @@ from app.core.minio_client import MinIOClient
 # package — see fewa-automation/README.md. Import it explicitly rather than
 # duplicating its (already real, tested) crawl/QA logic here.
 _FEWA_AUTOMATION_DIR = Path(__file__).resolve().parents[3] / "fewa-automation"
+if not _FEWA_AUTOMATION_DIR.exists():
+    _FEWA_AUTOMATION_DIR = Path(__file__).resolve().parents[2] / "fewa-automation"
 if str(_FEWA_AUTOMATION_DIR) not in sys.path:
     sys.path.insert(0, str(_FEWA_AUTOMATION_DIR))
 
