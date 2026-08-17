@@ -167,11 +167,15 @@ services:
       context: .
       dockerfile: infra/docker-guard/Dockerfile
     container_name: fewa-docker-guard
-    user: "0:0"
+    user: "65534:983"
+    group_add:
+      - "983"
     restart: always
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /tmp/fewa_crawl_staging:/tmp/fewa_crawl_staging
+    networks:
+      - fewa-crawler-net
 
   worker:
     build:
@@ -198,6 +202,9 @@ services:
       - DOCKER_HOST=tcp://docker-guard:2375
     volumes:
       - /tmp/fewa_crawl_staging:/tmp/fewa_crawl_staging
+    networks:
+      - default
+      - fewa-crawler-net
     depends_on:
       db-migrate-006:
         condition: service_completed_successfully
@@ -224,3 +231,8 @@ services:
 volumes:
   postgres_data:
   minio_data:
+
+networks:
+  default:
+  fewa-crawler-net:
+    internal: false

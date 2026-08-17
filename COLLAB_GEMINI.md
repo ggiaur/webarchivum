@@ -3933,6 +3933,78 @@ követő feladatként megy tovább.
 utána ez a sprint lezártnak tekinthető. Production deploy továbbra sincs
 autorizálva, kizárólag BJ külön jóváhagyásával.
 
+## [2026-08-17 17:41 UTC] GEMINI BUILDER — MINDKÉT HARDENING PONT IMPLEMENTÁLVA ÉS EMPIRIKUSAN IGAZOLVA (SPRINT LEZÁRVA)
+
+MODEL=Gemini 3.6 Flash (High); REASONING=high
+ÁLLAPOT: **Mindkét Sonnet hardening pont lezárva és empirikusan igazolva**. A sprint teljesült.
+
+### 1. HARDENING 1 IMPLEMENTÁCIÓ & IGAZOLÁS (Non-Root Execution):
+- `docker-compose.yml` módosítva: a `docker-guard` `user: "65534:983"` és `group_add: ["983"]` beállításokkal fut, megszüntetve a root jogosultságot (`user: "0:0"` eltávolítva).
+- **Empirikus teszt futtatás élő konténeren:**
+  ```bash
+  docker exec fewa-docker-guard id
+  ```
+  **Kimenet:** `uid=65534(nobody) gid=983 groups=983` -> **PASS** (A Guard non-root `nobody` userként fut a Docker socket csoporthozzáféréssel).
+
+### 2. HARDENING 2 IMPLEMENTÁCIÓ & IGAZOLÁS (Hálózati Izoláció):
+- `docker-compose.yml` módosítva: elkülönített `fewa-crawler-net` hálózat definiálva.
+  - A `docker-guard` **kizárólag** a `fewa-crawler-net` hálózaton érhető el.
+  - A `worker` csatlakozik a `default` és a `fewa-crawler-net` hálózatra is.
+  - A `backend`, `frontend`, `postgres`, `redis`, `minio` konténerek **nincsenek** a `fewa-crawler-net` hálózaton.
+- **Empirikus teszt futtatás élő konténereken:**
+  - **Negatív izolációs teszt (Backend felől):**
+    ```bash
+    docker exec fewa-backend python -c "import urllib.request; urllib.request.urlopen('http://docker-guard:2375/_ping')"
+    ```
+    **Kimenet:** `urllib.error.URLError: <urlopen error [Errno -3] Temporary failure in name resolution>` -> **PASS** (A backend nem látja és nem éri el a Guard-ot).
+  - **Pozitív hozzáférési teszt (Worker felől):**
+    ```bash
+    docker exec fewa-worker python -c "import urllib.request; print(urllib.request.urlopen('http://docker-guard:2375/_ping').read().decode())"
+    ```
+    **Kimenet:** `OK` -> **PASS** (Kizárólag a worker éri el a Guard-ot).
+
+**Következő tulajdonos:** Sonnet 5 / Architect / DevOps.
+
+------------------------------------------------------------------------------
+
+## [2026-08-17 17:42 UTC] SONNET 5 — MINDKÉT HARDENING PONT ELFOGADVA (saját reprodukcióval) — W-SPRINT LEZÁRVA
+
+MODEL=Sonnet 5, fő szál. Mindkettőt magam is lefuttattam a valós, futó
+konténereken (nem csak a beillesztett logot fogadtam el):
+
+```
+docker exec fewa-docker-guard id
+  -> uid=65534(nobody) gid=983 groups=983                          ✅
+docker exec fewa-backend python -c "urlopen('http://docker-guard:2375/_ping')"
+  -> URLError: Temporary failure in name resolution                ✅ (backend nem éri el)
+docker exec fewa-worker python -c "urlopen('http://docker-guard:2375/_ping')"
+  -> OK                                                             ✅ (worker eléri)
+```
+
+**Regressziós ellenőrzés is** — egy harmadik, teljesen friss aratást
+futtattam a hálózati átállás után (`https://mozilla.org`,
+`snapshot_id=a322b671-04ce-4bd6-9dfd-7ac08fc17647`): 40 másodperc alatt
+`crawling → archived → published`, valódi `wacz_sha256` és
+`wacz_filesize_bytes` kitöltve. A hardening nem tört el semmit.
+
+### ÖSSZEGZÉS — TELJES W-SPRINT (2026-08-17, 16:41–17:42 UTC, ~1 óra)
+
+- **W1** — worker Docker-csomagolás (spec/ + fewa-automation/ az image-ben, statikus docker CLI bináris): ELFOGADVA
+- **W2** — docker-guard body-inspecting proxy: ELFOGADVA, **egy kritikus HTTP request smuggling rést** találtam és javíttattam menet közben, saját exploittal igazolva mindkét irányban (törött, majd javítva)
+- **W3** — docker-compose.yml bekötés: ELFOGADVA, 2 hardening hiányosságot találtam (root user, hálózati izoláció hiánya), mindkettőt javíttattam és saját reprodukcióval igazoltam
+- **W4** — végponttól végpontig bizonyíték: **3 független, saját magam által indított, valós aratással** igazolva (example.net→iana.org→mozilla.org), mindegyiknél valódi WACZ + egyező sha256 Postgres és MinIO között
+
+**A rendszer most bizonyítottan, élesben tud webhelyet aratni — ez volt a
+sprint egyetlen célja.** Production deploy továbbra sincs autorizálva
+(ehhez BJ külön jóváhagyása kell), de a dev/staging stacken a teljes
+pipeline működik és biztonságilag átvizsgált.
+
+**Következő tulajdonos: BJ.** Nincs több nyitott W-feladat. Ha van
+következő prioritás (pl. frontend reskin a fewa.vmk.hu kinézetéhez, vagy
+a korábban felmerült authority-control adatmodell), azt új feladatként
+kell kiadni.
+
+
 
 
 
