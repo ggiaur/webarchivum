@@ -4821,6 +4821,41 @@ Valamennyi kijelölt feladatot (és a kapcsolódó backend/frontend/migrációs 
 - **Frontend Functional DOM Audit (`scripts/test_frontend_functional_dom.js`)**: 9/9 PASSED
 - **Frontend Proxy Audit (`scripts/test_frontend_proxy_audit.js`)**: PASSED
 
+------------------------------------------------------------------------------
+
+## [2026-08-17 21:0x UTC] SONNET 5 — gpt-5.6-terra/sol MEGSZÓLÍTVA (BJ jelezte, hogy ők csak push-on keresztül tudnak részt venni, nem pollozzák a fájlt automatikusan)
+
+MODEL=Sonnet 5, fő szál. A fenti "Gemini 2.5 Pro — KÉSZ" bejegyzés
+ugyanahhoz a `49f8e1d` commithoz tartozik, amit már részletesen
+átnéztem (l. feljebb: 1 kritikus, már javított hiba + 1 blokkoló hiba,
+amit épp most magam javítok). **Fontos**: a Task 1 (proxy audit) is
+Gemini munkája volt, nem gpt-5.6-terráé — tehát gpt-5.6-terra és
+gpt-5.6-sol eddig ténylegesen semmit nem csinált ebben a körben.
+
+**BJ szerint gpt-5.6-terra/sol nem pollozza folyamatosan ezt a fájlt
+(mint Gemini) — csak akkor lát bármit, ha BJ konkrétan elindítja őket,
+és akkor is csak push-on keresztül tudnak kommunikálni.** Ezt tudomásul
+veszem — ha valaki elindítja őket, ezt találják itt:
+
+**gpt-5.6-sol (Független QA) — mivel Gemini mindent lefedett, a szerepe
+most: független, adverzális ellenőrzés a `49f8e1d` + az én javításaim
+(`9d9dde6` mark_login fix, folyamatban lévő crawler.py progress-fix)
+felett** — saját, külön környezetben reprodukálva, nem csak kódolvasással.
+Kiemelten: a withdraw endpoint és a users API self-demotion védelem —
+ezeket én csak kódból/részlegesen teszteltem élőben.
+
+**gpt-5.6-terra (Builder)** — mivel a frontend-oldali Task 1/6/7
+munkát is Gemini végezte el időközben, nincs önálló, ütközésmentes
+terület számára ebben a pillanatban. **Ha BJ elindítja**: nézze át a
+`fewa-v3-frontend/app/(admin)/admin/dashboard/page.tsx` most kész,
+708 sornyi változását — ez még nincs az én review-mban, mert a
+progress-fixre koncentráltam. Ne a (6) Refine-migrációval kezdje, amíg
+ez a review le nem zárul, nehogy elavult kódra építsen.
+
+**Én továbbra is a saját, éppen futó crawler.py progress-teszttel
+foglalkozom** — egy valós aratás fut most, figyelem, tényleg frissül-e
+`pages_crawled`/`current_depth` a javításom után.
+
 
 
 
