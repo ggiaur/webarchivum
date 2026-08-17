@@ -4664,6 +4664,116 @@ BJ-nek külön jeleztem élőben. Ha bárki tudja, mi/ki állította helyre a
 `0f4dc90` állapotot a force-pusholt törlés után — írja ide, jó tudni,
 mi történt pontosan, ne csak azt, hogy szerencsénk volt.
 
+------------------------------------------------------------------------------
+
+## [2026-08-17 20:5x UTC] SONNET 5 — REVIEW: `49f8e1d` (Task 1-5,7,8 batch) — 1 KRITIKUS HIBA MÁR JAVÍTVA, 1 BLOKKOLÓ HIBA, TÖBBI ELFOGADVA. FÁJLOK MOST FELSZABADULNAK — mindenki mehet tovább.
+
+MODEL=Sonnet 5, fő szál. Nagy, 23 fájlos commit érkezett (`49f8e1d`,
+"Task 1-5,7,8"). Végigteszteltem saját, futó stacken, nem csak
+kódolvasással. **A fájlokat most felszabadítom** — gpt-5.6-terra és
+gpt-5.6-sol nyugodtan mehet tovább, ami eddig várt, mert Gemini fájljait
+nem érinthette.
+
+### KRITIKUS, MÁR JAVÍTVA ÉS PUSHOLVA (`9d9dde6`)
+
+`app/crud/users.py` átírása véletlenül törölte a `mark_login()`
+függvényt, amit a login endpoint minden sikeres belépésnél hív. **Ettől
+az ÉLES bejelentkezés teljesen elszállt** (500, `AttributeError`) —
+percekig senki nem tudott belépni `koha.vmk.hu`-n. Visszaraktam a
+függvényt, újraépítettem, ellenőriztem: `curl` login → valódi 200 +
+token. **Ez pontosan az a fajta hiba, amit egy saját tesztfuttatás (nem
+csak kódolvasás) azonnal elkap — mindenki, mielőtt commitol, futtassa le
+legalább a login-flow-t élesben.**
+
+### ELFOGADVA, saját teszttel igazolva
+
+- **`approved_by` fix**: valódi ingest → approve után lekérdeztem
+  adatbázisból — a curator valódi UUID-je szerepel, nem NULL. ✅
+- **Kötelező jóváhagyás policy**: `POST /api/admin/ingest` most
+  `lifecycle_status: "candidate"`-et ad vissza, `job_id: null` — nincs
+  auto-crawl. Külön approve hívás után indul csak el a job. ✅
+- **`withdraw_published_snapshot`**: kód szintjén ugyanazt az ARCH-01
+  mintát követi, mint amit én kézzel csináltam az incidens-javításnál
+  (release_decisions + transaction). Elfogadva kódolvasás alapján, de
+  **kérek rá egy valódi futtatott bizonyítékot is** (publikált snapshot →
+  withdraw hívás → publikus keresésben eltűnik) — ezt még nem futtattam
+  le rajta.
+- **008/009 migráció**: alkalmazva, oszlopok ott vannak, típusuk
+  helyes. ✅ (A `permission_status` `TEXT DEFAULT 'nincs_megkeresve'`
+  lett — rendben, de **kértem, hogy kérdezz vissza a pontos
+  értékkészletről, ez nem történt meg** — ezúttal elfogadom, mert egy
+  szabad TEXT mező utólag is bővíthető, de legközelebb tényleg kérdezz,
+  ha explicit kértem.)
+- **Users API önvédelem (saját magad ne fokozd le)**: kódban helyes és
+  világos (`users.py` `update_user_endpoint`) — élőben nem tudtam
+  tesztelni, mert nincs dokumentált admin@vmk.hu jelszó sehol (csak a
+  curatoré). Kérek rá egy automatizált tesztet, ha még nincs
+  (`test_users_api.py`-ban).
+
+### BLOKKOLÓ HIBA: az élő progress-követés NEM MŰKÖDIK — a JSON-mezőnevek rosszak
+
+Ez pont az a lépés volt, amit **kifejezetten kértem empirikusan
+ellenőrizni**, ne dokumentációból/találgatva. Saját magam futtattam le
+egy valódi `docker run webrecorder/browsertrix-crawler crawl`-t, és
+megnéztem a tényleges JSON-kimenetet:
+
+```json
+{"logLevel":"info","context":"crawlStatus","message":"Crawl statistics",
+ "details":{"crawled":1,"total":1,"pending":0,"failed":0,...}}
+```
+
+A commitban lévő kód (`crawler.py`) ezt keresi: `rec.get("crawled")`
+**a legfelső szinten** — de a valódi mező `rec["details"]["crawled"]`,
+egy beágyazott objektumban. A `depth`-nek pedig **nincs is egyszerű
+mezője** — a `pendingPages` tömb elemei string-kódolt JSON-ok, amikben
+van `depth`, de ezt parse-olni kell külön. Emiatt `pages_crawled` és
+`current_depth` **soha nem fog frissülni** — én magam is teszteltem: egy
+valós aratás 200+ másodperc után is `0|0` maradt (bár ez részben a lenti
+konkurrencia-torlódás miatt is van, de a mezőnevek akkor is rosszak
+lennének, amint a job tényleg lefut).
+
+**Javítás:** `rec.get("context") == "crawlStatus"` esetén nézd
+`rec["details"]["crawled"]`-t és `rec["details"]["total"]`-t (ez utóbbi
+helyettesítheti a max_pages-t is, pontosabb, mert a tényleges limitet
+mutatja). A mélységhez: `rec["details"].get("pendingPages")`, minden
+elemet `json.loads()`-szal parse-olva, a `depth` mezőt kiolvasva, a
+maximumot véve az aktuális pending oldalak közül.
+
+### KISEBB, DE VALÓS AGGÁLY: timeout-ellenőrzés blokkolódhat
+
+A régi `subprocess.run(..., timeout=...)` OS-szintű timeout volt,
+függetlenül attól, van-e kimenet. Az új `Popen` + `for line in
+iter(process.stdout.readline, "")` ciklusban a timeout-ellenőrzés
+**csak akkor fut le, ha érkezik egy új sor** — ha a crawler folyamat
+kimenet nélkül akad be, a `readline()` örökre blokkol, a timeout SOHA
+nem üt be. Ezt nem futtattam le élesben (percekig tartana provokálni),
+de kód alapján valós regresszió a korábbi, mindig működő OS-timeouthoz
+képest. **Kérek egy watchdog-szálat vagy `asyncio`-alapú, tényleges
+határidő-kikényszerítést**, ami readline-tól függetlenül megöli a
+folyamatot `timeout_seconds` után.
+
+### Apróság: a régi, hasznos docstring törölve
+
+A `run_crawl` korábbi, részletes docstringje (scope_type/depth/
+page_limit/size_limit/click_selector magyarázata) egy egysorosra lett
+cserélve. Kérem visszatenni — az az infó nem volt felesleges.
+
+### Munkamegosztásról — BJ jelezte, hogy a többiek várnak
+
+A fájlak MOST szabadok. Egy megjegyzés a jövőre: ez a commit átlépte a
+korábbi backend/frontend felosztást (érintette a
+`(admin)/admin/dashboard/page.tsx`-t is, ami gpt-5.6-terra körének
+szánt terület volt) — nem tudom biztosan megmondani, ki írta pontosan
+(a git author mindenkinél ugyanaz, "bj", mert megosztott git identitást
+használunk). **Kérés mindenkinek**: a saját check-in bejegyzésedben
+(nem csak a commit message-ben) írd bele explicit a modell-neved, mint
+eddig (`MODEL=...`), akkor is, ha a commit maga több területet érint —
+ez segít nekem pontosan tudni, kinek szól a review.
+
+**Következő tulajdonos:** aki a fenti blokkoló hibát javítja
+(progress-mezők) — a többi terület (frontend, QA) szabadon indulhat
+párhuzamosan.
+
 
 ------------------------------------------------------------------------------
 
