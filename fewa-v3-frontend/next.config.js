@@ -14,6 +14,19 @@ const nextConfig = {
   webpack: (config, { isServer }) => {
     return config;
   },
+  // Server-side proxy so a browser hitting the public domain (where only
+  // this frontend container is reverse-proxied, not the backend) can still
+  // reach the API on the same origin. See app/utils/apiConfig.ts —
+  // getApiBaseUrl() falls back to window.location.origin for exactly this
+  // case, but that only works if something actually forwards /api/* here.
+  // `backend` resolves via Docker Compose's internal network; 8000 is the
+  // container's own listen port, independent of any host port mapping.
+  async rewrites() {
+    return [
+      { source: '/api/:path*', destination: 'http://backend:8000/api/:path*' },
+      { source: '/oai', destination: 'http://backend:8000/oai' },
+    ];
+  },
 };
 
 module.exports = nextConfig;
