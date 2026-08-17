@@ -4065,6 +4065,74 @@ tenné): bejelentkezés, `/api/collections`, hitelesített
 **Következő tulajdonos:** Gemini (Builder) → utána Sonnet review, ahogy
 eddig.
 
+------------------------------------------------------------------------------
+
+## [2026-08-17 19:5x UTC] SONNET 5 — ÚJ FELADAT: admin dashboard hiányosságok (BJ éles használat közben találta)
+
+MODEL=Sonnet 5, fő szál. BJ a valódi, most már működő admin felületen
+(`koha.vmk.hu/admin/dashboard/`) dolgozott — 18 valódi webhelyet vitt fel
+ingesttel — és öt konkrét hiányosságot jelzett. Ellenőriztem kód szinten,
+melyik tényleg hiányzik és melyik csak nincs jól felszínre hozva:
+
+1. **"mi lett elutasítva/elfogadva"** — VALÓDI HIÁNY. A dashboard csak a
+   *függőben lévő* sorokat mutatja (`Jóváhagyási Sor`, `Minőségi
+   Felülvizsgálat` — mindkettő 0-t mutat, mert a mai 18 ingest
+   automatikusan `approved`-ra ugrott, sosem volt candidate-sorban). Nincs
+   sehol egy teljes előzmény-nézet, ami MINDEN snapshotot mutatna a
+   státuszával, függetlenül attól, hogy már túl van-e a döntési ponton.
+2. **"ki fogadta el"** — **VALÓDI BACKEND HIBA, nem csak UI-hiány.** A
+   séma támogatja (`archived_snapshots.approved_by UUID REFERENCES
+   users`), az SQL update is helyesen paraméterezi (`app/crud/archive.py`
+   111. és 304. sor: `SET ... approved_by = $3/$4`), **de a hívó
+   endpointok (`app/api/v1/jobs.py` 119. és 169. sor) mindig
+   `user_id=None`-t adnak át**, holott a `require_role("curator")`
+   dependency már visszaadja a bejelentkezett user JWT payloadját
+   (`app/api/deps.py` — `get_current_user_payload`). Ez azt jelenti: **ez
+   az adat sosem kerül rögzítésre**, bárki hagyja is jóvá, örökre NULL
+   marad. Ezt kötelező javítani, nem csak megjeleníteni valamit, aminek
+   az adata nincs meg.
+3. **"mi fut"** — VALÓDI HIÁNY. Nincs élő/"jelenleg aratás alatt" nézet a
+   dashboardon (`lifecycle_status='crawling'` snapshotok listája).
+4. **"milyen gyakori lesz a mentés"** — ez már RÉSZBEN megvan (a
+   "Webhelyek & Prioritások" táblázat "Gyakoriság" oszlopa mutatja), BJ
+   valószínűleg a *módosítást* hiányolja, nem a megjelenítést (lásd 5.).
+5. **"hol tudom ezeket állítani"** — VALÓDI UI-HIÁNY, de a backend már
+   kész: `PATCH /api/admin/sites/{id}` (`app/api/v1/sites.py:92`,
+   `SiteUpdateSchema`) már létezik és működik — a táblázatban viszont
+   nincs semmilyen szerkesztés/gomb hozzá, csak "+ Új Site Hozzáadása".
+
+### FELADAT — Státusz: RÁD VÁR (Builder)
+
+**Backend (kötelező, ez a súlyosabb):**
+- `app/api/v1/jobs.py`: `approve_candidate_endpoint` és
+  `decide_quality_review_endpoint` — vedd fel a `current_user:
+  dict = Depends(require_role("curator"))` paramétert (a jelenlegi
+  `dependencies=[Depends(...)]` formát cseréld le), és add át a valódi
+  `user_id`-t (`current_user["sub"]`, ellenőrizd a pontos JWT claim
+  kulcsot a `get_current_user_payload`-ban) az `archive.approve_candidate`
+  / `archive.decide_quality_review` hívásba a jelenlegi `user_id=None`
+  helyett.
+- Írj hozzá tesztet: jóváhagyás után a snapshot `approved_by` mezője a
+  valódi curator UUID-jával legyen kitöltve, nem NULL.
+
+**Frontend (`app/(admin)/admin/dashboard/page.tsx` és szükség szerint új
+komponens/route):**
+- Új dashboard-fül vagy szekció: **"Aratási előzmények"** — minden
+  snapshot, státusz szerint szűrhetően (jóváhagyva/elutasítva/aratás
+  alatt/publikálva/QC alatt), és minden sornál: `approved_by` (user
+  email/név, a fenti backend-fix után lesz benne adat), időbélyegek.
+- **"Jelenleg fut"** kiemelt lista/badge a `crawling` státuszú
+  snapshotoknak — ez legyen jól látható, nem csak egy szűrt lista mélyén.
+- A "Webhelyek & Prioritások" táblázat soraihoz **szerkesztés gomb/inline
+  edit**, ami a már meglévő `PATCH /api/admin/sites/{id}`-t hívja
+  (priority, category, crawl_frequency módosítható legyen).
+
+**Elfogadási bizonyíték, amit kérek:** a fenti 3 backend/frontend pont
+mindegyikéhez valódi, futtatott teszt vagy `curl`/UI-screenshot-szintű
+bizonyíték (ahogy eddig is) — ne csak "elkészült" állítás.
+
+**Következő tulajdonos:** Gemini (Builder) → utána Sonnet review.
+
 
 
 
