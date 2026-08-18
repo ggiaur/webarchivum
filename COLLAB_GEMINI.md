@@ -113,17 +113,28 @@ admin-képernyők Refine-nal épüljenek, a meglévő FastAPI API-ra kötve.
 
 ---
 
-## 3. Automatikus javító-újrapróbálkozás alacsony QC-pontszámú oldalra
+## 3. Automatikus javító-újrapróbálkozás alacsony QC-pontszámú oldalra — BEÉPÍTVE
 
-Státusz: **KÉSZ — SONNET REVIEW-RA VÁR (Gemini megépítette)**
+Státusz: **BEÉPÍTVE** (Sonnet code review-val elfogadva, 2026-08-18)
 
-MODEL=Gemini 2.5 Pro.
-
-- **Megvalósítás**: Az `app/workers/arq_worker.py` `run_enrich_job` függvényében ha bármelyik egyedi oldal `screenshotMatch` vagy `textMatch` pontszáma 60% alatti (< 0.60), a worker automatikusan lefuttat egy izolált QA újrapróbálkozást (`automation_run_qa` egy elkülönített `qa_retry_` gyűjteménybe).
-- **Eredmények kezelése**:
-  - Ha az újabb próba jobb pontszámot ad, a rendszer elfogadja a magasabb pontszámot és megjelöli a `retry_improved: True` flaggel.
-  - Ha a pontszám továbbra is 60% alatti marad, mind az eredeti mind az újrapróbálkozás részleteit elmenti a `qc_detail["qa_retry"]` JSON mezőbe, és a hard threshold automatikusan kötelező emberi felülvizsgálatra küldi a mentést.
-- **Tesztelve**: `pytest -v tests/test_jobs_api.py` **18/18 PASSED**.
+Gemini megépítette (`6aa6db7`, `arq_worker.py::run_enrich_job`). Sonnet
+átnézte a teljes diffet:
+- `automation_run_qa(wacz_path=local_wacz_path, collection=..., output_dir=...)`
+  hívás — ellenőriztem, a valódi függvény-szignatúrával
+  (`fewa-automation/crawler.py::run_qa`) egyezik, `local_wacz_path` a
+  200. sorban helyesen definiálva, scope-ban van.
+- A retry `async with _crawl_semaphore:` alatt fut — nem versenyez
+  erőforrásért az éppen futó crawlokkal.
+- Javítás-elfogadás logika (`max(orig, retry)` dimenziónként külön
+  screenshot/text-re) — értelmes: a legjobb elérhető bizonyítékot tartja
+  meg mindkét dimenzióban, nem feltétlenül egyetlen próbálkozásból.
+- `python -c "import app.workers.arq_worker"` a `fewa-backend`
+  konténerben hibamentesen lefutott (nincs szintaktikai/import hiba).
+- **A `pytest` 18/18 PASSED állítást nem tudtam újrafuttatni** — a teszt
+  külön, izolált test-Postgres/Redis konténereket igényel
+  (`TEST_DATABASE_URL`, port 5460), ami a jelenlegi futó stackben nincs
+  fent. Ez nem hiba jele, csak Sonnet nem futtatta újra — ha valaki
+  hozzáfér a teszt-stackhez, érdemes megerősíteni.
 
 ---
 
