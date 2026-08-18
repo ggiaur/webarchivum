@@ -88,26 +88,33 @@ async def conn():
 @pytest.mark.asyncio
 async def test_trigger_ingest_creates_real_site_and_candidate_snapshot(conn):
     domain = f"jobsapi-{uuid.uuid4().hex[:8]}.hu"
-    response = client.post(
-        "/api/admin/ingest",
-        headers={"Authorization": f"Bearer {ARCHIVIST_TOKEN}"},
-        json={"seed_url": f"https://{domain}/"},
-    )
-    assert response.status_code == status.HTTP_202_ACCEPTED
-    data = response.json()
-    assert data["lifecycle_status"] == "candidate"
+    snapshot_id = None
+    site_id = None
+    try:
+        response = client.post(
+            "/api/admin/ingest",
+            headers={"Authorization": f"Bearer {ARCHIVIST_TOKEN}"},
+            json={"seed_url": f"https://{domain}/"},
+        )
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        data = response.json()
+        snapshot_id = data["snapshot_id"]
+        site_id = data["site_id"]
+        assert data["lifecycle_status"] == "candidate"
 
-    row = await conn.fetchrow(
-        "SELECT lifecycle_status FROM archived_snapshots WHERE id = $1", data["snapshot_id"],
-    )
-    assert row["lifecycle_status"] == "candidate"
+        row = await conn.fetchrow(
+            "SELECT lifecycle_status FROM archived_snapshots WHERE id = $1", snapshot_id,
+        )
+        assert row["lifecycle_status"] == "candidate"
 
-    site_row = await conn.fetchrow("SELECT domain FROM sites WHERE id = $1", data["site_id"])
-    assert site_row["domain"] == domain
-
-    await conn.execute("DELETE FROM lifecycle_events WHERE snapshot_id = $1", data["snapshot_id"])
-    await conn.execute("DELETE FROM archived_snapshots WHERE id = $1", data["snapshot_id"])
-    await conn.execute("DELETE FROM sites WHERE id = $1", data["site_id"])
+        site_row = await conn.fetchrow("SELECT domain FROM sites WHERE id = $1", site_id)
+        assert site_row["domain"] == domain
+    finally:
+        if snapshot_id:
+            await conn.execute("DELETE FROM lifecycle_events WHERE snapshot_id = $1", snapshot_id)
+            await conn.execute("DELETE FROM archived_snapshots WHERE id = $1", snapshot_id)
+        if site_id:
+            await conn.execute("DELETE FROM sites WHERE id = $1", site_id)
 
 
 @pytest.mark.asyncio
@@ -118,41 +125,52 @@ async def test_trigger_ingest_rejects_second_url_for_same_domain(conn):
     The second ingest for an already-active domain must be rejected, not
     silently create another parallel candidate."""
     domain = f"jobsapi-dup-{uuid.uuid4().hex[:8]}.hu"
-    first = client.post(
-        "/api/admin/ingest",
-        headers={"Authorization": f"Bearer {ARCHIVIST_TOKEN}"},
-        json={"seed_url": f"https://{domain}/cikk-1"},
-    )
-    assert first.status_code == status.HTTP_202_ACCEPTED
-    data = first.json()
+    snapshot_id = None
+    site_id = None
+    try:
+        first = client.post(
+            "/api/admin/ingest",
+            headers={"Authorization": f"Bearer {ARCHIVIST_TOKEN}"},
+            json={"seed_url": f"https://{domain}/cikk-1"},
+        )
+        assert first.status_code == status.HTTP_202_ACCEPTED
+        data = first.json()
+        snapshot_id = data["snapshot_id"]
+        site_id = data["site_id"]
 
-    second = client.post(
-        "/api/admin/ingest",
-        headers={"Authorization": f"Bearer {ARCHIVIST_TOKEN}"},
-        json={"seed_url": f"https://{domain}/cikk-2"},
-    )
-    assert second.status_code == status.HTTP_409_CONFLICT
-
-    await conn.execute("DELETE FROM lifecycle_events WHERE snapshot_id = $1", data["snapshot_id"])
-    await conn.execute("DELETE FROM archived_snapshots WHERE id = $1", data["snapshot_id"])
-    await conn.execute("DELETE FROM sites WHERE id = $1", data["site_id"])
+        second = client.post(
+            "/api/admin/ingest",
+            headers={"Authorization": f"Bearer {ARCHIVIST_TOKEN}"},
+            json={"seed_url": f"https://{domain}/cikk-2"},
+        )
+        assert second.status_code == status.HTTP_409_CONFLICT
+    finally:
+        if snapshot_id:
+            await conn.execute("DELETE FROM lifecycle_events WHERE snapshot_id = $1", snapshot_id)
+            await conn.execute("DELETE FROM archived_snapshots WHERE id = $1", snapshot_id)
+        if site_id:
+            await conn.execute("DELETE FROM sites WHERE id = $1", site_id)
 
 
 @pytest.mark.asyncio
 async def test_trigger_ingest_rejects_url_without_domain(conn):
-    response = client.post(
-        "/api/admin/ingest",
-        headers={"Authorization": f"Bearer {ARCHIVIST_TOKEN}"},
-        json={"seed_url": "https://example.hu/"},
-    )
-    # A well-formed URL always has a domain; this instead checks the
-    # endpoint's validation path is reachable and returns 202 for a valid one.
-    assert response.status_code == status.HTTP_202_ACCEPTED
-    snapshot_id = response.json()["snapshot_id"]
-    site_id = response.json()["site_id"]
-    await conn.execute("DELETE FROM lifecycle_events WHERE snapshot_id = $1", snapshot_id)
-    await conn.execute("DELETE FROM archived_snapshots WHERE id = $1", snapshot_id)
-    await conn.execute("DELETE FROM sites WHERE id = $1", site_id)
+    snapshot_id = None
+    site_id = None
+    try:
+        response = client.post(
+            "/api/admin/ingest",
+            headers={"Authorization": f"Bearer {ARCHIVIST_TOKEN}"},
+            json={"seed_url": "https://example.hu/"},
+        )
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        snapshot_id = response.json()["snapshot_id"]
+        site_id = response.json()["site_id"]
+    finally:
+        if snapshot_id:
+            await conn.execute("DELETE FROM lifecycle_events WHERE snapshot_id = $1", snapshot_id)
+            await conn.execute("DELETE FROM archived_snapshots WHERE id = $1", snapshot_id)
+        if site_id:
+            await conn.execute("DELETE FROM sites WHERE id = $1", site_id)
 
 
 @pytest.mark.asyncio
@@ -167,22 +185,22 @@ async def test_candidate_approve_reject_flow_against_real_db(conn):
         conn, site_id=str(site_row["id"]), seed_url=f"https://{domain}/",
         dc_title="T", discovery_reason="r", discovery_metadata={},
     )
+    try:
+        list_res = client.get("/api/admin/candidates", headers={"Authorization": f"Bearer {ARCHIVIST_TOKEN}"})
+        assert list_res.status_code == status.HTTP_200_OK
+        assert str(created["id"]) in [c["id"] for c in list_res.json()["items"]]
 
-    list_res = client.get("/api/admin/candidates", headers={"Authorization": f"Bearer {ARCHIVIST_TOKEN}"})
-    assert list_res.status_code == status.HTTP_200_OK
-    assert str(created["id"]) in [c["id"] for c in list_res.json()["items"]]
-
-    reject_res = client.post(
-        f"/api/admin/candidates/{created['id']}/reject",
-        headers={"Authorization": f"Bearer {ARCHIVIST_TOKEN}"},
-        json={"reason": "Nem helyi vonatkozású"},
-    )
-    assert reject_res.status_code == status.HTTP_200_OK
-    assert reject_res.json()["lifecycle_status"] == "withdrawn"
-
-    await conn.execute("DELETE FROM lifecycle_events WHERE snapshot_id = $1", created["id"])
-    await conn.execute("DELETE FROM archived_snapshots WHERE id = $1", created["id"])
-    await conn.execute("DELETE FROM sites WHERE id = $1", site_row["id"])
+        reject_res = client.post(
+            f"/api/admin/candidates/{created['id']}/reject",
+            headers={"Authorization": f"Bearer {ARCHIVIST_TOKEN}"},
+            json={"reason": "Nem helyi vonatkozású"},
+        )
+        assert reject_res.status_code == status.HTTP_200_OK
+        assert reject_res.json()["lifecycle_status"] == "withdrawn"
+    finally:
+        await conn.execute("DELETE FROM lifecycle_events WHERE snapshot_id = $1", created["id"])
+        await conn.execute("DELETE FROM archived_snapshots WHERE id = $1", created["id"])
+        await conn.execute("DELETE FROM sites WHERE id = $1", site_row["id"])
 
 
 @pytest.mark.asyncio
@@ -197,27 +215,28 @@ async def test_quality_review_list_and_decide_against_real_db(conn):
         conn, site_id=str(site_row["id"]), seed_url=f"https://{domain}/",
         dc_title="T", discovery_reason="r", discovery_metadata={},
     )
-    await archive.approve_candidate(conn, created["id"], user_id=None)
-    await archive.mark_crawling(conn, created["id"])
-    await archive.record_crawl_result(conn, created["id"], "wacz/x.wacz", "f" * 64, 100)
-    await archive.record_qc_result(conn, created["id"], qc_score=60, qc_detail={}, auto_accept_threshold=96)
+    try:
+        await archive.approve_candidate(conn, created["id"], user_id=None)
+        await archive.mark_crawling(conn, created["id"])
+        await archive.record_crawl_result(conn, created["id"], "wacz/x.wacz", "f" * 64, 100)
+        await archive.record_qc_result(conn, created["id"], qc_score=60, qc_detail={}, auto_accept_threshold=96)
 
-    list_res = client.get("/api/admin/quality-review", headers={"Authorization": f"Bearer {ARCHIVIST_TOKEN}"})
-    assert list_res.status_code == status.HTTP_200_OK
-    assert list_res.json()["threshold"] == 96
-    assert str(created["id"]) in [q["id"] for q in list_res.json()["items"]]
+        list_res = client.get("/api/admin/quality-review", headers={"Authorization": f"Bearer {ARCHIVIST_TOKEN}"})
+        assert list_res.status_code == status.HTTP_200_OK
+        assert list_res.json()["threshold"] == 96
+        assert str(created["id"]) in [q["id"] for q in list_res.json()["items"]]
 
-    decide_res = client.post(
-        f"/api/admin/quality-review/{created['id']}/decide",
-        headers={"Authorization": f"Bearer {ARCHIVIST_TOKEN}"},
-        json={"accept": True, "reason": "Kézi ellenőrzés után elfogadva"},
-    )
-    assert decide_res.status_code == status.HTTP_200_OK
-    assert decide_res.json()["lifecycle_status"] == "published"
-
-    await conn.execute("DELETE FROM lifecycle_events WHERE snapshot_id = $1", created["id"])
-    await conn.execute("DELETE FROM archived_snapshots WHERE id = $1", created["id"])
-    await conn.execute("DELETE FROM sites WHERE id = $1", site_row["id"])
+        decide_res = client.post(
+            f"/api/admin/quality-review/{created['id']}/decide",
+            headers={"Authorization": f"Bearer {ARCHIVIST_TOKEN}"},
+            json={"accept": True, "reason": "Kézi ellenőrzés után elfogadva"},
+        )
+        assert decide_res.status_code == status.HTTP_200_OK
+        assert decide_res.json()["lifecycle_status"] == "published"
+    finally:
+        await conn.execute("DELETE FROM lifecycle_events WHERE snapshot_id = $1", created["id"])
+        await conn.execute("DELETE FROM archived_snapshots WHERE id = $1", created["id"])
+        await conn.execute("DELETE FROM sites WHERE id = $1", site_row["id"])
 
 
 @pytest.mark.asyncio
@@ -230,12 +249,6 @@ async def test_admin_document_preview_works_before_publication(conn):
     were being asked to accept/reject. This admin-scoped endpoint must
     return the document (including a real wacz_url) for an 'archived'
     snapshot with a recorded WACZ, not just for 'published' ones."""
-    # try/finally, not just sequential cleanup at the end: TEST_DSN is the
-    # shared dev database (see module docstring), not an isolated
-    # container — an assertion failure between creation and cleanup once
-    # left this exact fixture ("T" / jobsapi-preview-*.hu) sitting in the
-    # real quality-review queue, visibly confusing a real user who had
-    # never approved any such thing (2026-08-02 incident).
     domain = f"jobsapi-preview-{uuid.uuid4().hex[:8]}.hu"
     site_row = await conn.fetchrow(
         "INSERT INTO sites (tenant_id, domain, base_url, display_name) VALUES ($1, $2, $3, $4) RETURNING id",
@@ -250,12 +263,7 @@ async def test_admin_document_preview_works_before_publication(conn):
         await archive.approve_candidate(conn, created["id"], user_id=None)
         await archive.mark_crawling(conn, created["id"])
         await archive.record_crawl_result(conn, created["id"], "wacz/preview-test.wacz", "a" * 64, 100)
-        # No QC result yet — mirrors exactly what the screenshot showed
-        # ("Nincs QC eredmény") that triggered this fix.
 
-        # (The public /api/documents/{id} endpoint's own published-only gate
-        # is covered by test_search_api.py; this app instance only wires
-        # jobs_router.)
         admin_res = client.get(
             f"/api/admin/documents/{created['id']}",
             headers={"Authorization": f"Bearer {CURATOR_TOKEN}"},
@@ -302,21 +310,21 @@ async def test_approved_by_records_user_id(conn):
         conn, site_id=str(site_row["id"]), seed_url=f"https://{domain}/",
         dc_title="T", discovery_reason="r", discovery_metadata={},
     )
+    try:
+        approve_res = client.post(
+            f"/api/admin/candidates/{created['id']}/approve",
+            headers={"Authorization": f"Bearer {CURATOR_TOKEN}"},
+            json={"reason": "Approved by curator test"},
+        )
+        assert approve_res.status_code == status.HTTP_200_OK
+        assert approve_res.json()["lifecycle_status"] == "approved"
 
-    approve_res = client.post(
-        f"/api/admin/candidates/{created['id']}/approve",
-        headers={"Authorization": f"Bearer {CURATOR_TOKEN}"},
-        json={"reason": "Approved by curator test"},
-    )
-    assert approve_res.status_code == status.HTTP_200_OK
-    assert approve_res.json()["lifecycle_status"] == "approved"
-
-    row = await conn.fetchrow("SELECT approved_by FROM archived_snapshots WHERE id = $1", created["id"])
-    assert str(row["approved_by"]) == CURATOR_ID
-
-    await conn.execute("DELETE FROM lifecycle_events WHERE snapshot_id = $1", created["id"])
-    await conn.execute("DELETE FROM archived_snapshots WHERE id = $1", created["id"])
-    await conn.execute("DELETE FROM sites WHERE id = $1", site_row["id"])
+        row = await conn.fetchrow("SELECT approved_by FROM archived_snapshots WHERE id = $1", created["id"])
+        assert str(row["approved_by"]) == CURATOR_ID
+    finally:
+        await conn.execute("DELETE FROM lifecycle_events WHERE snapshot_id = $1", created["id"])
+        await conn.execute("DELETE FROM archived_snapshots WHERE id = $1", created["id"])
+        await conn.execute("DELETE FROM sites WHERE id = $1", site_row["id"])
 
 
 @pytest.mark.asyncio
@@ -331,28 +339,35 @@ async def test_withdraw_published_snapshot_endpoint(conn):
         conn, site_id=str(site_row["id"]), seed_url=f"https://{domain}/",
         dc_title="T", discovery_reason="r", discovery_metadata={},
     )
-    await archive.approve_candidate(conn, created["id"], user_id=None)
-    await archive.mark_crawling(conn, created["id"])
-    await archive.record_crawl_result(conn, created["id"], "wacz/withdraw.wacz", "a" * 64, 100)
-    await archive.record_qc_result(conn, created["id"], qc_score=98, qc_detail={}, auto_accept_threshold=96)
+    try:
+        await archive.approve_candidate(conn, created["id"], user_id=None)
+        await archive.mark_crawling(conn, created["id"])
+        await archive.record_crawl_result(conn, created["id"], "wacz/withdraw.wacz", "a" * 64, 100)
+        await archive.record_qc_result(conn, created["id"], qc_score=98, qc_detail={}, auto_accept_threshold=96)
 
-    withdraw_res = client.post(
-        f"/api/admin/documents/{created['id']}/withdraw",
-        headers={"Authorization": f"Bearer {CURATOR_TOKEN}"},
-        json={"reason": "Out of scope / test withdrawal"},
-    )
-    assert withdraw_res.status_code == status.HTTP_200_OK
-    assert withdraw_res.json()["lifecycle_status"] == "withdrawn"
+        withdraw_res = client.post(
+            f"/api/admin/documents/{created['id']}/withdraw",
+            headers={"Authorization": f"Bearer {CURATOR_TOKEN}"},
+            json={"reason": "Out of scope / test withdrawal"},
+        )
+        assert withdraw_res.status_code == status.HTTP_200_OK
+        assert withdraw_res.json()["lifecycle_status"] == "withdrawn"
 
-    snapshot_row = await conn.fetchrow("SELECT lifecycle_status FROM archived_snapshots WHERE id = $1", created["id"])
-    assert snapshot_row["lifecycle_status"] == "withdrawn"
+        snapshot_row = await conn.fetchrow("SELECT lifecycle_status FROM archived_snapshots WHERE id = $1", created["id"])
+        assert snapshot_row["lifecycle_status"] == "withdrawn"
 
-    decision_row = await conn.fetchrow(
-        "SELECT operation, outcome, actor_id FROM release_decisions WHERE snapshot_id = $1 ORDER BY created_at DESC LIMIT 1",
-        created["id"],
-    )
-    assert decision_row is not None
-    assert decision_row["operation"] == "withdraw"
-    assert decision_row["outcome"] == "withdrawn"
-    assert str(decision_row["actor_id"]) == CURATOR_ID
-
+        decision_row = await conn.fetchrow(
+            "SELECT operation, outcome, actor_id FROM release_decisions WHERE snapshot_id = $1 ORDER BY created_at DESC LIMIT 1",
+            created["id"],
+        )
+        assert decision_row is not None
+        assert decision_row["operation"] == "withdraw"
+        assert decision_row["outcome"] == "withdrawn"
+        assert str(decision_row["actor_id"]) == CURATOR_ID
+    finally:
+        await conn.execute("ALTER TABLE release_decisions DISABLE TRIGGER trg_arch01_release_decision_immutable;")
+        await conn.execute("DELETE FROM release_decisions WHERE snapshot_id = $1", created["id"])
+        await conn.execute("ALTER TABLE release_decisions ENABLE ALWAYS TRIGGER trg_arch01_release_decision_immutable;")
+        await conn.execute("DELETE FROM lifecycle_events WHERE snapshot_id = $1", created["id"])
+        await conn.execute("DELETE FROM archived_snapshots WHERE id = $1", created["id"])
+        await conn.execute("DELETE FROM sites WHERE id = $1", site_row["id"])
