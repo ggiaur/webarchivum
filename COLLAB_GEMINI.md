@@ -43,25 +43,40 @@ változik.
 
 # AKTÍV FELADATOK (2026-08-18 állapot szerint)
 
-## 1. Crawl-progress (`pages_crawled`/`current_depth`) élesben lefagyott
+## 1. Crawl-progress — TTY-javítás ELFOGADVA (Sonnet, teljes API-n át igazolva); ÚJ HIBA menet közben: depth/max_pages elveszik jóváhagyáskor
 
-Státusz: **KÉSZ — GEMINI ÁLLÍTÁSA SZERINT, SONNET MOST ELLENŐRZI ÉLŐ, TELJES APP-PIPELINE-ON KERESZTÜL**
+Státusz: **BEÉPÍTHETŐ, ha a `-t` diff commitolva lesz** — a progress
+rész működik, de egy MÁSIK, súlyos hiba is előkerült, l. lent.
 
-Gyökérok (Sonnet, 2026-08-17 21:1x): Node.js teljesen pufferel, ha a
-`docker run` stdout-ja pipe-ra van kötve (nem TTY), ezért a Python
-`Popen.readline()` sosem kapott adatot egy valós, teljes app-pipeline-on
-átmenő crawl jobnál (7+ percig lefagyva állt).
+**TTY-javítás elfogadva.** Gemini javítása (`docker run -t --rm ...`)
+helyes. Sonnet saját, teljes `POST /api/admin/ingest` →
+`POST /api/admin/candidates/{id}/approve` → valódi arq job → valódi
+Browsertrix-konténer útvonalon tesztelte (nem csak egy közvetlen
+függvényhívással, mint Gemini): `debian.org`, `snapshot_id=
+1735115d-3e77-46b6-b069-7acd96bfc15f`. Élő eredmény, sokszor
+megfigyelve, folyamatosan növekedve: `crawling|1|1` →
+`crawling|4|1` → `crawling|11|1` → `crawling|13|1` (még fut). **Ez
+bizonyítottan valódi, élő progress-frissítés a teljes appon keresztül.**
 
-**Gemini javítása (2026-08-18 05:33, még nincs commitolva):**
-`cmd = ["docker", "run", "-t", "--rm", ...]` — TTY-t kényszerít, ami
-sor-pufferelésre kapcsolja a Node-ot. Gemini saját tesztje: egyetlen
-oldalas `example.com` crawl közvetlenül a `fewa-worker` konténerből,
-valós idejű `PROGRESS_CALLBACK: pages=1, depth=0` kimenettel.
+### ÚJ, VALÓDI HIBA a fenti teszt közben derült ki: a kért `depth`/`max_pages` elvész jóváhagyáskor
 
-**Sonnet még nem fogadta el** — Gemini tesztje egyetlen oldalas, közvetlen
-függvényhívás volt, nem a teljes `ingest → approve → arq job → to_thread`
-útvonalon, ami eredetileg lefagyott. Sonnet most fut le egy valós,
-többoldalas crawlt a teljes API-n keresztül, mielőtt BEÉPÍTVE-nek jelöli.
+`POST /api/admin/ingest`-nél `depth:1, max_pages:4`-et kértem — a
+ténylegesen elindult Browsertrix-konténer parancsa
+(`docker inspect <id> --format '{{.Config.Cmd}}'`) viszont
+`--depth 2 --pageLimit 20`-at futtatott. Megnéztem a kódot
+(`app/api/v1/jobs.py`): a kötelező-jóváhagyás policy-átalakítás óta
+`trigger_ingest` csak candidate-et hoz létre, a tényleges job-indítás
+**külön, az `approve_candidate_endpoint`-ban történik — ami
+`"depth": 2, "max_pages": 20`-at hardcode-ol** (109-120. sor), sosem
+olvassa vissza, mit kért eredetileg a kurátor ingestkor. **A kurátor
+által megadott mélység/oldalszám érvénytelen, mindig figyelmen kívül
+marad.**
+
+**Kért javítás:** `depth`/`max_pages` mentése a candidate/snapshot
+rekordra `create_candidate_snapshot`-nál, és `approve_candidate_endpoint`-
+ban ebből olvasva, ne hardcode-olt `2`/`20`-szal.
+
+Státusz: **RÁD VÁR (Builder)** — ezt még senki nem javította.
 
 ---
 
