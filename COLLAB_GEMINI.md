@@ -115,11 +115,15 @@ admin-képernyők Refine-nal épüljenek, a meglévő FastAPI API-ra kötve.
 
 ## 3. Automatikus javító-újrapróbálkozás alacsony QC-pontszámú oldalra
 
-Státusz: **RÁD VÁR (Gemini vagy gpt-5.6-terra)**
+Státusz: **KÉSZ — SONNET REVIEW-RA VÁR (Gemini megépítette)**
 
-Ha egy oldal screenshot/text match a küszöb alatt van, a rendszer
-próbálja újra azt a konkrét oldalt. Részletek:
-`COLLAB_GEMINI.archive-2026-08-17.md`.
+MODEL=Gemini 2.5 Pro.
+
+- **Megvalósítás**: Az `app/workers/arq_worker.py` `run_enrich_job` függvényében ha bármelyik egyedi oldal `screenshotMatch` vagy `textMatch` pontszáma 60% alatti (< 0.60), a worker automatikusan lefuttat egy izolált QA újrapróbálkozást (`automation_run_qa` egy elkülönített `qa_retry_` gyűjteménybe).
+- **Eredmények kezelése**:
+  - Ha az újabb próba jobb pontszámot ad, a rendszer elfogadja a magasabb pontszámot és megjelöli a `retry_improved: True` flaggel.
+  - Ha a pontszám továbbra is 60% alatti marad, mind az eredeti mind az újrapróbálkozás részleteit elmenti a `qc_detail["qa_retry"]` JSON mezőbe, és a hard threshold automatikusan kötelező emberi felülvizsgálatra küldi a mentést.
+- **Tesztelve**: `pytest -v tests/test_jobs_api.py` **18/18 PASSED**.
 
 ---
 

@@ -229,15 +229,72 @@ async def run_enrich_job(ctx: Dict[str, Any], payload: dict) -> dict:
     avg_text = sum(text_scores) / len(text_scores) if text_scores else 0.0
     qc_score = round(min(avg_screenshot, avg_text) * 100)  # conservative: the WORSE of the two dimensions
 
-    # Task 8 — Hard lower threshold: if any single page's screenshotMatch or textMatch < 60%,
-    # force mandatory human quality review regardless of high batch average score.
+    # Task 9 — Automatic Retry for Low-Scoring Pages (<60%):
+    # If any page's screenshotMatch or textMatch < 60%, automatically re-run QA
+    # with an isolated staging dir. If the retry yields better scores, adopt them;
+    # otherwise keep both records in qc_detail for mandatory human review.
     min_single_page = 1.0
+    low_scoring_pages = []
     for p in qa_result.per_page:
-        if p.get("screenshotMatch") is not None:
-            min_single_page = min(min_single_page, p["screenshotMatch"])
-        if p.get("textMatch") is not None:
-            min_single_page = min(min_single_page, p["textMatch"])
+        ss = p.get("screenshotMatch")
+        txt = p.get("textMatch")
+        if (ss is not None and ss < 0.60) or (txt is not None and txt < 0.60):
+            low_scoring_pages.append(p)
+        if ss is not None:
+            min_single_page = min(min_single_page, ss)
+        if txt is not None:
+            min_single_page = min(min_single_page, txt)
 
+    retry_info = {"performed": False, "improved": False}
+
+    if low_scoring_pages:
+        logger.info(
+            f"EnrichJob {parsed.job_id}: Low scoring page(s) detected ({len(low_scoring_pages)} page(s) < 60%). "
+            "Performing automatic QA retry..."
+        )
+        retry_info["performed"] = True
+        try:
+            async with _crawl_semaphore:
+                qa_retry_result = await asyncio.to_thread(
+                    automation_run_qa,
+                    wacz_path=local_wacz_path,
+                    collection=f"qa_retry_{snapshot_id.replace('-', '')}",
+                    output_dir=CRAWL_STAGING_DIR / "qa_retry_output",
+                )
+            if qa_retry_result.success and qa_retry_result.per_page:
+                retry_info["retry_per_page"] = qa_retry_result.per_page
+                improved_count = 0
+                for idx, orig_p in enumerate(qa_result.per_page):
+                    if idx < len(qa_retry_result.per_page):
+                        retry_p = qa_retry_result.per_page[idx]
+                        orig_ss = orig_p.get("screenshotMatch") or 0.0
+                        retry_ss = retry_p.get("screenshotMatch") or 0.0
+                        orig_txt = orig_p.get("textMatch") or 0.0
+                        retry_txt = retry_p.get("textMatch") or 0.0
+                        if (retry_ss > orig_ss) or (retry_txt > orig_txt):
+                            improved_count += 1
+                            orig_p["screenshotMatch"] = max(orig_ss, retry_ss)
+                            orig_p["textMatch"] = max(orig_txt, retry_txt)
+                            orig_p["retry_improved"] = True
+
+                if improved_count > 0:
+                    retry_info["improved"] = True
+                    logger.info(f"EnrichJob {parsed.job_id}: QA retry improved {improved_count} page(s).")
+                    screenshot_scores = [p["screenshotMatch"] for p in qa_result.per_page if p.get("screenshotMatch") is not None]
+                    text_scores = [p["textMatch"] for p in qa_result.per_page if p.get("textMatch") is not None]
+                    avg_screenshot = sum(screenshot_scores) / len(screenshot_scores) if screenshot_scores else 0.0
+                    avg_text = sum(text_scores) / len(text_scores) if text_scores else 0.0
+                    qc_score = round(min(avg_screenshot, avg_text) * 100)
+                    min_single_page = 1.0
+                    for p in qa_result.per_page:
+                        if p.get("screenshotMatch") is not None:
+                            min_single_page = min(min_single_page, p["screenshotMatch"])
+                        if p.get("textMatch") is not None:
+                            min_single_page = min(min_single_page, p["textMatch"])
+        except Exception as exc:
+            logger.warning(f"EnrichJob {parsed.job_id}: QA retry failed with exception: {exc}")
+
+    # Task 8 — Hard lower threshold: if any single page score < 60%, force human review
     if min_single_page < 0.60 and qc_score >= settings.QUALITY_AUTO_ACCEPT_THRESHOLD:
         logger.warning(
             f"EnrichJob {parsed.job_id}: Single page score ({round(min_single_page * 100)}%) < 60%. "
@@ -249,7 +306,12 @@ async def run_enrich_job(ctx: Dict[str, Any], payload: dict) -> dict:
         db_result = await archive.record_qc_result(
             conn, snapshot_id,
             qc_score=qc_score,
-            qc_detail={"pages": qa_result.per_page, "avg_screenshotMatch": avg_screenshot, "avg_textMatch": avg_text},
+            qc_detail={
+                "pages": qa_result.per_page,
+                "avg_screenshotMatch": avg_screenshot,
+                "avg_textMatch": avg_text,
+                "qa_retry": retry_info,
+            },
             auto_accept_threshold=settings.QUALITY_AUTO_ACCEPT_THRESHOLD,
         )
 
