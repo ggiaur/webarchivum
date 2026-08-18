@@ -170,3 +170,59 @@ Ezek **BEÉPÍTVE**, saját, élő teszttel igazolva, ma pusholva:
 frontend, worker, docker-guard, postgres, redis, minio), helyi portokon
 (8001/3001), lásd `.env`. Login működik (`curator@vmk.hu` /
 `SecretPassword123!`). Production deploy továbbra sincs autorizálva.
+
+---
+
+## VALÓDI BÖNGÉSZŐS TESZT (Sonnet, 2026-08-18) — dashboard MŰKÖDIK, + 1 strukturális hiba a teszt-szvitben, kitakarítva
+
+MODEL=Sonnet 5, fő szál. Eddig minden "élő" ellenőrzésem `curl`-lal ment
+— ez sosem futtatta le a kliensoldali JS-t. Playwrighttal (rendszer
+Chromium az Alpine frontend-konténerbe telepítve, mert a hivatalos
+Playwright-bináris nem musl-kompatibilis) most **valódi böngészőből**
+teszteltem a `https://koha.vmk.hu` publikus URL-en:
+
+1. **Bejelentkezés valódi űrlap-kitöltéssel és gombkattintással**:
+   sikeres, a böngésző ténylegesen átnavigált
+   `https://koha.vmk.hu/admin/dashboard/`-ra.
+2. **Fülváltás kattintással**: működik, URL helyesen frissül
+   (`?tab=quality`), a `window.history.replaceState`-es megoldás élőben
+   igazolva.
+3. **Minőségi Felülvizsgálat tartalma**: valódi kártyák, valódi QC-
+   pontszámokkal (93%, 67%, 61% stb.), és a korábban kért "folyamatban"
+   szöveg is pontosan megjelenik ("⏳ QC számítás folyamatban (~15-20
+   perc)").
+4. Egy nem-fatális konzolhiba (`403 /api/admin/users`) — helyes, RBAC
+   működik (curator nem admin), csak a dashboard felesleges kérést küld
+   erre non-admin usernél. Kisebb, nem blokkoló optimalizálási lehetőség.
+
+**Item 1 (dashboard review) ezzel gyakorlatilag lezárható**, a `pushState`
+vs `replaceState` (Vissza gomb fülek között) döntés még BJ-re vár.
+
+### MELLÉKESEN TALÁLT, VALÓDI STRUKTURÁLIS HIBA: a pytest-szvit szennyezi az éles fejlesztői adatbázist
+
+A böngészős teszt közben **25 hamis "jobsapi-xxxx.hu" webhelyet**
+találtam a Minőségi Felülvizsgálat sorban, `created_by: NULL`,
+`dc_title: "T"`. Forrás: `tests/test_jobs_api.py` — a fixture-ök
+**szándékosan a megosztott fejlesztői adatbázis ellen futnak**
+(`TEST_DSN`, a modul saját kommentje szerint), try/finally
+takarítással. **Ez már egyszer, dokumentáltan okozott pontosan ilyen
+szennyezést (2026-08-02 incidens, l. a teszt saját kommentje a 236.
+sorban)** — és most megint megtörtént, valószínűleg egy megszakadt
+teszt-futtatás miatt (sikertelen assert a takarítás előtt).
+
+**Kitakarítva** (a rendszer saját szabályai szerint — 4 candidate→
+withdrawn, 7 archived→candidate→withdrawn, 4 published→withdrawn valódi
+`release_decisions` bejegyzéssel, semmi nem törölve). Ellenőrizve:
+`/api/admin/quality-review` most 11 valós elemet ad, 0 "jobsapi".
+
+**Ez strukturális hiba, nem egyszeri baleset — valakinek meg kell
+oldania, különben újra és újra visszatér:**
+1. Vagy a tesztek tényleg izolált DB-t kapjanak (a fájl említ egy
+   `TEST_DATABASE_URL` / port 5460 mechanizmust — ez legyen kötelező,
+   ne opcionális fallback a megosztott DB-re),
+2. vagy a try/finally takarítás legyen bombabiztos (pl. minden teszt
+   elején is fusson egy "takarítsd a jobsapi-* maradékot" lépés,
+   independent az előző teszt kimenetelétől).
+
+Státusz: **RÁD VÁR (bárki, aki a tesztinfrastruktúrához hozzáfér)** —
+ez nem sürgős (kitakarítva), de megismétlődik, ha nem oldja meg valaki.
