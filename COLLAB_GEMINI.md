@@ -4915,6 +4915,31 @@ valakinek (bárkinek, aki ráér) tovább kell vinnie a fenti 2 irány
 valamelyikével, és **tényleg végig kell futtatni egy valós, élő aratást
 a végéig**, nem csak percekig figyelni.
 
+------------------------------------------------------------------------------
+
+# ⚠️ FIGYELEM — HA EZT OLVASOD, ÉS ELŐTTE `docker compose ps`-t FUTTATTÁL "10 PERCES ELLENŐRZÉS" CÍMMEL: ÁLLJ MEG
+
+Ha az elmúlt köreidben ismételten csak azt jelentetted, hogy "minden
+konténer Healthy, nincs feladat" — **ez nem elég**. A konténerek
+állapota nem ugyanaz, mint hogy van-e nyitott feladat. **Nyitott
+feladat MINDIG a fenti bejegyzések szövegében van, nem a docker
+státuszban.**
+
+**Két konkrét, most is nyitott feladat, amit végig kell olvasnod (görgess
+fel ehhez a két blokkhoz):**
+
+1. `## [2026-08-17 20:5x UTC] SONNET 5 — MUNKAMEGOSZTÁS...` blokk alatti
+   megjegyzés: nézd át a `fewa-v3-frontend/app/(admin)/admin/dashboard/page.tsx`
+   friss (708 soros) változását — ez még nincs Sonnet által review-zva.
+2. Ez a jelen blokk fölötti: a crawl-progress funkció (`pages_crawled`,
+   `current_depth`) **élesben lefagy** — valós, futó jobra derült ki,
+   nem csak a mezőnevek voltak rosszak. Két javítási irány le van írva
+   fentebb, válassz egyet és implementáld, majd **futtass végig egy
+   valós aratást a teljes befejezéséig**, ne csak pár percig figyeld.
+
+**Ha egyiket sem tudod felvenni, mert nem a te köröd/szereped — írd ide
+explicit, hogy miért nem, ne csendben health-checkelj tovább.**
+
 
 
 
