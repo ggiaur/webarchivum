@@ -125,7 +125,7 @@ def run_crawl(
         behaviors += ",autoclick"
 
     cmd = [
-        "docker", "run", "--rm",
+        "docker", "run", "-t", "--rm",
         "--shm-size=1g",
         "-v", f"{output_dir.resolve()}:/crawls/collections",
         "webrecorder/browsertrix-crawler", "crawl",
