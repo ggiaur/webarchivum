@@ -365,9 +365,17 @@ async def test_withdraw_published_snapshot_endpoint(conn):
         assert decision_row["outcome"] == "withdrawn"
         assert str(decision_row["actor_id"]) == CURATOR_ID
     finally:
-        await conn.execute("ALTER TABLE release_decisions DISABLE TRIGGER trg_arch01_release_decision_immutable;")
-        await conn.execute("DELETE FROM release_decisions WHERE snapshot_id = $1", created["id"])
-        await conn.execute("ALTER TABLE release_decisions ENABLE ALWAYS TRIGGER trg_arch01_release_decision_immutable;")
+        # DISABLE/DELETE/ENABLE must be one atomic unit, not three separate
+        # conn.execute() calls: if the DELETE raised between DISABLE and
+        # ENABLE, trg_arch01_release_decision_immutable would be left
+        # permanently disabled on TEST_DSN (the shared dev database) —
+        # verified live (division-by-zero injected mid-sequence left the
+        # trigger 'D' with the old 3-call version; conn.transaction() rolls
+        # the DISABLE back too on any failure).
+        async with conn.transaction():
+            await conn.execute("ALTER TABLE release_decisions DISABLE TRIGGER trg_arch01_release_decision_immutable;")
+            await conn.execute("DELETE FROM release_decisions WHERE snapshot_id = $1", created["id"])
+            await conn.execute("ALTER TABLE release_decisions ENABLE ALWAYS TRIGGER trg_arch01_release_decision_immutable;")
         await conn.execute("DELETE FROM lifecycle_events WHERE snapshot_id = $1", created["id"])
         await conn.execute("DELETE FROM archived_snapshots WHERE id = $1", created["id"])
         await conn.execute("DELETE FROM sites WHERE id = $1", site_row["id"])

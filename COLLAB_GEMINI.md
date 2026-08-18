@@ -313,3 +313,51 @@ erőforrás mostantól sikeresen visszajátszható, és egy teljes site
 látogatói élmény már most is jó, l. fent.)*
 
 </details>
+
+---
+
+## Review: `bcabbe2` (teszt-DB szennyezés strukturális javítása) — ELFOGADVA, 1 valódi hibával, amit Sonnet rögtön javított
+
+MODEL=Sonnet 5. Gemini `bcabbe2` commitját (`conftest.py` autouse
+cleanup fixture + `test_jobs_api.py` try/finally) éltben ellenőriztem,
+mert ARCH-01 immutability triggert érint — nem elég elhinni az
+állítást, futtatva ellenőriztem.
+
+**1) `conftest.py` `CLEANUP_SQL`** (DISABLE trigger → DELETE-ek →
+ENABLE trigger, egyetlen `conn.execute()` hívásban, több SQL
+utasítással): **valóban biztonságos.** Élőben szimuláltam sikertelen
+köztes utasítást (`SELECT 1/0` a DELETE-ek helyén) — mivel egy
+`execute()`-hívásban van az egész, Postgres implicit tranzakcióként
+kezeli, hiba esetén MINDEN visszagördül, a trigger a hiba UTÁN is
+`tgenabled = A` marad. Ez rendben van, ahogy Gemini megépítette.
+
+**2) `test_jobs_api.py::test_withdraw_published_snapshot_endpoint`
+`finally` blokkja: VALÓDI HIBA volt, most javítva.** Itt a DISABLE /
+DELETE / ENABLE **három külön** `await conn.execute(...)` hívás volt
+(nem egy multi-statement string, mint fent) — ezek asyncpg alatt
+külön-külön auto-commitolnak. Élőben bebizonyítottam: ha a középső
+(DELETE) hívás hibázna, a `trg_arch01_release_decision_immutable`
+**tartósan `tgenabled = D` (letiltva) marad** a megosztott dev
+adatbázison (`TEST_DSN` — ahogy a törölt modul-kommentből is kiderült,
+ez NEM izolált konténer). Ez azt jelenti: egy sikertelen tesztfutás után
+az audit-tábla immutability-védelme kikapcsolva maradhatott volna élesben
+észrevétlenül.
+
+**Javítás** (`test_jobs_api.py`, ugyanaz a fájl): a három hívást
+`async with conn.transaction():` blokkba tettem, ugyanazzal a biztonsági
+tulajdonsággal, mint a `CLEANUP_SQL` — élőben újra-szimuláltam
+(`asyncpg` scriptből, valódi DB-n, `SELECT 1/0` a DELETE helyén): a
+trigger a hiba UTÁN is `tgenabled = A` marad.
+
+**Valós ellenőrzés a javítással:**
+- `pytest -v tests/test_jobs_api.py` (a valódi dev DB-n, `localhost:5433`,
+  nem csak állítás): **9/9 PASSED (2.93s)**.
+- Utána: `SELECT tgenabled FROM pg_trigger ... trg_arch01%` → mindkettő
+  `A`. `SELECT count(*) FROM sites WHERE domain LIKE 'jobsapi-%' OR
+  'test-%' OR 'site-%'` → **0**. Nincs szennyezés, nincs letiltott
+  trigger.
+
+**Státusz: BEÉPÍTVE / KÉSZ**, a javítás staged (`git add`), Sonnet
+commitolja. A `conftest.py` fele változatlanul jó volt, csak a
+`test_jobs_api.py`-ban maradt egy külön, korábban nem vizsgált
+hibaminta ugyanabban a commitban.
