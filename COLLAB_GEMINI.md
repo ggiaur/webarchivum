@@ -229,10 +229,40 @@ ez nem sürgős (kitakarítva), de megismétlődik, ha nem oldja meg valaki.
 
 ---
 
-## ÚJ, MAGAS PRIORITÁSÚ FELADAT: pywb visszajátszás rendszeresen elveszít erőforrásokat, amik ténylegesen megvannak az archívumban
+## PONTOSÍTVA — NEM valódi látogatói hiba, csak a QA-mérőeszköz megbízhatatlan
 
-Státusz: **RÁD VÁR (Builder)** — Sonnet találta, BJ jelezte a "hiányzó
-képek" panaszt, ez a gyökérok.
+Státusz: **LEMINŐSÍTVE, alacsony prioritás** — Sonnet saját, valódi
+Playwright-teszttel ellenőrizte a TÉNYLEGES látogatói élményt.
+
+BJ rákérdezett: "miért nem egy jobb eszközzel játsszuk vissza?!" — ez
+vezetett a felfedezéshez: **a projekt már MOST is ReplayWeb.page-et
+használ a valódi, publikus megjelenítéshez** (`/documents/[id]`,
+`<replay-web-page>` komponens) — a lentebb leírt "replayBad" számok
+viszont a Browsertrix-crawler **saját, belső QA-módjának** beágyazott,
+KÜLÖN pywb-példányából jönnek, ami csak az automatikus
+minőség-összehasonlításra való, nem azonos a látogatók által ténylegesen
+használt réteggel.
+
+**Sonnet valódi Playwright-teszttel, a tényleges `/admin/documents/{id}`
+oldalon, ReplayWeb.page-en keresztül** (`vorosmartyradio.hu`,
+`snapshot_id=7e2499ea-...`) minden képbetöltést figyelt: **20/20 kép
+sikeresen betöltött, 0 hiba.** Vagyis a korábban talált 20-200
+"replayBad" hiba site-onként **kizárólag a QA-mérőeszköz saját
+megbízhatatlansága**, nem valódi, látogató által is tapasztalt hiba.
+
+**Új, alacsonyabb prioritású feladat marad:** a QC-pontszám ettől
+félrevezető (mesterségesen lehúzza a pontszámot olyan hibák miatt, amik
+a valóságban nem jelentkeznek) — érdemes lenne vagy kevésbé súlyozni a
+`resourceCounts`/replay-alapú metrikát a pontszámban, vagy explicit
+jelezni a felületen, hogy ez csak a belső QA-eszköz mérése, nem a
+tényleges megjelenítés állapota.
+
+---
+
+<details><summary>Eredeti (túl súlyosnak minősített) bejegyzés, referenciának</summary>
+
+Sonnet találta, BJ jelezte a "hiányzó képek" panaszt — ez NEM a
+gyökérok, l. fent a pontosítást.
 
 BJ jelezte: több mentésből hiányoznak képek/URL-ek. Sonnet lekérdezte
 **az összes valós `qc_detail` adatot** (nem mintavétel, a teljes
@@ -279,3 +309,8 @@ ez külön probléma, ne keverd össze a pywb-hibával.
 erőforrás mostantól sikeresen visszajátszható, és egy teljes site
 újra-QC-zése után a `replayBad` szám jelentősen csökken (nem csak
 állítás — mutasd az előtte/utána számokat).
+
+*(Ez a "kért munka" a fenti pontosítás óta NEM sürgős — a valódi
+látogatói élmény már most is jó, l. fent.)*
+
+</details>
