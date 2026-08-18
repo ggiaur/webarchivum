@@ -226,3 +226,56 @@ oldania, különben újra és újra visszatér:**
 
 Státusz: **RÁD VÁR (bárki, aki a tesztinfrastruktúrához hozzáfér)** —
 ez nem sürgős (kitakarítva), de megismétlődik, ha nem oldja meg valaki.
+
+---
+
+## ÚJ, MAGAS PRIORITÁSÚ FELADAT: pywb visszajátszás rendszeresen elveszít erőforrásokat, amik ténylegesen megvannak az archívumban
+
+Státusz: **RÁD VÁR (Builder)** — Sonnet találta, BJ jelezte a "hiányzó
+képek" panaszt, ez a gyökérok.
+
+BJ jelezte: több mentésből hiányoznak képek/URL-ek. Sonnet lekérdezte
+**az összes valós `qc_detail` adatot** (nem mintavétel, a teljes
+készlet) és összesítette aratás- vs visszajátszás-szintű erőforrás-
+sikerességet minden site-ra:
+
+```
+vorosmartyradio.hu:     crawl 694ok/0bad   | replay 638ok/70bad
+arsmusica.hu:           crawl 844ok/0bad   | replay 911ok/91bad
+vorosmartyszinhaz.hu:   crawl 1382ok/5bad  | replay 1032ok/88bad
+varga-gabor-farkas.hu:  crawl 1259ok/0bad  | replay 1078ok/197bad
+fehervarart.hu:         crawl 857ok/0bad   | replay 806ok/22bad
+szolnokiart.tumblr.com: crawl 1310ok/8bad  | replay 763ok/121bad
+```
+
+**A minta egyértelmű és következetes minden valós site-on**: az
+ARATÁS gyakorlatilag hibátlan (`crawlBad` ≈ 0), a **VISSZAJÁTSZÁS**
+viszont rendszeresen 20-200 hibát mutat ugyanazon oldalakon. Ez azt
+jelenti: **a képek/erőforrások ténylegesen bekerülnek a WACZ-ba**, de a
+visszajátszó (pywb) nem tudja őket helyesen visszaadni — ez valószínűleg
+**URL-átírási/normalizálási eltérés** a mentéskori és a lekéréskori URL
+között (klasszikus pywb/WACZ hibaosztály: query string sorrend,
+protokoll-relatív URL-ek, trailing slash, stb.).
+
+**Ez komoly, mert ez azt jelenti, hogy egy valódi látogató is törött
+képeket látna böngészés közben** — annak ellenére, hogy maga a mentés jó.
+
+**Kivétel: `szolnokiart.tumblr.com`** — ott az aratás is mutat 8 hibát,
+és korábban már azonosítottuk, hogy ott végtelen-görgetéses tartalom a
+tényleges ok (367 erőforrás aratva, csak 19 kérve visszajátszáskor) —
+ez külön probléma, ne keverd össze a pywb-hibával.
+
+**Kért munka:**
+1. Válassz ki egy konkrét, ismert `replayBad` erőforrást (pl.
+   vorosmartyradio.hu egyik képét) a `qc_detail`-ből, és **kézzel
+   próbáld meg lekérni pywb-n keresztül** — nézd meg a pontos hiba
+   szövegét (404? URL mismatch? CORS?).
+2. Hasonlítsd össze a WACZ-ban ténylegesen tárolt URL-t (CDXJ index)
+   azzal, amit pywb megpróbál lekérni visszajátszáskor.
+3. Ha URL-normalizálási eltérés az ok, javítsd a pywb-konfigot vagy a
+   crawler URL-kezelését, hogy egyezzenek.
+
+**Elfogadási bizonyíték:** egy korábban `replayBad`-ként jelölt
+erőforrás mostantól sikeresen visszajátszható, és egy teljes site
+újra-QC-zése után a `replayBad` szám jelentősen csökken (nem csak
+állítás — mutasd az előtte/utána számokat).
