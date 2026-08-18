@@ -53,6 +53,8 @@ async def create_candidate_snapshot(
     discovery_metadata: Dict[str, Any],
     created_by: Optional[str] = None,
     tenant_id: str = DEFAULT_TENANT_ID,
+    requested_depth: int = 2,
+    max_pages: int = 25,
 ) -> Dict[str, Any]:
     """A discovered candidate enters the workflow here — lifecycle_status
     starts at 'candidate', nothing is crawled yet. discovery_metadata (e.g.
@@ -85,11 +87,11 @@ async def create_candidate_snapshot(
     row = await conn.fetchrow(
         """
         INSERT INTO archived_snapshots
-            (tenant_id, site_id, seed_url, dc_title, lifecycle_status, lifecycle_reason, created_by, municipality_id)
-        VALUES ($1, $2, $3, $4, 'candidate', $5, $6, (SELECT municipality_id FROM sites WHERE id = $2))
-        RETURNING id, pid, lifecycle_status, dc_title, seed_url, created_at
+            (tenant_id, site_id, seed_url, dc_title, lifecycle_status, lifecycle_reason, created_by, municipality_id, requested_depth, max_pages)
+        VALUES ($1, $2, $3, $4, 'candidate', $5, $6, (SELECT municipality_id FROM sites WHERE id = $2), $7, $8)
+        RETURNING id, pid, lifecycle_status, dc_title, seed_url, created_at, requested_depth, max_pages
         """,
-        tenant_id, site_id, seed_url, dc_title, discovery_reason, created_by,
+        tenant_id, site_id, seed_url, dc_title, discovery_reason, created_by, requested_depth, max_pages,
     )
     # trg_lifecycle_guard only fires on UPDATE OF lifecycle_status, not INSERT —
     # log the initial candidate status manually so the audit trail is complete

@@ -74,6 +74,8 @@ async def trigger_ingest(
             discovery_reason="Manual ingest via admin API",
             discovery_metadata={"source": "manual_ingest"},
             created_by=user_id,
+            requested_depth=body.depth,
+            max_pages=body.max_pages,
         )
     except ValueError as e:
         raise HTTPException(status.HTTP_409_CONFLICT, str(e))
@@ -108,7 +110,10 @@ async def approve_candidate_endpoint(
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
 
     job_id = uuid.uuid4()
-    row = await conn.fetchrow("SELECT seed_url, site_id FROM archived_snapshots WHERE id = $1", snapshot_id)
+    row = await conn.fetchrow(
+        "SELECT seed_url, site_id, requested_depth, max_pages FROM archived_snapshots WHERE id = $1",
+        snapshot_id,
+    )
     await arq_pool.enqueue_job(
         "run_crawl_job",
         {
@@ -116,8 +121,8 @@ async def approve_candidate_endpoint(
             "site_id": str(row["site_id"]),
             "snapshot_id": str(snapshot_id),
             "seed_url": row["seed_url"],
-            "depth": 2,
-            "max_pages": 20,
+            "depth": row["requested_depth"],
+            "max_pages": row["max_pages"],
         },
         _job_id=str(job_id),
     )
