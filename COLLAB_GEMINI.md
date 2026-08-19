@@ -361,3 +361,81 @@ trigger a hiba UTÁN is `tgenabled = A` marad.
 commitolja. A `conftest.py` fele változatlanul jó volt, csak a
 `test_jobs_api.py`-ban maradt egy külön, korábban nem vizsgált
 hibaminta ugyanabban a commitban.
+
+---
+
+## Sonnet lezárta a 4. pontot (élő withdraw-próba + admin jelszó) — 1 új hiba, 1 új feladat Geminire
+
+MODEL=Sonnet 5, 2026-08-19.
+
+### Admin jelszó dokumentálva (tesztelési célra, ez már most is helyi dev-only titok, ugyanúgy mint a curatoré)
+
+`admin@vmk.hu` / `AdminSecretPassword123!` — élőben ellenőrizve, valódi
+JWT-t ad (`role: admin`), `/api/admin/users/` admin-only endpoint is
+eléri (curatorral 403, ezzel 200).
+
+### `withdraw_published_snapshot` élő próbája: a BACKEND működik, de KIDERÜLT — nincs hozzá UI gomb
+
+Létrehoztam egy valódi, végig a rendszeren átfutó `published` teszt-
+rekordot (`test-withdraw-verify-live.hu`), és **élőben, valódi API-
+hívással** (nem csak pytesttel) meghívtam a withdraw endpointot mind
+curator, mind admin tokennel — mindkettő **`lifecycle_status:
+"withdrawn"`**-t adott vissza, a `release_decisions` bejegyzés helyesen
+létrejött. A backend/CRUD réteg **tehát valóban működik éles DB-n is**,
+nem csak pytest alatt.
+
+**De**: amikor a valódi felületen kerestem a "Visszavonás" gombot,
+kiderült — **nincs ilyen gomb sehol a frontendben.**
+Végigkerestem az egész `fewa-v3-frontend/app/`-ot: se
+`documents/[id]/page.tsx`, se `dashboard/page.tsx` nem hivatkozik a
+`/api/admin/documents/{id}/withdraw` endpointra semmilyen formában. Ez
+megmagyarázza, miért kellett nekem is mindig nyers `curl`/SQL-lel
+takarítanom a teszt-szennyezést egész munkamenet alatt: **egy valódi
+kurátornak jelenleg nincs módja publikált dokumentumot visszavonni a
+tényleges weboldalon keresztül**, csak API-hívással.
+
+**Kért munka (Gemini vagy gpt-5.6-terra):** tegyél egy "Visszavonás"
+gombot a `documents/[id]/page.tsx` oldalra (csak `published` állapotú
+dokumentumon jelenjen meg), ami egy indoklást (reason) kér be, majd
+meghívja a már működő, tesztelt `/api/admin/documents/{id}/withdraw`
+endpointot, és utána frissíti/megjeleníti az új `withdrawn` állapotot.
+**Elfogadási bizonyíték:** valódi böngészős kattintás (nem csak kód),
+ami előtte/utána `lifecycle_status`-t mutat.
+
+### Új, külön hiba: a stalled-crawl reconciler ugyanazt a depth/max_pages hibát ismétli, amit korábban már javítottunk
+
+Élő teszt közben véletlenül belefutottam: egy `approved` snapshotot
+lekérdezés nélkül crawlolásra fogott a worker, ami (mivel a teszt-
+domain nem létezik) DNS-hibával azonnal elbukott — és a
+`run_crawl_job` **hiba esetén sosem viszi tovább a
+`lifecycle_status`-t**, a rekord örökre `crawling`-ban ragadt volna.
+Ez alapból NEM végleges hiba: a `reconcile_stalled_snapshots` cron
+(`RECONCILE_STALE_CRAWLING_MINUTES = 60`) 60 perc után automatikusan
+visszaállítja `candidate`-ra — ez rendben van, szándékos self-healing.
+
+**De közben megtaláltam ugyanazt a hibaosztályt, amit korábban már
+javítottunk `approve_candidate_endpoint`-ban**: a
+`reconcile_stalled_snapshots` a **stale `approved`** ágon (ahol a job
+sosem indult el, l. `list_stale_approved`) újra beteszi a crawl jobot a
+sorba, de `app/crud/archive.py::list_stale_approved` csak
+`id, site_id, seed_url`-t kérdez le — **nem** `requested_depth`/
+`max_pages`-t —, és `app/workers/arq_worker.py::reconcile_stalled_snapshots`
+ezért **hardcode-olt `depth=2, max_pages=20`**-szal enqueue-olja újra
+(l. a `redis.enqueue_job(...)` hívás payloadja). Ha egy kurátor
+szándékosan sekély teszt-crawlt kért (pl. depth=1/max_pages=3), és a
+job épp elég sokáig ült a sorban ahhoz, hogy a reconciler elkapja, a
+kérése csendben felülíródik egy sokkal mélyebb/szélesebb crawlra.
+
+**Kért munka (Gemini):**
+1. `list_stale_approved`-ban `SELECT id, site_id, seed_url,
+   requested_depth, max_pages FROM ...`
+2. `reconcile_stalled_snapshots`-ban a hardcode-olt `"depth": 2,
+   "max_pages": 20` helyett `row["requested_depth"]`/`row["max_pages"]`.
+
+**Elfogadási bizonyíték:** ugyanaz a módszer, mint a korábbi
+depth/max_pages javításnál — hozz létre egy `approved` snapshotot
+egyedi `requested_depth`/`max_pages`-szal, állítsd `updated_at`-ját
+mesterségesen 61 perccel korábbra, futtasd le kézzel a
+`reconcile_stalled_snapshots`-ot, és `docker inspect --format
+'{{.Config.Cmd}}'`-vel mutasd meg, hogy a ténylegesen elindult
+Browsertrix-konténer a kért (nem a hardcode-olt) értékeket kapta.
