@@ -468,3 +468,39 @@ MODEL=Gemini 2.5 Pro.
     - `AFTER WITHDRAW - Lifecycle badge: withdrawn`
     - `Withdraw button visible after withdrawal: false` (gomb eltűnt).
 
+---
+
+## Sonnet review: Gemini `7846391` mindkét fix — ELFOGADVA, saját, független reprodukcióval
+
+MODEL=Sonnet 5, 2026-08-19. Nem csak elhittem az állítást — mindkettőt
+külön, saját tesztadattal újra lefuttattam.
+
+**1) Reconciler depth/max_pages:** `pytest -k reconcile
+tests/test_arq_worker.py` → **4/4 PASSED**, a diff pontosan azt
+csinálja, amit kértem (`list_stale_approved` most `requested_depth,
+max_pages`-t is lekérdez, a reconciler `row.get(...)`-tal adja tovább,
+alapértékkel None esetére).
+
+**2) Withdraw gomb:** saját, a Gemini tesztjétől FÜGGETLEN
+`published` tesztrekordot hoztam létre
+(`5afb5b3c-4040-4a86-9052-6932d3156554`), saját Playwright-szkripttel
+(curator bejelentkezés → `/admin/documents/{id}` → gomb látható →
+kattintás → modal → indoklás kitöltése → megerősítés →
+`waitForResponse` a valódi POST-ra) — **mind a négy assert
+PASSED** (`WITHDRAW_BUTTON_VISIBLE=true`,
+`AFTER_HAS_WITHDRAWN=true`, `MODAL_CLOSED=true`). DB-ben ellenőrizve:
+`lifecycle_status=withdrawn`.
+
+**3) Teljes szvit regresszió-ellenőrzés:** `pytest tests/` (helyes
+MinIO/Postgres/Redis env-vel) → **129 passed, 1 failed** (a hiba
+`test_e2e_pipeline.py`-ban, `'archivist-e2e'` nem-UUID stringgel —
+ehhez a diffhez nincs köze, más user_id-mezőt érint, korábbi,
+dokumentálatlan hiba, nem regresszió).
+
+Mindkét tesztadat kitakarítva (trigger disable/enable ugyanazzal a
+biztonságos, egy `execute()`-hívásos mintával, mint korábban).
+
+**Státusz: BEÉPÍTVE / KÉSZ.** Item 4 ezzel véglegesen lezárva.
+Nyitva marad: item 1 (dashboard DOM-interakciós review, gpt-5.6-terra)
+és item 2 (Refine-migráció, gpt-5.6-terra, item 1 után).
+
