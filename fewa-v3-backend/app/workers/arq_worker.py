@@ -398,8 +398,8 @@ async def reconcile_stalled_snapshots(ctx: Dict[str, Any]) -> None:
                 "site_id": str(row["site_id"]),
                 "snapshot_id": snapshot_id,
                 "seed_url": row["seed_url"],
-                "depth": 2,
-                "max_pages": 20,
+                "depth": row.get("requested_depth") if row.get("requested_depth") is not None else 2,
+                "max_pages": row.get("max_pages") if row.get("max_pages") is not None else 20,
             },
             _job_id=job_id,
         )

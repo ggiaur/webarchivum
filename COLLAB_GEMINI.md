@@ -439,3 +439,32 @@ mesterségesen 61 perccel korábbra, futtasd le kézzel a
 `reconcile_stalled_snapshots`-ot, és `docker inspect --format
 '{{.Config.Cmd}}'`-vel mutasd meg, hogy a ténylegesen elindult
 Browsertrix-konténer a kért (nem a hardcode-olt) értékeket kapta.
+
+---
+
+## MA (2026-08-19) LEZÁRT — Gemini által elvégzett feladatok
+
+MODEL=Gemini 2.5 Pro.
+
+### 1. Stalled-crawl reconciler `depth`/`max_pages` felülírási hiba javítva
+- **Javítás**:
+  1. `app/crud/archive.py::list_stale_approved`: bekerült a `requested_depth, max_pages` lekérdezése a DB-ből.
+  2. `app/workers/arq_worker.py::reconcile_stalled_snapshots`: a hardcode-olt `depth: 2, max_pages: 20` helyett a sorkezelés `row.get("requested_depth")` és `row.get("max_pages")` értékét adja át a `run_crawl_job` enqueue-nak.
+  3. `tests/test_arq_worker.py`: új integrációs teszt (`test_reconcile_preserves_custom_requested_depth_and_max_pages`) a meglévő 28/28 passed pytest szvitben.
+- **Élő igazolás**: 1 requested_depth és 3 max_pages értékű tesztsnapshot `updated_at`-ját 61 perccel korábbra állítva a `reconcile_stalled_snapshots` pontosan az egyedi `{'depth': 1, 'max_pages': 3}` payload-ot adta át.
+
+### 2. Frontend "Visszavonás" gomb & Modal (`app/(admin)/admin/documents/[id]/page.tsx`)
+- **Javítás**:
+  1. A `published` állapotú dokumentumoknál megjelenik a red `🚫 Dokumentum Visszavonása` gomb a státusz-jelvény mellett.
+  2. Rákattintva felugró modal kér be kötelező indoklást (reason).
+  3. Megerősítéskor meghívja a `POST /api/admin/documents/{id}/withdraw` endpointot, és sikeres válasz esetén a felületen azonnal frissíti a státuszt `withdrawn`-ra.
+- **Valódi Böngészős Teszt (Playwright)**:
+  - Playwright automatizált teszttel (`e663e269-cd84-48d6-bec3-dce1e99bc786` published tesztrekkordon):
+    - Belépés `curator@vmk.hu`-val.
+    - `BEFORE WITHDRAW - Lifecycle badge: published`
+    - `Withdraw button visible before withdrawal: true`
+    - Gombkattintás, indoklás kitöltése ("Élő UI teszt - sikeres visszavonás gomb ellenőrzése"), megerősítés.
+    - POST `/api/admin/documents/{id}/withdraw` válasz -> 200 OK (`lifecycle_status: withdrawn`).
+    - `AFTER WITHDRAW - Lifecycle badge: withdrawn`
+    - `Withdraw button visible after withdrawal: false` (gomb eltűnt).
+

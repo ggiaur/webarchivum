@@ -55,6 +55,36 @@ export default function AdminDocumentPreviewPage({ params }: { params: Promise<{
   const [retryCount, setRetryCount] = useState(0);
   const replayContainerRef = React.useRef<HTMLDivElement>(null);
 
+  const [showWithdrawModal, setShowWithdrawModal] = useState(false);
+  const [withdrawReason, setWithdrawReason] = useState('');
+  const [withdrawSubmitting, setWithdrawSubmitting] = useState(false);
+  const [withdrawError, setWithdrawError] = useState<string | null>(null);
+
+  const handleWithdraw = async () => {
+    if (!withdrawReason.trim()) return;
+    setWithdrawSubmitting(true);
+    setWithdrawError(null);
+    try {
+      const res = await fetchWithAuth(`/api/admin/documents/${id}/withdraw`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: withdrawReason.trim() }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || `Szerver hiba (${res.status})`);
+      }
+      const updatedDoc = await res.json();
+      setState(prev => prev.status === 'ready' ? { status: 'ready', doc: { ...prev.doc, lifecycle_status: updatedDoc.lifecycle_status || 'withdrawn' } } : prev);
+      setShowWithdrawModal(false);
+      setWithdrawReason('');
+    } catch (err: any) {
+      setWithdrawError(err.message || 'A visszavonás nem sikerült.');
+    } finally {
+      setWithdrawSubmitting(false);
+    }
+  };
+
   // See (public)/documents/[id]/page.tsx for the full history and the
   // instrumented proof of the root cause: mounting <replay-web-page> is
   // what triggers ui.js's Service Worker registration, so gating mount on
@@ -156,10 +186,26 @@ export default function AdminDocumentPreviewPage({ params }: { params: Promise<{
       </div>
 
       <div className="glass-panel" style={{ padding: '1.75rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-          <span className="badge badge-amber">{doc.lifecycle_status}</span>
-          {doc.qc_score != null && <span className="badge badge-blue">QC: {doc.qc_score}%</span>}
-          {doc.qc_score == null && <span className="badge badge-rose">Nincs QC eredmény</span>}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            <span className={`badge ${doc.lifecycle_status === 'published' ? 'badge-emerald' : doc.lifecycle_status === 'withdrawn' ? 'badge-rose' : 'badge-amber'}`}>
+              {doc.lifecycle_status}
+            </span>
+            {doc.qc_score != null && <span className="badge badge-blue">QC: {doc.qc_score}%</span>}
+            {doc.qc_score == null && <span className="badge badge-rose">Nincs QC eredmény</span>}
+          </div>
+          {doc.lifecycle_status === 'published' && (
+            <button
+              onClick={() => { setShowWithdrawModal(true); setWithdrawError(null); setWithdrawReason(''); }}
+              style={{
+                fontSize: '0.85rem', padding: '0.4rem 1rem', background: '#e11d48',
+                color: '#fff', border: 'none', borderRadius: '0.375rem', cursor: 'pointer',
+                fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '0.4rem'
+              }}
+            >
+              🚫 Dokumentum Visszavonása
+            </button>
+          )}
         </div>
 
         <div>
@@ -259,6 +305,60 @@ export default function AdminDocumentPreviewPage({ params }: { params: Promise<{
           </div>
         )}
       </div>
+
+      {showWithdrawModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.75)', display: 'flex',
+          alignItems: 'center', justifyContent: 'center', zIndex: 9999,
+          padding: '1rem'
+        }}>
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '500px', padding: '1.75rem', display: 'flex', flexDirection: 'column', gap: '1rem', background: 'var(--bg-surface-elevated, #18181b)' }}>
+            <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--text-primary, #f4f4f5)', margin: 0 }}>
+              Publikált dokumentum visszavonása
+            </h3>
+            <p style={{ fontSize: '0.9rem', color: 'var(--text-muted, #a1a1aa)', margin: 0 }}>
+              Kérjük, adja meg a visszavonás indokát (pl. jogi kérés, hibás aratás):
+            </p>
+            <textarea
+              value={withdrawReason}
+              onChange={(e) => setWithdrawReason(e.target.value)}
+              placeholder="Visszavonás indoklása..."
+              rows={3}
+              style={{
+                width: '100%', padding: '0.75rem', borderRadius: '0.375rem',
+                background: 'var(--bg-primary, #09090b)', border: '1px solid var(--border-subtle, #27272a)',
+                color: 'var(--text-primary, #f4f4f5)', fontSize: '0.9rem', resize: 'vertical'
+              }}
+            />
+            {withdrawError && (
+              <div style={{ color: '#f43f5e', fontSize: '0.85rem' }}>{withdrawError}</div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem' }}>
+              <button
+                onClick={() => { setShowWithdrawModal(false); setWithdrawError(null); }}
+                className="btn-secondary"
+                disabled={withdrawSubmitting}
+                style={{ padding: '0.4rem 1rem', fontSize: '0.85rem' }}
+              >
+                Mégse
+              </button>
+              <button
+                onClick={handleWithdraw}
+                disabled={withdrawSubmitting || !withdrawReason.trim()}
+                style={{
+                  padding: '0.4rem 1rem', fontSize: '0.85rem', background: '#e11d48',
+                  color: '#fff', border: 'none', borderRadius: '0.375rem',
+                  cursor: withdrawSubmitting || !withdrawReason.trim() ? 'not-allowed' : 'pointer',
+                  fontWeight: 600, opacity: withdrawSubmitting || !withdrawReason.trim() ? 0.6 : 1
+                }}
+              >
+                {withdrawSubmitting ? 'Visszavonás...' : 'Visszavonás megerősítése'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

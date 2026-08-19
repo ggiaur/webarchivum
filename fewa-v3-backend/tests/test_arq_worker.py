@@ -15,7 +15,7 @@ import os
 import time
 import uuid
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import asyncpg
 import pytest
@@ -345,8 +345,47 @@ async def test_reconcile_requeues_stale_approved_snapshot(db_pool, approved_snap
         c for c in ctx["redis"].enqueue_job.call_args_list
         if c.args[1]["snapshot_id"] == approved_snapshot["snapshot_id"]
     )
-    assert matching_call.args[0] == "run_crawl_job"
-    assert matching_call.args[1]["seed_url"] == approved_snapshot["seed_url"]
+    assert matching_call.args[1]["depth"] == 2
+    assert matching_call.args[1]["max_pages"] == 25
+
+
+@pytest.mark.asyncio
+async def test_reconcile_preserves_custom_requested_depth_and_max_pages(db_pool):
+    """When a curator sets a custom depth/max_pages during ingest, the reconciler
+    must preserve those requested values instead of falling back to default 2/20."""
+    async with db_pool.acquire() as conn:
+        domain = f"test-{uuid.uuid4().hex[:8]}.hu"
+        site_row = await conn.fetchrow(
+            "INSERT INTO sites (tenant_id, domain, base_url, display_name) VALUES ($1, $2, $3, $4) RETURNING id",
+            TENANT_ID, domain, f"https://{domain}/", domain,
+        )
+        site_id = str(site_row["id"])
+        created = await archive.create_candidate_snapshot(
+            conn, site_id=site_id, seed_url=f"https://{domain}/",
+            dc_title="T", discovery_reason="test", discovery_metadata={},
+            requested_depth=1, max_pages=3,
+        )
+        await archive.approve_candidate(conn, created["id"], user_id=None)
+
+    try:
+        monkeypatch_minutes = 0
+        ctx = _mock_ctx(db_pool)
+        ctx["redis"].set = AsyncMock(return_value=True)
+
+        with patch.object(arq_worker, "RECONCILE_STALE_APPROVED_MINUTES", 0):
+            await arq_worker.reconcile_stalled_snapshots(ctx)
+
+        matching_call = next(
+            c for c in ctx["redis"].enqueue_job.call_args_list
+            if c.args[1]["snapshot_id"] == str(created["id"])
+        )
+        assert matching_call.args[1]["depth"] == 1
+        assert matching_call.args[1]["max_pages"] == 3
+    finally:
+        async with db_pool.acquire() as conn:
+            await conn.execute("DELETE FROM lifecycle_events WHERE snapshot_id = $1", created["id"])
+            await conn.execute("DELETE FROM archived_snapshots WHERE id = $1", created["id"])
+            await conn.execute("DELETE FROM sites WHERE id = $1", site_id)
 
 
 @pytest.mark.asyncio

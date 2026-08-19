@@ -163,7 +163,7 @@ async def list_stale_approved(conn: asyncpg.Connection, older_than_minutes: int)
     to re-enqueue them."""
     rows = await conn.fetch(
         """
-        SELECT id, site_id, seed_url
+        SELECT id, site_id, seed_url, requested_depth, max_pages
         FROM archived_snapshots
         WHERE lifecycle_status = 'approved'
           AND updated_at < now() - make_interval(mins => $1)
