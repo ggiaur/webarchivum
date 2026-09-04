@@ -1782,3 +1782,69 @@
 - **TRIGGER_AGENT:** GovernanceEngine
 - **REASON:** HARD_LIMIT_EXCEEDED: Max Token Consumption Exceeded (300000 > 250000)
 
+## EVT-03346
+- **TIMESTAMP:** 2026-08-19T09:40:03Z
+- **FROM_STATE:** DISCOVERY
+- **TO_STATE:** VISION
+- **TYPE:** FORWARD
+- **TRIGGER_AGENT:** DiscoveryAgent
+- **REASON:** Vision completed
+
+## EVT-03575
+- **TIMESTAMP:** 2026-08-19T09:40:03Z
+- **FROM_STATE:** ARCHITECTURE
+- **TO_STATE:** SPEC
+- **TYPE:** ROLLBACK
+- **TRIGGER_AGENT:** ArchitectureAgent
+- **REASON:** ROLLBACK: SQLite not viable
+- **CHECKPOINT_RESTORED:** CHK-SPEC-002
+
+## EVT-04000
+- **TIMESTAMP:** 2026-08-19T09:40:04Z
+- **FROM_STATE:** DISCOVERY
+- **TO_STATE:** HUMAN_REQUIRED
+- **TYPE:** ROLLBACK
+- **TRIGGER_AGENT:** GovernanceEngine
+- **REASON:** Max Consecutive Failures Exceeded (6)
+
+## EVT-04005
+- **TIMESTAMP:** 2026-08-19T09:40:04Z
+- **FROM_STATE:** DISCOVERY
+- **TO_STATE:** SPRINT_ABORTED
+- **TYPE:** ROLLBACK
+- **TRIGGER_AGENT:** GovernanceEngine
+- **REASON:** HARD_LIMIT_EXCEEDED: Max Token Consumption Exceeded (300000 > 250000)
+
+## EVT-47575
+- **TIMESTAMP:** 2026-08-19T09:40:47Z
+- **FROM_STATE:** DISCOVERY
+- **TO_STATE:** VISION
+- **TYPE:** FORWARD
+- **TRIGGER_AGENT:** DiscoveryAgent
+- **REASON:** Vision completed
+
+## EVT-47795
+- **TIMESTAMP:** 2026-08-19T09:40:47Z
+- **FROM_STATE:** ARCHITECTURE
+- **TO_STATE:** SPEC
+- **TYPE:** ROLLBACK
+- **TRIGGER_AGENT:** ArchitectureAgent
+- **REASON:** ROLLBACK: SQLite not viable
+- **CHECKPOINT_RESTORED:** CHK-SPEC-002
+
+## EVT-48251
+- **TIMESTAMP:** 2026-08-19T09:40:48Z
+- **FROM_STATE:** DISCOVERY
+- **TO_STATE:** HUMAN_REQUIRED
+- **TYPE:** ROLLBACK
+- **TRIGGER_AGENT:** GovernanceEngine
+- **REASON:** Max Consecutive Failures Exceeded (6)
+
+## EVT-48255
+- **TIMESTAMP:** 2026-08-19T09:40:48Z
+- **FROM_STATE:** DISCOVERY
+- **TO_STATE:** SPRINT_ABORTED
+- **TYPE:** ROLLBACK
+- **TRIGGER_AGENT:** GovernanceEngine
+- **REASON:** HARD_LIMIT_EXCEEDED: Max Token Consumption Exceeded (300000 > 250000)
+

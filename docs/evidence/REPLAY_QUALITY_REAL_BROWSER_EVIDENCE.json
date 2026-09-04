@@ -1,0 +1,36 @@
+{
+  "timestamp": "2026-09-04T23:01:44.617Z",
+  "task": "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-001",
+  "failure_class_targeted": "visitor_visible_broken_resources_and_links",
+  "real_browser_harness": "Playwright Chromium Headless",
+  "defective_replay": {
+    "url": "http://127.0.0.1:41387/defective_replay.html",
+    "total_images": 2,
+    "broken_images_count": 1,
+    "broken_image_urls": [
+      "http://127.0.0.1:41387/missing_photo.jpg"
+    ],
+    "broken_links_count": 1,
+    "broken_link_urls": [
+      "http://127.0.0.1:41387/missing_page.html"
+    ],
+    "qa_gate_decision": "review_required",
+    "reasons": [
+      "replay_broken_resources_detected",
+      "broken_images_detected",
+      "broken_internal_links_detected"
+    ],
+    "remediation_action": "Trigger auto-retry with --behaviors autoclick,autofetch,autoscroll and --media max"
+  },
+  "remediated_replay": {
+    "url": "http://127.0.0.1:41387/remediated_replay.html",
+    "total_images": 2,
+    "broken_images_count": 0,
+    "broken_image_urls": [],
+    "broken_links_count": 0,
+    "broken_link_urls": [],
+    "qa_gate_decision": "qc_passed_pending_release",
+    "reasons": []
+  },
+  "verification_summary": "PASS - Real browser Playwright DOM inspection accurately detected broken images (naturalWidth === 0) & 404 link targets in defective replay, enforced QA gate release hold, and verified complete 0-broken resource pass after remediation."
+}
