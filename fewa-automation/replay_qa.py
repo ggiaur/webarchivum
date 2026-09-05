@@ -57,6 +57,50 @@ class BrokenResource:
 
 
 @dataclass(frozen=True)
+class TargetedRemediationPlan:
+    page_url: str
+    target_urls: Tuple[str, ...]          # Bounded list of missing resource URLs to re-capture
+    required_behaviors: Tuple[str, ...]   # Specific crawler behavior flags needed
+    recommended_flags: Tuple[str, ...]    # Recommended CLI flags for targeted re-capture
+    failure_reasons: Tuple[str, ...]      # Replay failure reason codes triggering this plan
+    publication_gate_decision: str        # 'HOLD_REJECT' | 'PASS_RELEASE'
+    remediation_summary: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "page_url": self.page_url,
+            "target_urls": list(self.target_urls),
+            "required_behaviors": list(self.required_behaviors),
+            "recommended_flags": list(self.recommended_flags),
+            "failure_reasons": list(self.failure_reasons),
+            "publication_gate_decision": self.publication_gate_decision,
+            "remediation_summary": self.remediation_summary,
+        }
+
+
+@dataclass(frozen=True)
+class RemediationEvaluationResult:
+    status: str                          # 'REMEDIATION_FIXED' | 'REMEDIATION_HELD' | 'REMEDIATION_NOT_NEEDED'
+    publication_decision: str            # 'PASS_RELEASE' | 'HOLD_REJECT'
+    original_broken_count: int
+    remaining_broken_count: int
+    fixed_urls: Tuple[str, ...]
+    unresolved_urls: Tuple[str, ...]
+    remediation_plan: Optional[TargetedRemediationPlan]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "status": self.status,
+            "publication_decision": self.publication_decision,
+            "original_broken_count": self.original_broken_count,
+            "remaining_broken_count": self.remaining_broken_count,
+            "fixed_urls": list(self.fixed_urls),
+            "unresolved_urls": list(self.unresolved_urls),
+            "remediation_plan": self.remediation_plan.to_dict() if self.remediation_plan else None,
+        }
+
+
+@dataclass(frozen=True)
 class VisitorReplayQualityResult:
     passed: bool
     quality_score: float  # 0.0 to 100.0
@@ -87,6 +131,7 @@ class VisitorReplayQualityResult:
     reasons: Tuple[str, ...] = ()
     actionable_evidence: Dict[str, Any] = field(default_factory=dict)
     remediation_suggestion: Optional[str] = None
+    targeted_remediation_plan: Optional[TargetedRemediationPlan] = None
 
 
 
@@ -1358,8 +1403,42 @@ def inspect_visitor_replay_dom(
     passed = len(reasons) == 0
 
     remediation = None
+    plan = None
     if not passed:
         remediation = suggest_remediation(broken)
+        # Construct temporary result object to pass to plan generator
+        temp_res = VisitorReplayQualityResult(
+            passed=passed,
+            quality_score=quality_score,
+            total_resources_checked=total_checked,
+            replay_good_count=replay_good,
+            replay_bad_count=replay_bad,
+            broken_image_count=total_bad_images,
+            broken_link_count=broken_links,
+            broken_css_count=css_broken,
+            broken_media_count=media_broken,
+            broken_script_count=script_broken,
+            broken_style_count=style_broken,
+            broken_shadow_dom_count=shadow_broken,
+            broken_realtime_count=realtime_broken,
+            broken_storage_count=storage_broken,
+            broken_canvas_count=canvas_broken,
+            broken_webxr_count=webxr_broken,
+            broken_pdf_count=pdf_broken,
+            broken_consent_count=consent_broken,
+            broken_pagination_count=pagination_broken,
+            broken_search_count=search_broken,
+            broken_multilingual_count=multilingual_broken,
+            broken_lightbox_count=lightbox_broken,
+            broken_gis_count=gis_broken,
+            broken_flipbook_count=flipbook_broken,
+            broken_audio_count=audio_broken,
+            broken_resources=tuple(broken),
+            reasons=tuple(reasons),
+            actionable_evidence={"page_url": page_url},
+            remediation_suggestion=remediation,
+        )
+        plan = generate_targeted_remediation_plan(temp_res)
 
     actionable_evidence = {
         "page_url": page_url,
@@ -1387,6 +1466,8 @@ def inspect_visitor_replay_dom(
         "broken_flipbook_count": flipbook_broken,
         "broken_audio_count": audio_broken,
         "quality_score": quality_score,
+        "publication_gate_decision": plan.publication_gate_decision if plan else "PASS_RELEASE",
+        "targeted_remediation_plan": plan.to_dict() if plan else None,
         "broken_resources": [
             {
                 "url": b.url,
@@ -1429,6 +1510,7 @@ def inspect_visitor_replay_dom(
         reasons=tuple(reasons),
         actionable_evidence=actionable_evidence,
         remediation_suggestion=remediation,
+        targeted_remediation_plan=plan,
     )
 
 
@@ -1764,3 +1846,145 @@ def _normalize_url_for_cdx(url: str) -> str:
         path = path[:-1]
     query = parsed.query
     return f"{scheme}://{netloc}{path}" + (f"?{query}" if query else "")
+
+
+def generate_targeted_remediation_plan(
+    result: VisitorReplayQualityResult,
+) -> TargetedRemediationPlan:
+    """Generate a bounded, machine-readable targeted re-capture plan for broken resources.
+
+    Converts VisitorReplayQualityResult findings into exact URL targets, crawler behavior flags,
+    and a deterministic publication-hold decision ('HOLD_REJECT' when unverified failures exist).
+    """
+    page_url = result.actionable_evidence.get("page_url", "unknown") if isinstance(result.actionable_evidence, dict) else "unknown"
+
+    if result.passed or not result.broken_resources:
+        return TargetedRemediationPlan(
+            page_url=page_url,
+            target_urls=(),
+            required_behaviors=(),
+            recommended_flags=(),
+            failure_reasons=(),
+            publication_gate_decision="PASS_RELEASE",
+            remediation_summary="No targeted remediation required. Replay quality QA passed.",
+        )
+
+    target_urls_set: Set[str] = set()
+    for b in result.broken_resources:
+        if b.url:
+            target_urls_set.add(b.url)
+    target_urls = tuple(sorted(target_urls_set))
+
+    behaviors: List[str] = ["autoclick", "autofetch", "autoscroll"]
+    rec_flags: List[str] = []
+
+    res_types = {b.resource_type for b in result.broken_resources}
+    reasons_set = set(result.reasons)
+
+    if any(r in reasons_set for r in ("dynamic_audio_stream_loss_detected", "broken_audio_streams_detected")) or any(t in res_types for t in ("audio_stream", "podcast_feed", "oral_history_audio")):
+        behaviors.append("audio")
+    if any(r in reasons_set for r in ("embedded_document_reader_loss_detected", "broken_flipbook_viewers_detected")) or any(t in res_types for t in ("flipbook_page", "document_reader_asset", "page_tile")):
+        behaviors.append("flipbook")
+    if any(r in reasons_set for r in ("gis_vector_tile_loss_detected", "broken_gis_map_layers_detected")) or any(t in res_types for t in ("vector_tile", "geojson_layer", "gis_map_layer")):
+        behaviors.append("gis")
+    if any(r in reasons_set for r in ("lightbox_gallery_image_loss_detected", "broken_lightbox_galleries_detected")) or any(t in res_types for t in ("lightbox_image", "gallery_metadata", "highres_photo")):
+        behaviors.append("lightbox")
+    if any(r in reasons_set for r in ("multilingual_locale_subpath_loss_detected", "broken_multilingual_locales_detected")) or any(t in res_types for t in ("multilingual_locale", "locale_bundle", "alternate_language")):
+        behaviors.append("multilingual")
+    if any(r in reasons_set for r in ("search_query_form_loss_detected", "broken_search_forms_detected")) or any(t in res_types for t in ("search_form", "search_api", "search_query")):
+        behaviors.append("search")
+    if any(r in reasons_set for r in ("dynamic_pagination_feed_loss_detected", "broken_pagination_feeds_detected")) or any(t in res_types for t in ("pagination_feed", "infinite_scroll", "page_endpoint")):
+        behaviors.append("pagination")
+    if any(r in reasons_set for r in ("consent_shield_replay_blocking_detected", "broken_consent_shields_detected")) or any(t in res_types for t in ("consent_shield", "cookie_banner", "modal_overlay")):
+        behaviors.append("consent")
+    if any(r in reasons_set for r in ("pdf_document_viewer_missing_detected", "broken_pdf_documents_detected")) or any(t in res_types for t in ("pdf_document", "pdfjs_worker", "pdf_attachment")):
+        behaviors.append("pdf")
+    if any(r in reasons_set for r in ("webxr_environment_missing_detected", "broken_webxr_environment_detected")) or any(t in res_types for t in ("webxr_environment", "webxr_skybox", "spatial_audio", "spatial_anchor")):
+        behaviors.append("webxr")
+    if any(r in reasons_set for r in ("canvas_webgl_render_missing_detected", "broken_canvas_webgl_render_detected")) or any(t in res_types for t in ("canvas_snapshot", "webgl_texture", "webgl_model", "shader_source")):
+        behaviors.append("canvas")
+    if any(r in reasons_set for r in ("web_storage_hydration_missing_detected", "broken_web_storage_hydration_detected")) or any(t in res_types for t in ("web_storage", "state_hydration", "service_worker")):
+        behaviors.append("storage")
+    if any(r in reasons_set for r in ("realtime_api_resources_missing_detected", "broken_realtime_api_detected")) or any(t in res_types for t in ("websocket", "sse_stream")):
+        behaviors.append("websocket")
+    if any(r in reasons_set for r in ("embedded_media_resources_missing_detected", "broken_embedded_media_detected")) or any(t in res_types for t in ("iframe", "video", "audio", "media_stream")):
+        behaviors.append("media")
+
+    beh_str = ",".join(behaviors)
+    rec_flags.append(f"--behaviors {beh_str}")
+
+    if any(r in reasons_set for r in ("css_embedded_resources_missing_detected", "broken_css_resources_detected", "broken_images_detected")) or any(t in res_types for t in ("css_image", "css_font", "image", "lazy_image")):
+        rec_flags.append("--media max")
+
+    rec_flags.append(f"--url-scope-bounded {len(target_urls)}_missing_assets")
+
+    summary = (
+        f"Targeted Re-Capture Remediation Plan generated for {len(target_urls)} missing assets on page '{page_url}'. "
+        f"Crawler Flags: {' '.join(rec_flags)}. Publication status held as 'HOLD_REJECT' until targeted re-capture verification succeeds."
+    )
+
+    return TargetedRemediationPlan(
+        page_url=page_url,
+        target_urls=target_urls,
+        required_behaviors=tuple(behaviors),
+        recommended_flags=tuple(rec_flags),
+        failure_reasons=result.reasons,
+        publication_gate_decision="HOLD_REJECT",
+        remediation_summary=summary,
+    )
+
+
+def evaluate_targeted_remediation(
+    html_content: str,
+    page_url: str,
+    initial_cdx_urls: Set[str],
+    patch_cdx_urls: Set[str],
+) -> RemediationEvaluationResult:
+    """Evaluate whether a targeted re-capture patch resolves previously detected broken resources.
+
+    Combines initial CDX and patch CDX index sets, re-runs DOM replay quality inspection, and
+    deterministically decides whether to transition from 'HOLD_REJECT' to 'PASS_RELEASE'.
+    """
+    initial_result = inspect_visitor_replay_dom(html_content, page_url, cdx_index_urls=initial_cdx_urls)
+    if initial_result.passed or not initial_result.broken_resources:
+        return RemediationEvaluationResult(
+            status="REMEDIATION_NOT_NEEDED",
+            publication_decision="PASS_RELEASE",
+            original_broken_count=0,
+            remaining_broken_count=0,
+            fixed_urls=(),
+            unresolved_urls=(),
+            remediation_plan=None,
+        )
+
+    orig_broken_urls = {b.url for b in initial_result.broken_resources if b.url}
+
+    combined_cdx = set(initial_cdx_urls).union(patch_cdx_urls)
+    remediated_result = inspect_visitor_replay_dom(html_content, page_url, cdx_index_urls=combined_cdx)
+
+    rem_broken_urls = {b.url for b in remediated_result.broken_resources if b.url}
+    fixed_urls = tuple(sorted(orig_broken_urls - rem_broken_urls))
+    unresolved_urls = tuple(sorted(rem_broken_urls))
+
+    if remediated_result.passed:
+        return RemediationEvaluationResult(
+            status="REMEDIATION_FIXED",
+            publication_decision="PASS_RELEASE",
+            original_broken_count=len(orig_broken_urls),
+            remaining_broken_count=0,
+            fixed_urls=fixed_urls,
+            unresolved_urls=(),
+            remediation_plan=None,
+        )
+
+    plan = generate_targeted_remediation_plan(remediated_result)
+    return RemediationEvaluationResult(
+        status="REMEDIATION_HELD",
+        publication_decision="HOLD_REJECT",
+        original_broken_count=len(orig_broken_urls),
+        remaining_broken_count=len(unresolved_urls),
+        fixed_urls=fixed_urls,
+        unresolved_urls=unresolved_urls,
+        remediation_plan=plan,
+    )
+

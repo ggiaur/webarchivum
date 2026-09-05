@@ -9,8 +9,12 @@ from crawl_manifest import EdgeEvent, build_manifest
 from qa_gate import ReplayEvidence, evaluate
 from replay_qa import (
     BrokenResource,
+    RemediationEvaluationResult,
+    TargetedRemediationPlan,
     VisitorReplayQualityResult,
     canonicalize_cdx_index_for_pywb,
+    evaluate_targeted_remediation,
+    generate_targeted_remediation_plan,
     inspect_visitor_replay_dom,
     inspect_visitor_replay_qa_log,
     suggest_remediation,
@@ -843,6 +847,79 @@ def test_visitor_replay_dom_detects_dynamic_audio_stream_defects():
     reason_codes = [b.reason for b in result.broken_resources]
     assert "podcast_feed_missing" in reason_codes or "oral_history_audio_missing" in reason_codes or "audio_stream_missing" in reason_codes
     assert "dynamic audio/podcast player & oral history archive stream behavior rules enabled" in result.remediation_suggestion
+
+
+def test_targeted_remediation_plan_generation():
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <script>
+            const podcast = loadPodcastFeed('https://example.org/audio/podcast.xml');
+            const book = loadFlipbook('https://example.org/viewer/flipbook.pdf');
+        </script>
+    </head>
+    <body>
+        <div data-audio-src="https://example.org/audio/council.mp3"></div>
+    </body>
+    </html>
+    """
+    page_url = "https://example.org/portal"
+    cdx_set = {"https://example.org/portal"}
+
+    result = inspect_visitor_replay_dom(html, page_url, cdx_index_urls=cdx_set)
+    assert not result.passed
+    assert result.targeted_remediation_plan is not None
+
+    plan = result.targeted_remediation_plan
+    assert plan.publication_gate_decision == "HOLD_REJECT"
+    assert len(plan.target_urls) >= 3
+    assert "audio" in plan.required_behaviors
+    assert "flipbook" in plan.required_behaviors
+    assert "--behaviors" in plan.recommended_flags[0]
+    assert "HOLD_REJECT" in plan.remediation_summary
+
+
+def test_targeted_remediation_evaluation_and_safe_hold():
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <script>
+            const podcast = loadPodcastFeed('https://example.org/audio/podcast.xml');
+            const tile = fetchPageTile('https://example.org/viewer/tile1.png');
+        </script>
+    </head>
+    <body>
+        <div data-audio-src="https://example.org/audio/council.mp3"></div>
+    </body>
+    </html>
+    """
+    page_url = "https://example.org/portal"
+    initial_cdx = {"https://example.org/portal"}
+
+    # 1. Partial patch CDX missing council.mp3 -> must remain HELD (HOLD_REJECT)
+    partial_patch = {"https://example.org/audio/podcast.xml", "https://example.org/viewer/tile1.png"}
+    eval_held = evaluate_targeted_remediation(html, page_url, initial_cdx, partial_patch)
+
+    assert eval_held.status == "REMEDIATION_HELD"
+    assert eval_held.publication_decision == "HOLD_REJECT"
+    assert "https://example.org/audio/council.mp3" in eval_held.unresolved_urls
+    assert eval_held.remediation_plan is not None
+
+    # 2. Complete patch CDX including all assets -> transitions to FIXED (PASS_RELEASE)
+    full_patch = {
+        "https://example.org/audio/podcast.xml",
+        "https://example.org/viewer/tile1.png",
+        "https://example.org/audio/council.mp3",
+    }
+    eval_fixed = evaluate_targeted_remediation(html, page_url, initial_cdx, full_patch)
+
+    assert eval_fixed.status == "REMEDIATION_FIXED"
+    assert eval_fixed.publication_decision == "PASS_RELEASE"
+    assert eval_fixed.remaining_broken_count == 0
+    assert len(eval_fixed.fixed_urls) >= 3
+
 
 
 

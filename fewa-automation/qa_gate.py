@@ -90,6 +90,8 @@ class ReplayEvidence:
 class QAGateResult:
     outcome: str
     reasons: tuple[str, ...]
+    publication_decision: str = "PASS_RELEASE"
+    targeted_remediation_plan: dict[str, Any] | None = None
 
 
 def evaluate(
@@ -135,7 +137,14 @@ def evaluate(
             reasons.append("replay_evidence_invalid")
 
     if "wacz_integrity_failed" in reasons:
-        return QAGateResult("integrity_failed", tuple(reasons))
+        return QAGateResult("integrity_failed", tuple(reasons), publication_decision="HOLD_REJECT")
     if reasons:
-        return QAGateResult("review_required", tuple(reasons))
-    return QAGateResult("qc_passed_pending_release", ())
+        plan_dict = None
+        if isinstance(replay_ok, ReplayEvidence) and replay_ok.broken_resources:
+            plan_dict = {
+                "target_urls": list(replay_ok.broken_resources),
+                "publication_gate_decision": "HOLD_REJECT",
+                "remediation_summary": f"Publication held ('HOLD_REJECT') for {len(replay_ok.broken_resources)} broken replay resources.",
+            }
+        return QAGateResult("review_required", tuple(reasons), publication_decision="HOLD_REJECT", targeted_remediation_plan=plan_dict)
+    return QAGateResult("qc_passed_pending_release", (), publication_decision="PASS_RELEASE")
