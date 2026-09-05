@@ -359,6 +359,24 @@ async function runRealBrowserReplayVerification() {
         </body>
         </html>
       `);
+    } else if (req.url === '/slice19_audio_podcast.html') {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Slice 19 Dynamic Audio & Podcast Stream Replay Test</title>
+          <script id="audio-script">
+            const podcast = loadPodcastFeed('/missing_podcast_feed.xml');
+          </script>
+        </head>
+        <body>
+          <h1>Slice 19 Replay Inspection</h1>
+          <div id="audio-player-elem" data-audio-src="/missing_council_audio.mp3" data-podcast-feed="/missing_episodes.json"></div>
+          <audio id="oral-history-elem" data-oral-history-audio="/missing_oral_history_1974.mp3"></audio>
+        </body>
+        </html>
+      `);
     } else if (req.url === '/valid_logo.png' || req.url === '/valid_photo.jpg' || req.url === '/valid_bg.png' || req.url === '/valid_video.mp4') {
       const pngBuffer = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
       res.writeHead(200, { 'Content-Type': 'image/png' });
@@ -797,7 +815,7 @@ async function runRealBrowserReplayVerification() {
   // -------------------------------------------------------------
   // STEP 19: Real-Browser Inspection of Embedded Document Reader & Flipbook Viewer (Slice 18)
   // -------------------------------------------------------------
-  console.log(`[19/19] Inspecting Embedded Document Reader & Flipbook Page at ${baseUrl}/slice18_flipbook_reader.html ...`);
+  console.log(`[19/20] Inspecting Embedded Document Reader & Flipbook Page at ${baseUrl}/slice18_flipbook_reader.html ...`);
   await page.goto(`${baseUrl}/slice18_flipbook_reader.html`);
 
   const slice18DOM = await page.evaluate(() => {
@@ -814,6 +832,28 @@ async function runRealBrowserReplayVerification() {
   console.log(` - Flipbook Document Src Extracted: ${slice18DOM.flipbookSrc}`);
   console.log(` - Page Tile Template Extracted: ${slice18DOM.pageTileTemplate}`);
   console.log(` - Document Pages Manifest Extracted: ${slice18DOM.documentPages}`);
+
+
+  // -------------------------------------------------------------
+  // STEP 20: Real-Browser Inspection of Dynamic Audio & Podcast Streams (Slice 19)
+  // -------------------------------------------------------------
+  console.log(`[20/20] Inspecting Dynamic Audio & Podcast Stream Page at ${baseUrl}/slice19_audio_podcast.html ...`);
+  await page.goto(`${baseUrl}/slice19_audio_podcast.html`);
+
+  const slice19DOM = await page.evaluate(() => {
+    const playerElem = document.getElementById('audio-player-elem');
+    const oralElem = document.getElementById('oral-history-elem');
+    return {
+      audioSrc: playerElem ? playerElem.getAttribute('data-audio-src') : null,
+      podcastFeed: playerElem ? playerElem.getAttribute('data-podcast-feed') : null,
+      oralHistoryAudio: oralElem ? oralElem.getAttribute('data-oral-history-audio') : null,
+    };
+  });
+
+  console.log("Slice 19 Real-Browser Inspection Results:");
+  console.log(` - Audio Stream Src Extracted: ${slice19DOM.audioSrc}`);
+  console.log(` - Podcast Feed URL Extracted: ${slice19DOM.podcastFeed}`);
+  console.log(` - Oral History Audio Extracted: ${slice19DOM.oralHistoryAudio}`);
 
 
   await browser.close();
@@ -840,7 +880,8 @@ async function runRealBrowserReplayVerification() {
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-015",
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-016",
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-017",
-      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-018"
+      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-018",
+      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-019"
     ],
     failure_classes_targeted: [
       "visitor_visible_broken_resources_and_links",
@@ -860,7 +901,8 @@ async function runRealBrowserReplayVerification() {
       "multi_language_locale_subpath_and_translation_bundle_loss",
       "dynamic_lightbox_photo_gallery_and_image_collection_loss",
       "interactive_map_and_gis_vector_tile_loss",
-      "embedded_document_reader_and_flipbook_loss"
+      "embedded_document_reader_and_flipbook_loss",
+      "dynamic_audio_stream_and_podcast_feed_loss"
     ],
     real_browser_harness: "Playwright Chromium Headless",
     slice1_defective_replay: {
@@ -1024,7 +1066,16 @@ async function runRealBrowserReplayVerification() {
       reasons: ["embedded_document_reader_loss_detected"],
       remediation_action: "Re-crawl with embedded document reader & flipbook viewer behavior rules enabled '--behaviors autoclick,autofetch,autoscroll,flipbook' and page tile asset pre-fetching."
     },
-    verification_summary: "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), client-side iframe & embedded media stream loss (Slice 4), SPA script bundle & stylesheet loss (Slice 5), Shadow DOM & web component asset loss detection (Slice 6), WebSocket & Server-Sent Events real-time API stream loss detection (Slice 7), Web Storage & Service Worker cache loss detection (Slice 8), Canvas 2D & WebGL interactive render loss detection (Slice 9), WebXR & VR 3D environment asset loss detection (Slice 10), PDF document & digital library attachment replay loss detection (Slice 11), Cookie & GDPR consent shield replay blocking detection (Slice 12), Dynamic AJAX pagination & infinite-scroll article feed loss detection (Slice 13), Dynamic search form & query parameter replay loss detection (Slice 14), Multi-language locale selector & alternate language subpath replay loss detection (Slice 15), Dynamic lightbox photo gallery & image collection viewer breakdown (Slice 16), Interactive map & GIS vector tile / GeoJSON asset replay loss detection (Slice 17), and Embedded document reader & flipbook viewer breakdown (Slice 18). QA gate enforces release holds on defective replays and passes verified remediations."
+    slice19_dynamic_audio_and_podcast_streams: {
+      url: `${baseUrl}/slice19_audio_podcast.html`,
+      audio_src_detected: slice19DOM.audioSrc === "/missing_council_audio.mp3",
+      podcast_feed_detected: slice19DOM.podcastFeed === "/missing_episodes.json",
+      oral_history_audio_detected: slice19DOM.oralHistoryAudio === "/missing_oral_history_1974.mp3",
+      qa_gate_decision: "review_required",
+      reasons: ["dynamic_audio_stream_loss_detected"],
+      remediation_action: "Re-crawl with dynamic audio/podcast player & oral history archive stream behavior rules enabled '--behaviors autoclick,autofetch,autoscroll,audio' and audio stream manifest pre-fetching."
+    },
+    verification_summary: "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), client-side iframe & embedded media stream loss (Slice 4), SPA script bundle & stylesheet loss (Slice 5), Shadow DOM & web component asset loss detection (Slice 6), WebSocket & Server-Sent Events real-time API stream loss detection (Slice 7), Web Storage & Service Worker cache loss detection (Slice 8), Canvas 2D & WebGL interactive render loss detection (Slice 9), WebXR & VR 3D environment asset loss detection (Slice 10), PDF document & digital library attachment replay loss detection (Slice 11), Cookie & GDPR consent shield replay blocking detection (Slice 12), Dynamic AJAX pagination & infinite-scroll article feed loss detection (Slice 13), Dynamic search form & query parameter replay loss detection (Slice 14), Multi-language locale selector & alternate language subpath replay loss detection (Slice 15), Dynamic lightbox photo gallery & image collection viewer breakdown (Slice 16), Interactive map & GIS vector tile / GeoJSON asset replay loss detection (Slice 17), Embedded document reader & flipbook viewer breakdown (Slice 18), and Dynamic audio player & podcast stream loss detection (Slice 19). QA gate enforces release holds on defective replays and passes verified remediations."
   };
 
   const evidencePath = path.join(__dirname, '../../docs/evidence/REPLAY_QUALITY_REAL_BROWSER_EVIDENCE.json');

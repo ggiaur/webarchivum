@@ -811,6 +811,41 @@ def test_visitor_replay_dom_detects_embedded_document_reader_defects():
     assert "embedded document reader & flipbook viewer behavior rules enabled" in result.remediation_suggestion
 
 
+def test_visitor_replay_dom_detects_dynamic_audio_stream_defects():
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <script>
+            const podcastFeed = loadPodcastFeed('https://example.org/audio/local_history_podcast.xml');
+            const oralHistory = fetchOralHistoryAudio('/oralhistory/interview_1974_part1.mp3');
+        </script>
+    </head>
+    <body>
+        <h1>Municipal Archives Oral History & Audio Streaming Portal</h1>
+        <div id="audio-player" data-audio-src="https://example.org/audio/city_council_1985.mp3" data-podcast-feed="/audio/episodes.json"></div>
+        <audio id="oral-history" data-oral-history-audio="/oralhistory/interview_1974_part2.mp3"></audio>
+    </body>
+    </html>
+    """
+    page_url = "https://example.org/audio/oral_history"
+    # CDX index contains base page and interview_1974_part1.mp3, but misses local_history_podcast.xml, city_council_1985.mp3, episodes.json, and interview_1974_part2.mp3
+    cdx_set = {
+        "https://example.org/audio/oral_history",
+        "https://example.org/oralhistory/interview_1974_part1.mp3",
+    }
+
+    result = inspect_visitor_replay_dom(html, page_url, cdx_index_urls=cdx_set)
+
+    assert not result.passed
+    assert result.broken_audio_count >= 3
+    assert "dynamic_audio_stream_loss_detected" in result.reasons
+    reason_codes = [b.reason for b in result.broken_resources]
+    assert "podcast_feed_missing" in reason_codes or "oral_history_audio_missing" in reason_codes or "audio_stream_missing" in reason_codes
+    assert "dynamic audio/podcast player & oral history archive stream behavior rules enabled" in result.remediation_suggestion
+
+
+
 
 
 

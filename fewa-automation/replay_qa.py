@@ -43,14 +43,16 @@ LIGHTBOX_GALLERY_REGEX = re.compile(r'(?:openLightbox|loadGalleryImage|fetchGall
 GIS_MAP_TILES_REGEX = re.compile(r'(?:loadGeoJSON|fetchVectorTiles|addMapLayer|loadGisLayer|initLeafletMap|initOpenLayers|fetchTileLayer|mapTileUrl)\(\s*[\'"]([^\'"]+)[\'"]', re.IGNORECASE)
 # Regular expressions to extract embedded document reader / flipbook viewer page assets
 FLIPBOOK_DOC_REGEX = re.compile(r'(?:loadFlipbook|initDearFlip|turnToPage|fetchPageTile|loadDocumentPages|initFlowPaper|loadIssuuPdf|flipbookPageUrl)\(\s*[\'"]([^\'"]+)[\'"]', re.IGNORECASE)
+# Regular expressions to extract dynamic audio / podcast player and oral history stream assets
+AUDIO_PODCAST_REGEX = re.compile(r'(?:playAudioStream|loadPodcastFeed|fetchOralHistoryAudio|initAudioPlayer|loadSoundCloudTrack|playHlsAudio|audioStreamUrl)\(\s*[\'"]([^\'"]+)[\'"]', re.IGNORECASE)
 
 
 @dataclass(frozen=True)
 class BrokenResource:
     url: str
-    resource_type: str  # "image" | "link" | "script" | "style" | "media" | "lazy_image" | "rewrite_mismatch" | "css_image" | "css_font" | "iframe" | "video" | "audio" | "media_stream" | "script_bundle" | "style_sheet" | "shadow_dom" | "custom_element" | "websocket" | "sse_stream" | "web_storage" | "state_hydration" | "service_worker" | "canvas_snapshot" | "webgl_texture" | "webgl_model" | "shader_source" | "webxr_environment" | "webxr_skybox" | "spatial_audio" | "spatial_anchor" | "pdf_document" | "pdfjs_worker" | "pdf_attachment" | "consent_shield" | "cookie_banner" | "modal_overlay" | "pagination_feed" | "infinite_scroll" | "page_endpoint" | "search_form" | "search_api" | "search_query" | "multilingual_locale" | "locale_bundle" | "alternate_language" | "lightbox_image" | "gallery_metadata" | "highres_photo" | "vector_tile" | "geojson_layer" | "gis_map_layer" | "flipbook_page" | "document_reader_asset" | "page_tile"
+    resource_type: str  # "image" | "link" | "script" | "style" | "media" | "lazy_image" | "rewrite_mismatch" | "css_image" | "css_font" | "iframe" | "video" | "audio" | "media_stream" | "script_bundle" | "style_sheet" | "shadow_dom" | "custom_element" | "websocket" | "sse_stream" | "web_storage" | "state_hydration" | "service_worker" | "canvas_snapshot" | "webgl_texture" | "webgl_model" | "shader_source" | "webxr_environment" | "webxr_skybox" | "spatial_audio" | "spatial_anchor" | "pdf_document" | "pdfjs_worker" | "pdf_attachment" | "consent_shield" | "cookie_banner" | "modal_overlay" | "pagination_feed" | "infinite_scroll" | "page_endpoint" | "search_form" | "search_api" | "search_query" | "multilingual_locale" | "locale_bundle" | "alternate_language" | "lightbox_image" | "gallery_metadata" | "highres_photo" | "vector_tile" | "geojson_layer" | "gis_map_layer" | "flipbook_page" | "document_reader_asset" | "page_tile" | "audio_stream" | "podcast_feed" | "oral_history_audio"
     element_tag: str
-    reason: str  # "missing_in_cdx" | "http_404" | "net_failed" | "replay_bad" | "pywb_rewrite_mismatch" | "dynamic_lazyload_missing" | "css_background_missing" | "css_font_missing" | "iframe_embedded_missing" | "media_resource_missing" | "media_stream_missing" | "script_bundle_missing" | "style_sheet_missing" | "shadow_dom_resource_missing" | "shadow_dom_template_missing" | "websocket_endpoint_missing" | "sse_stream_missing" | "storage_state_missing" | "hydration_data_missing" | "service_worker_missing" | "canvas_snapshot_missing" | "webgl_texture_missing" | "webgl_model_missing" | "shader_source_missing" | "webxr_environment_missing" | "webxr_skybox_missing" | "spatial_audio_missing" | "spatial_anchor_missing" | "pdf_document_missing" | "pdfjs_worker_missing" | "pdf_attachment_missing" | "consent_shield_blocking" | "cookie_banner_blocking" | "modal_overlay_blocking" | "pagination_feed_missing" | "infinite_scroll_missing" | "page_endpoint_missing" | "search_form_missing" | "search_api_missing" | "search_query_missing" | "multilingual_locale_missing" | "locale_bundle_missing" | "alternate_language_missing" | "lightbox_image_missing" | "gallery_metadata_missing" | "highres_photo_missing" | "vector_tile_missing" | "geojson_layer_missing" | "gis_map_layer_missing" | "flipbook_page_missing" | "document_reader_asset_missing" | "page_tile_missing"
+    reason: str  # "missing_in_cdx" | "http_404" | "net_failed" | "replay_bad" | "pywb_rewrite_mismatch" | "dynamic_lazyload_missing" | "css_background_missing" | "css_font_missing" | "iframe_embedded_missing" | "media_resource_missing" | "media_stream_missing" | "script_bundle_missing" | "style_sheet_missing" | "shadow_dom_resource_missing" | "shadow_dom_template_missing" | "websocket_endpoint_missing" | "sse_stream_missing" | "storage_state_missing" | "hydration_data_missing" | "service_worker_missing" | "canvas_snapshot_missing" | "webgl_texture_missing" | "webgl_model_missing" | "shader_source_missing" | "webxr_environment_missing" | "webxr_skybox_missing" | "spatial_audio_missing" | "spatial_anchor_missing" | "pdf_document_missing" | "pdfjs_worker_missing" | "pdf_attachment_missing" | "consent_shield_blocking" | "cookie_banner_blocking" | "modal_overlay_blocking" | "pagination_feed_missing" | "infinite_scroll_missing" | "page_endpoint_missing" | "search_form_missing" | "search_api_missing" | "search_query_missing" | "multilingual_locale_missing" | "locale_bundle_missing" | "alternate_language_missing" | "lightbox_image_missing" | "gallery_metadata_missing" | "highres_photo_missing" | "vector_tile_missing" | "geojson_layer_missing" | "gis_map_layer_missing" | "flipbook_page_missing" | "document_reader_asset_missing" | "page_tile_missing" | "audio_stream_missing" | "podcast_feed_missing" | "oral_history_audio_missing"
     context: str  # HTML snippet or context description
 
 
@@ -80,6 +82,7 @@ class VisitorReplayQualityResult:
     broken_lightbox_count: int = 0
     broken_gis_count: int = 0
     broken_flipbook_count: int = 0
+    broken_audio_count: int = 0
     broken_resources: Tuple[BrokenResource, ...] = ()
     reasons: Tuple[str, ...] = ()
     actionable_evidence: Dict[str, Any] = field(default_factory=dict)
@@ -113,6 +116,7 @@ class _DOMResourceExtractor(HTMLParser):
         self.lightbox_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'lightbox_image'|'gallery_metadata'|'highres_photo')
         self.gis_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'vector_tile'|'geojson_layer'|'gis_map_layer')
         self.flipbook_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'flipbook_page'|'document_reader_asset'|'page_tile')
+        self.audio_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'audio_stream'|'podcast_feed'|'oral_history_audio')
         self._in_style_tag = False
         self._style_content_chunks: List[str] = []
         self._in_script_tag = False
@@ -434,6 +438,36 @@ class _DOMResourceExtractor(HTMLParser):
                     if not any(u[0] == resolved for u in self.flipbook_urls):
                         self.flipbook_urls.append((resolved, raw_val, f_type))
 
+        # Check Dynamic Audio / Podcast Player & Oral History Archive Stream attributes and elements
+        if tag_lower in ("audio", "source", "div", "iframe", "object", "embed", "a") and any(aud_attr in attr_dict for aud_attr in ("data-audio-src", "data-podcast-feed", "data-oral-history-audio", "data-sound-file", "data-audio-stream", "data-playlist-url", "data-audio-manifest", "data-podcast-mp3", "audio-stream-url")):
+            aud_src = (
+                attr_dict.get("data-audio-src")
+                or attr_dict.get("data-podcast-feed")
+                or attr_dict.get("data-oral-history-audio")
+                or attr_dict.get("data-sound-file")
+                or attr_dict.get("data-audio-stream")
+                or attr_dict.get("data-playlist-url")
+                or attr_dict.get("data-audio-manifest")
+                or attr_dict.get("data-podcast-mp3")
+                or attr_dict.get("audio-stream-url")
+            )
+            if aud_src:
+                raw_aud = aud_src.strip()
+                if raw_aud and not raw_aud.startswith(("javascript:", "mailto:", "tel:", "#", "data:")):
+                    resolved = resolve_protocol_relative(raw_aud, effective_base)
+                    a_type = "podcast_feed" if "podcast" in raw_aud or raw_aud.endswith((".rss", ".xml", ".json")) else ("oral_history_audio" if "oral" in raw_aud or "history" in raw_aud or "archive" in raw_aud else "audio_stream")
+                    if not any(u[0] == resolved for u in self.audio_urls):
+                        self.audio_urls.append((resolved, raw_aud, a_type))
+
+        for aud_attr in ("data-audio-src", "data-podcast-feed", "data-oral-history-audio", "data-sound-file", "data-audio-stream", "data-playlist-url", "data-audio-manifest", "data-podcast-mp3", "audio-stream-url"):
+            if aud_attr in attr_dict:
+                raw_val = attr_dict[aud_attr].strip()
+                if raw_val and not raw_val.startswith("data:"):
+                    resolved = resolve_protocol_relative(raw_val, effective_base)
+                    a_type = "podcast_feed" if "podcast" in aud_attr or raw_val.endswith((".rss", ".xml", ".json")) else ("oral_history_audio" if "oral" in aud_attr or "history" in aud_attr else "audio_stream")
+                    if not any(u[0] == resolved for u in self.audio_urls):
+                        self.audio_urls.append((resolved, raw_val, a_type))
+
         if tag_lower == "img":
             if "src" in attr_dict:
                 raw_src = attr_dict["src"].strip()
@@ -656,6 +690,15 @@ class _DOMResourceExtractor(HTMLParser):
                     f_type = "page_tile" if "tile" in raw_url or "{page}" in raw_url else ("flipbook_page" if raw_url.lower().endswith((".png", ".jpg", ".svg", ".pdf")) else "document_reader_asset")
                     if not any(u[0] == resolved for u in self.flipbook_urls):
                         self.flipbook_urls.append((resolved, raw_url, f_type))
+
+            for match in AUDIO_PODCAST_REGEX.finditer(script_text):
+                raw_url = match.group(1).strip()
+                if raw_url and not raw_url.startswith("data:"):
+                    resolved = resolve_protocol_relative(raw_url, effective_base)
+                    a_type = "podcast_feed" if raw_url.lower().endswith((".xml", ".rss", ".json")) else ("oral_history_audio" if "oral" in raw_url or "history" in raw_url else "audio_stream")
+                    if not any(u[0] == resolved for u in self.audio_urls):
+                        self.audio_urls.append((resolved, raw_url, a_type))
+
 
 
 def resolve_protocol_relative(raw_url: str, base_url: str) -> str:
@@ -1142,6 +1185,28 @@ def inspect_visitor_replay_dom(
                     )
                 )
 
+    # 21. Check Dynamic Audio Player / Podcast Stream / Oral History Archive Assets
+    audio_broken = 0
+    for resolved_url, raw_url, res_type in extractor.audio_urls:
+        if cdx_index_urls is not None:
+            if not _is_url_in_cdx(resolved_url, cdx_index_urls, canonical_cdx):
+                audio_broken += 1
+                if res_type == "podcast_feed":
+                    reason_code = "podcast_feed_missing"
+                elif res_type == "oral_history_audio":
+                    reason_code = "oral_history_audio_missing"
+                else:
+                    reason_code = "audio_stream_missing"
+                broken.append(
+                    BrokenResource(
+                        url=resolved_url,
+                        resource_type=res_type,
+                        element_tag=f'<{res_type} url="{raw_url}">',
+                        reason=reason_code,
+                        context=f"Dynamic audio stream / podcast feed / oral history asset ({res_type}) {resolved_url} missing in WACZ archive.",
+                    )
+                )
+
     total_checked = (
         len(extractor.images)
         + len(extractor.lazy_images)
@@ -1163,6 +1228,7 @@ def inspect_visitor_replay_dom(
         + len(extractor.lightbox_urls)
         + len(extractor.gis_urls)
         + len(extractor.flipbook_urls)
+        + len(extractor.audio_urls)
     )
     total_broken = len(broken)
     replay_good = total_checked - total_broken
@@ -1226,6 +1292,9 @@ def inspect_visitor_replay_dom(
     if flipbook_broken > max_allowed_broken_canvas:
         reasons.append(f"broken_flipbook_viewers_detected ({flipbook_broken} > {max_allowed_broken_canvas})")
 
+    if audio_broken > max_allowed_broken_canvas:
+        reasons.append(f"broken_audio_streams_detected ({audio_broken} > {max_allowed_broken_canvas})")
+
     if any(b.reason == "pywb_rewrite_mismatch" for b in broken):
         reasons.append("pywb_rewrite_mismatch_detected")
 
@@ -1283,6 +1352,9 @@ def inspect_visitor_replay_dom(
     if any(b.reason in ("flipbook_page_missing", "document_reader_asset_missing", "page_tile_missing") for b in broken):
         reasons.append("embedded_document_reader_loss_detected")
 
+    if any(b.reason in ("audio_stream_missing", "podcast_feed_missing", "oral_history_audio_missing") for b in broken):
+        reasons.append("dynamic_audio_stream_loss_detected")
+
     passed = len(reasons) == 0
 
     remediation = None
@@ -1313,6 +1385,7 @@ def inspect_visitor_replay_dom(
         "broken_lightbox_count": lightbox_broken,
         "broken_gis_count": gis_broken,
         "broken_flipbook_count": flipbook_broken,
+        "broken_audio_count": audio_broken,
         "quality_score": quality_score,
         "broken_resources": [
             {
@@ -1351,6 +1424,7 @@ def inspect_visitor_replay_dom(
         broken_lightbox_count=lightbox_broken,
         broken_gis_count=gis_broken,
         broken_flipbook_count=flipbook_broken,
+        broken_audio_count=audio_broken,
         broken_resources=tuple(broken),
         reasons=tuple(reasons),
         actionable_evidence=actionable_evidence,
@@ -1450,6 +1524,11 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
         or b.resource_type in ("flipbook_page", "document_reader_asset", "page_tile")
         for b in broken_resources
     )
+    has_audio = any(
+        b.reason in ("audio_stream_missing", "podcast_feed_missing", "oral_history_audio_missing")
+        or b.resource_type in ("audio_stream", "podcast_feed", "oral_history_audio")
+        for b in broken_resources
+    )
     has_gis = any(
         b.reason in ("vector_tile_missing", "geojson_layer_missing", "gis_map_layer_missing")
         or b.resource_type in ("vector_tile", "geojson_layer", "gis_map_layer")
@@ -1527,6 +1606,10 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
     has_links = any(b.resource_type == "link" for b in broken_resources)
 
     suggestions = []
+    if has_audio:
+        suggestions.append(
+            "Re-crawl with dynamic audio/podcast player & oral history archive stream behavior rules enabled '--behaviors autoclick,autofetch,autoscroll,audio' and audio stream manifest pre-fetching."
+        )
     if has_flipbook:
         suggestions.append(
             "Re-crawl with embedded document reader & flipbook viewer behavior rules enabled '--behaviors autoclick,autofetch,autoscroll,flipbook' and page tile asset pre-fetching."
