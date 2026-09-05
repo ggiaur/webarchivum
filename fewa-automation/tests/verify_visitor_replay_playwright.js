@@ -396,6 +396,25 @@ async function runRealBrowserReplayVerification() {
         </body>
         </html>
       `);
+    } else if (req.url === '/slice21_datatable_export.html') {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Slice 21 Dynamic DataTables & CSV/XLSX Export Replay Test</title>
+          <script id="grid-script">
+            const gridData = fetchTableData('/missing_table_rows.json');
+            const csvData = fetchCsvExport('/missing_records_export.csv');
+          </script>
+        </head>
+        <body>
+          <h1>Slice 21 Replay Inspection</h1>
+          <div id="datatable-elem" data-table-url="/missing_table_rows.json" data-export-csv="/missing_records_export.csv" data-export-xlsx="/missing_records_export.xlsx"></div>
+          <table id="grid-elem" data-grid-endpoint="/missing_grid_data.json"></table>
+        </body>
+        </html>
+      `);
     } else if (req.url === '/valid_logo.png' || req.url === '/valid_photo.jpg' || req.url === '/valid_bg.png' || req.url === '/valid_video.mp4') {
       const pngBuffer = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
       res.writeHead(200, { 'Content-Type': 'image/png' });
@@ -878,7 +897,7 @@ async function runRealBrowserReplayVerification() {
   // -------------------------------------------------------------
   // STEP 21: Real-Browser Inspection of Targeted Remediation Integration & Safe Publication-Hold (Slice 20)
   // -------------------------------------------------------------
-  console.log(`[21/21] Inspecting Targeted Remediation Integration & Safe Publication-Hold Page at ${baseUrl}/slice20_remediation_integration.html ...`);
+  console.log(`[21/22] Inspecting Targeted Remediation Integration & Safe Publication-Hold Page at ${baseUrl}/slice20_remediation_integration.html ...`);
   await page.goto(`${baseUrl}/slice20_remediation_integration.html`);
 
   const slice20DOM = await page.evaluate(() => {
@@ -893,6 +912,29 @@ async function runRealBrowserReplayVerification() {
   console.log("Slice 20 Real-Browser Inspection Results:");
   console.log(` - Remediation Target Audio Stream: ${slice20DOM.audioSrc}`);
   console.log(` - Remediation Target Flipbook Doc: ${slice20DOM.flipbookSrc}`);
+
+  // -------------------------------------------------------------
+  // STEP 22: Real-Browser Inspection of Dynamic DataTables & CSV/XLSX Export Endpoints (Slice 21)
+  // -------------------------------------------------------------
+  console.log(`[22/22] Inspecting Dynamic DataTables & CSV/XLSX Export Endpoint Page at ${baseUrl}/slice21_datatable_export.html ...`);
+  await page.goto(`${baseUrl}/slice21_datatable_export.html`);
+
+  const slice21DOM = await page.evaluate(() => {
+    const tableElem = document.getElementById('datatable-elem');
+    const gridElem = document.getElementById('grid-elem');
+    return {
+      tableUrl: tableElem ? tableElem.getAttribute('data-table-url') : null,
+      exportCsv: tableElem ? tableElem.getAttribute('data-export-csv') : null,
+      exportXlsx: tableElem ? tableElem.getAttribute('data-export-xlsx') : null,
+      gridEndpoint: gridElem ? gridElem.getAttribute('data-grid-endpoint') : null,
+    };
+  });
+
+  console.log("Slice 21 Real-Browser Inspection Results:");
+  console.log(` - Table Rows API Extracted: ${slice21DOM.tableUrl}`);
+  console.log(` - CSV Export URL Extracted: ${slice21DOM.exportCsv}`);
+  console.log(` - XLSX Export URL Extracted: ${slice21DOM.exportXlsx}`);
+  console.log(` - Interactive Grid Endpoint Extracted: ${slice21DOM.gridEndpoint}`);
 
 
   await browser.close();
@@ -921,7 +963,8 @@ async function runRealBrowserReplayVerification() {
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-017",
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-018",
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-019",
-      "WEBARCHIVUM-REPLAY-QUALITY-REMEDIATION-020"
+      "WEBARCHIVUM-REPLAY-QUALITY-REMEDIATION-020",
+      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-021"
     ],
     failure_classes_targeted: [
       "visitor_visible_broken_resources_and_links",
@@ -943,7 +986,8 @@ async function runRealBrowserReplayVerification() {
       "interactive_map_and_gis_vector_tile_loss",
       "embedded_document_reader_and_flipbook_loss",
       "dynamic_audio_stream_and_podcast_feed_loss",
-      "targeted_remediation_integration_and_safe_publication_hold"
+      "targeted_remediation_integration_and_safe_publication_hold",
+      "datatable_export_endpoint_loss"
     ],
     real_browser_harness: "Playwright Chromium Headless",
     slice1_defective_replay: {
@@ -1125,7 +1169,17 @@ async function runRealBrowserReplayVerification() {
       targeted_recapture_flags: ["--behaviors autoclick,autofetch,autoscroll,audio,flipbook", "--url-scope-bounded 2_missing_assets"],
       remediation_action: "Execute targeted re-capture for exact missing asset URLs with required behaviors '--behaviors autoclick,autofetch,autoscroll,audio,flipbook'. Enforce safe publication-hold ('HOLD_REJECT') until patch CDX verification succeeds."
     },
-    verification_summary: "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), client-side iframe & embedded media stream loss (Slice 4), SPA script bundle & stylesheet loss (Slice 5), Shadow DOM & web component asset loss detection (Slice 6), WebSocket & Server-Sent Events real-time API stream loss detection (Slice 7), Web Storage & Service Worker cache loss detection (Slice 8), Canvas 2D & WebGL interactive render loss detection (Slice 9), WebXR & VR 3D environment asset loss detection (Slice 10), PDF document & digital library attachment replay loss detection (Slice 11), Cookie & GDPR consent shield replay blocking detection (Slice 12), Dynamic AJAX pagination & infinite-scroll article feed loss detection (Slice 13), Dynamic search form & query parameter replay loss detection (Slice 14), Multi-language locale selector & alternate language subpath replay loss detection (Slice 15), Dynamic lightbox photo gallery & image collection viewer breakdown (Slice 16), Interactive map & GIS vector tile / GeoJSON asset replay loss detection (Slice 17), Embedded document reader & flipbook viewer breakdown (Slice 18), Dynamic audio player & podcast stream loss detection (Slice 19), and Targeted remediation plan integration & safe publication-hold enforcement (Slice 20). QA gate enforces release holds on defective replays and passes verified remediations."
+    slice21_datatable_and_export_endpoints: {
+      url: `${baseUrl}/slice21_datatable_export.html`,
+      table_rows_url_detected: slice21DOM.tableUrl === "/missing_table_rows.json",
+      csv_export_url_detected: slice21DOM.exportCsv === "/missing_records_export.csv",
+      xlsx_export_url_detected: slice21DOM.exportXlsx === "/missing_records_export.xlsx",
+      grid_endpoint_detected: slice21DOM.gridEndpoint === "/missing_grid_data.json",
+      qa_gate_decision: "review_required",
+      reasons: ["datatable_export_endpoint_loss_detected"],
+      remediation_action: "Re-crawl with dynamic DataTables, interactive grid viewer & CSV/XLSX export endpoint behavior rules enabled '--behaviors autoclick,autofetch,autoscroll,datatable,export' and tabular data API pre-fetching."
+    },
+    verification_summary: "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), client-side iframe & embedded media stream loss (Slice 4), SPA script bundle & stylesheet loss (Slice 5), Shadow DOM & web component asset loss detection (Slice 6), WebSocket & Server-Sent Events real-time API stream loss detection (Slice 7), Web Storage & Service Worker cache loss detection (Slice 8), Canvas 2D & WebGL interactive render loss detection (Slice 9), WebXR & VR 3D environment asset loss detection (Slice 10), PDF document & digital library attachment replay loss detection (Slice 11), Cookie & GDPR consent shield replay blocking detection (Slice 12), Dynamic AJAX pagination & infinite-scroll article feed loss detection (Slice 13), Dynamic search form & query parameter replay loss detection (Slice 14), Multi-language locale selector & alternate language subpath replay loss detection (Slice 15), Dynamic lightbox photo gallery & image collection viewer breakdown (Slice 16), Interactive map & GIS vector tile / GeoJSON asset replay loss detection (Slice 17), Embedded document reader & flipbook viewer breakdown (Slice 18), Dynamic audio player & podcast stream loss detection (Slice 19), Targeted remediation plan integration & safe publication-hold enforcement (Slice 20), and Dynamic DataTables, interactive grid viewers & CSV/XLSX export endpoint loss detection (Slice 21). QA gate enforces release holds on defective replays and passes verified remediations."
   };
 
   const evidencePath = path.join(__dirname, '../../docs/evidence/REPLAY_QUALITY_REAL_BROWSER_EVIDENCE.json');

@@ -921,6 +921,41 @@ def test_targeted_remediation_evaluation_and_safe_hold():
     assert len(eval_fixed.fixed_urls) >= 3
 
 
+def test_visitor_replay_dom_detects_datatable_and_export_defects():
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <script>
+            const gridData = fetchTableData('https://example.org/api/v1/census_1920_rows.json');
+            const csvExport = fetchCsvExport('/exports/census_1920_full.csv');
+        </script>
+    </head>
+    <body>
+        <h1>Municipal Archives Historical Census Database</h1>
+        <table id="datatable-grid" data-grid-endpoint="https://example.org/api/v1/census_rows_p2.json" data-export-xlsx="/exports/census_1920.xlsx"></table>
+        <a id="download-csv" data-csv-url="/exports/census_1920_summary.csv">Export CSV</a>
+    </body>
+    </html>
+    """
+    page_url = "https://example.org/database/census"
+    # CDX index contains base page and census_1920_rows.json, but misses census_1920_full.csv, census_rows_p2.json, census_1920.xlsx, and census_1920_summary.csv
+    cdx_set = {
+        "https://example.org/database/census",
+        "https://example.org/api/v1/census_1920_rows.json",
+    }
+
+    result = inspect_visitor_replay_dom(html, page_url, cdx_index_urls=cdx_set)
+
+    assert not result.passed
+    assert result.broken_datatable_count >= 3
+    assert "datatable_export_endpoint_loss_detected" in result.reasons
+    reason_codes = [b.reason for b in result.broken_resources]
+    assert "data_export_file_missing" in reason_codes or "datatable_endpoint_missing" in reason_codes
+    assert "dynamic DataTables, interactive grid viewer & CSV/XLSX export behavior rules enabled" in result.remediation_suggestion
+
+
+
 
 
 

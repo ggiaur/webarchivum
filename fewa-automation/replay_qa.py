@@ -45,14 +45,16 @@ GIS_MAP_TILES_REGEX = re.compile(r'(?:loadGeoJSON|fetchVectorTiles|addMapLayer|l
 FLIPBOOK_DOC_REGEX = re.compile(r'(?:loadFlipbook|initDearFlip|turnToPage|fetchPageTile|loadDocumentPages|initFlowPaper|loadIssuuPdf|flipbookPageUrl)\(\s*[\'"]([^\'"]+)[\'"]', re.IGNORECASE)
 # Regular expressions to extract dynamic audio / podcast player and oral history stream assets
 AUDIO_PODCAST_REGEX = re.compile(r'(?:playAudioStream|loadPodcastFeed|fetchOralHistoryAudio|initAudioPlayer|loadSoundCloudTrack|playHlsAudio|audioStreamUrl)\(\s*[\'"]([^\'"]+)[\'"]', re.IGNORECASE)
+# Regular expressions to extract dynamic DataTables, interactive grid viewers, and CSV/XLSX export endpoints
+DATATABLE_EXPORT_REGEX = re.compile(r'(?:fetchTableData|loadGridData|fetchCsvExport|downloadExport|loadDataTable|exportTableCsv|exportTableXlsx|gridDataUrl)\(\s*[\'"]([^\'"]+)[\'"]', re.IGNORECASE)
 
 
 @dataclass(frozen=True)
 class BrokenResource:
     url: str
-    resource_type: str  # "image" | "link" | "script" | "style" | "media" | "lazy_image" | "rewrite_mismatch" | "css_image" | "css_font" | "iframe" | "video" | "audio" | "media_stream" | "script_bundle" | "style_sheet" | "shadow_dom" | "custom_element" | "websocket" | "sse_stream" | "web_storage" | "state_hydration" | "service_worker" | "canvas_snapshot" | "webgl_texture" | "webgl_model" | "shader_source" | "webxr_environment" | "webxr_skybox" | "spatial_audio" | "spatial_anchor" | "pdf_document" | "pdfjs_worker" | "pdf_attachment" | "consent_shield" | "cookie_banner" | "modal_overlay" | "pagination_feed" | "infinite_scroll" | "page_endpoint" | "search_form" | "search_api" | "search_query" | "multilingual_locale" | "locale_bundle" | "alternate_language" | "lightbox_image" | "gallery_metadata" | "highres_photo" | "vector_tile" | "geojson_layer" | "gis_map_layer" | "flipbook_page" | "document_reader_asset" | "page_tile" | "audio_stream" | "podcast_feed" | "oral_history_audio"
+    resource_type: str  # "image" | "link" | "script" | "style" | "media" | "lazy_image" | "rewrite_mismatch" | "css_image" | "css_font" | "iframe" | "video" | "audio" | "media_stream" | "script_bundle" | "style_sheet" | "shadow_dom" | "custom_element" | "websocket" | "sse_stream" | "web_storage" | "state_hydration" | "service_worker" | "canvas_snapshot" | "webgl_texture" | "webgl_model" | "shader_source" | "webxr_environment" | "webxr_skybox" | "spatial_audio" | "spatial_anchor" | "pdf_document" | "pdfjs_worker" | "pdf_attachment" | "consent_shield" | "cookie_banner" | "modal_overlay" | "pagination_feed" | "infinite_scroll" | "page_endpoint" | "search_form" | "search_api" | "search_query" | "multilingual_locale" | "locale_bundle" | "alternate_language" | "lightbox_image" | "gallery_metadata" | "highres_photo" | "vector_tile" | "geojson_layer" | "gis_map_layer" | "flipbook_page" | "document_reader_asset" | "page_tile" | "audio_stream" | "podcast_feed" | "oral_history_audio" | "datatable_rows" | "datatable_endpoint" | "data_export_file"
     element_tag: str
-    reason: str  # "missing_in_cdx" | "http_404" | "net_failed" | "replay_bad" | "pywb_rewrite_mismatch" | "dynamic_lazyload_missing" | "css_background_missing" | "css_font_missing" | "iframe_embedded_missing" | "media_resource_missing" | "media_stream_missing" | "script_bundle_missing" | "style_sheet_missing" | "shadow_dom_resource_missing" | "shadow_dom_template_missing" | "websocket_endpoint_missing" | "sse_stream_missing" | "storage_state_missing" | "hydration_data_missing" | "service_worker_missing" | "canvas_snapshot_missing" | "webgl_texture_missing" | "webgl_model_missing" | "shader_source_missing" | "webxr_environment_missing" | "webxr_skybox_missing" | "spatial_audio_missing" | "spatial_anchor_missing" | "pdf_document_missing" | "pdfjs_worker_missing" | "pdf_attachment_missing" | "consent_shield_blocking" | "cookie_banner_blocking" | "modal_overlay_blocking" | "pagination_feed_missing" | "infinite_scroll_missing" | "page_endpoint_missing" | "search_form_missing" | "search_api_missing" | "search_query_missing" | "multilingual_locale_missing" | "locale_bundle_missing" | "alternate_language_missing" | "lightbox_image_missing" | "gallery_metadata_missing" | "highres_photo_missing" | "vector_tile_missing" | "geojson_layer_missing" | "gis_map_layer_missing" | "flipbook_page_missing" | "document_reader_asset_missing" | "page_tile_missing" | "audio_stream_missing" | "podcast_feed_missing" | "oral_history_audio_missing"
+    reason: str  # "missing_in_cdx" | "http_404" | "net_failed" | "replay_bad" | "pywb_rewrite_mismatch" | "dynamic_lazyload_missing" | "css_background_missing" | "css_font_missing" | "iframe_embedded_missing" | "media_resource_missing" | "media_stream_missing" | "script_bundle_missing" | "style_sheet_missing" | "shadow_dom_resource_missing" | "shadow_dom_template_missing" | "websocket_endpoint_missing" | "sse_stream_missing" | "storage_state_missing" | "hydration_data_missing" | "service_worker_missing" | "canvas_snapshot_missing" | "webgl_texture_missing" | "webgl_model_missing" | "shader_source_missing" | "webxr_environment_missing" | "webxr_skybox_missing" | "spatial_audio_missing" | "spatial_anchor_missing" | "pdf_document_missing" | "pdfjs_worker_missing" | "pdf_attachment_missing" | "consent_shield_blocking" | "cookie_banner_blocking" | "modal_overlay_blocking" | "pagination_feed_missing" | "infinite_scroll_missing" | "page_endpoint_missing" | "search_form_missing" | "search_api_missing" | "search_query_missing" | "multilingual_locale_missing" | "locale_bundle_missing" | "alternate_language_missing" | "lightbox_image_missing" | "gallery_metadata_missing" | "highres_photo_missing" | "vector_tile_missing" | "geojson_layer_missing" | "gis_map_layer_missing" | "flipbook_page_missing" | "document_reader_asset_missing" | "page_tile_missing" | "audio_stream_missing" | "podcast_feed_missing" | "oral_history_audio_missing" | "datatable_rows_missing" | "datatable_endpoint_missing" | "data_export_file_missing"
     context: str  # HTML snippet or context description
 
 
@@ -127,6 +129,7 @@ class VisitorReplayQualityResult:
     broken_gis_count: int = 0
     broken_flipbook_count: int = 0
     broken_audio_count: int = 0
+    broken_datatable_count: int = 0
     broken_resources: Tuple[BrokenResource, ...] = ()
     reasons: Tuple[str, ...] = ()
     actionable_evidence: Dict[str, Any] = field(default_factory=dict)
@@ -134,9 +137,8 @@ class VisitorReplayQualityResult:
     targeted_remediation_plan: Optional[TargetedRemediationPlan] = None
 
 
-
 class _DOMResourceExtractor(HTMLParser):
-    """Extracts img, script, link[rel=stylesheet], a, lazyload, CSS url(...), iframe, video/audio/stream, Shadow DOM, WebSocket/SSE, Web Storage/Service Worker, and Canvas 2D/WebGL assets from HTML."""
+    """Extracts img, script, link[rel=stylesheet], a, lazyload, CSS url(...), iframe, video/audio/stream, Shadow DOM, WebSocket/SSE, Web Storage/Service Worker, Canvas 2D/WebGL, and DataTables/export assets from HTML."""
 
     def __init__(self, base_url: str):
         super().__init__()
@@ -162,6 +164,7 @@ class _DOMResourceExtractor(HTMLParser):
         self.gis_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'vector_tile'|'geojson_layer'|'gis_map_layer')
         self.flipbook_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'flipbook_page'|'document_reader_asset'|'page_tile')
         self.audio_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'audio_stream'|'podcast_feed'|'oral_history_audio')
+        self.datatable_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'datatable_rows'|'datatable_endpoint'|'data_export_file')
         self._in_style_tag = False
         self._style_content_chunks: List[str] = []
         self._in_script_tag = False
@@ -513,6 +516,35 @@ class _DOMResourceExtractor(HTMLParser):
                     if not any(u[0] == resolved for u in self.audio_urls):
                         self.audio_urls.append((resolved, raw_val, a_type))
 
+        # Check Dynamic DataTables, Interactive Grid Viewers & CSV/XLSX Export Endpoint attributes and elements
+        if tag_lower in ("table", "div", "a", "button", "iframe", "object") and any(dt_attr in attr_dict for dt_attr in ("data-table-url", "data-grid-endpoint", "data-export-csv", "data-export-xlsx", "data-table-data", "data-grid-url", "data-csv-url", "data-export-file")):
+            dt_src = (
+                attr_dict.get("data-table-url")
+                or attr_dict.get("data-grid-endpoint")
+                or attr_dict.get("data-export-csv")
+                or attr_dict.get("data-export-xlsx")
+                or attr_dict.get("data-table-data")
+                or attr_dict.get("data-grid-url")
+                or attr_dict.get("data-csv-url")
+                or attr_dict.get("data-export-file")
+            )
+            if dt_src:
+                raw_dt = dt_src.strip()
+                if raw_dt and not raw_dt.startswith(("javascript:", "mailto:", "tel:", "#", "data:")):
+                    resolved = resolve_protocol_relative(raw_dt, effective_base)
+                    d_type = "data_export_file" if "export" in raw_dt or raw_dt.lower().endswith((".csv", ".xlsx", ".xls")) else ("datatable_rows" if "row" in raw_dt or "data" in raw_dt else "datatable_endpoint")
+                    if not any(u[0] == resolved for u in self.datatable_urls):
+                        self.datatable_urls.append((resolved, raw_dt, d_type))
+
+        for dt_attr in ("data-table-url", "data-grid-endpoint", "data-export-csv", "data-export-xlsx", "data-table-data", "data-grid-url", "data-csv-url", "data-export-file"):
+            if dt_attr in attr_dict:
+                raw_val = attr_dict[dt_attr].strip()
+                if raw_val and not raw_val.startswith("data:"):
+                    resolved = resolve_protocol_relative(raw_val, effective_base)
+                    d_type = "data_export_file" if "export" in dt_attr or raw_val.lower().endswith((".csv", ".xlsx", ".xls")) else ("datatable_rows" if "row" in dt_attr or "data" in dt_attr else "datatable_endpoint")
+                    if not any(u[0] == resolved for u in self.datatable_urls):
+                        self.datatable_urls.append((resolved, raw_val, d_type))
+
         if tag_lower == "img":
             if "src" in attr_dict:
                 raw_src = attr_dict["src"].strip()
@@ -743,6 +775,14 @@ class _DOMResourceExtractor(HTMLParser):
                     a_type = "podcast_feed" if raw_url.lower().endswith((".xml", ".rss", ".json")) else ("oral_history_audio" if "oral" in raw_url or "history" in raw_url else "audio_stream")
                     if not any(u[0] == resolved for u in self.audio_urls):
                         self.audio_urls.append((resolved, raw_url, a_type))
+
+            for match in DATATABLE_EXPORT_REGEX.finditer(script_text):
+                raw_url = match.group(1).strip()
+                if raw_url and not raw_url.startswith("data:"):
+                    resolved = resolve_protocol_relative(raw_url, effective_base)
+                    d_type = "data_export_file" if "export" in raw_url or raw_url.lower().endswith((".csv", ".xlsx", ".xls")) else ("datatable_rows" if "row" in raw_url or "data" in raw_url else "datatable_endpoint")
+                    if not any(u[0] == resolved for u in self.datatable_urls):
+                        self.datatable_urls.append((resolved, raw_url, d_type))
 
 
 
@@ -1252,6 +1292,28 @@ def inspect_visitor_replay_dom(
                     )
                 )
 
+    # 22. Check Dynamic DataTables, Interactive Grid Viewers & CSV/XLSX Export Assets
+    datatable_broken = 0
+    for resolved_url, raw_url, res_type in extractor.datatable_urls:
+        if cdx_index_urls is not None:
+            if not _is_url_in_cdx(resolved_url, cdx_index_urls, canonical_cdx):
+                datatable_broken += 1
+                if res_type == "data_export_file":
+                    reason_code = "data_export_file_missing"
+                elif res_type == "datatable_rows":
+                    reason_code = "datatable_rows_missing"
+                else:
+                    reason_code = "datatable_endpoint_missing"
+                broken.append(
+                    BrokenResource(
+                        url=resolved_url,
+                        resource_type=res_type,
+                        element_tag=f'<{res_type} url="{raw_url}">',
+                        reason=reason_code,
+                        context=f"Dynamic DataTables / interactive grid viewer / CSV/XLSX export asset ({res_type}) {resolved_url} missing in WACZ archive.",
+                    )
+                )
+
     total_checked = (
         len(extractor.images)
         + len(extractor.lazy_images)
@@ -1274,6 +1336,7 @@ def inspect_visitor_replay_dom(
         + len(extractor.gis_urls)
         + len(extractor.flipbook_urls)
         + len(extractor.audio_urls)
+        + len(extractor.datatable_urls)
     )
     total_broken = len(broken)
     replay_good = total_checked - total_broken
@@ -1340,6 +1403,9 @@ def inspect_visitor_replay_dom(
     if audio_broken > max_allowed_broken_canvas:
         reasons.append(f"broken_audio_streams_detected ({audio_broken} > {max_allowed_broken_canvas})")
 
+    if datatable_broken > max_allowed_broken_canvas:
+        reasons.append(f"broken_datatable_grids_detected ({datatable_broken} > {max_allowed_broken_canvas})")
+
     if any(b.reason == "pywb_rewrite_mismatch" for b in broken):
         reasons.append("pywb_rewrite_mismatch_detected")
 
@@ -1400,6 +1466,9 @@ def inspect_visitor_replay_dom(
     if any(b.reason in ("audio_stream_missing", "podcast_feed_missing", "oral_history_audio_missing") for b in broken):
         reasons.append("dynamic_audio_stream_loss_detected")
 
+    if any(b.reason in ("datatable_rows_missing", "datatable_endpoint_missing", "data_export_file_missing") for b in broken):
+        reasons.append("datatable_export_endpoint_loss_detected")
+
     passed = len(reasons) == 0
 
     remediation = None
@@ -1433,6 +1502,7 @@ def inspect_visitor_replay_dom(
             broken_gis_count=gis_broken,
             broken_flipbook_count=flipbook_broken,
             broken_audio_count=audio_broken,
+            broken_datatable_count=datatable_broken,
             broken_resources=tuple(broken),
             reasons=tuple(reasons),
             actionable_evidence={"page_url": page_url},
@@ -1465,6 +1535,7 @@ def inspect_visitor_replay_dom(
         "broken_gis_count": gis_broken,
         "broken_flipbook_count": flipbook_broken,
         "broken_audio_count": audio_broken,
+        "broken_datatable_count": datatable_broken,
         "quality_score": quality_score,
         "publication_gate_decision": plan.publication_gate_decision if plan else "PASS_RELEASE",
         "targeted_remediation_plan": plan.to_dict() if plan else None,
@@ -1506,6 +1577,7 @@ def inspect_visitor_replay_dom(
         broken_gis_count=gis_broken,
         broken_flipbook_count=flipbook_broken,
         broken_audio_count=audio_broken,
+        broken_datatable_count=datatable_broken,
         broken_resources=tuple(broken),
         reasons=tuple(reasons),
         actionable_evidence=actionable_evidence,
@@ -1606,6 +1678,11 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
         or b.resource_type in ("flipbook_page", "document_reader_asset", "page_tile")
         for b in broken_resources
     )
+    has_datatable = any(
+        b.reason in ("datatable_rows_missing", "datatable_endpoint_missing", "data_export_file_missing")
+        or b.resource_type in ("datatable_rows", "datatable_endpoint", "data_export_file")
+        for b in broken_resources
+    )
     has_audio = any(
         b.reason in ("audio_stream_missing", "podcast_feed_missing", "oral_history_audio_missing")
         or b.resource_type in ("audio_stream", "podcast_feed", "oral_history_audio")
@@ -1688,6 +1765,10 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
     has_links = any(b.resource_type == "link" for b in broken_resources)
 
     suggestions = []
+    if has_datatable:
+        suggestions.append(
+            "Re-crawl with dynamic DataTables, interactive grid viewer & CSV/XLSX export behavior rules enabled '--behaviors autoclick,autofetch,autoscroll,datatable' with API endpoint and data export pre-fetching."
+        )
     if has_audio:
         suggestions.append(
             "Re-crawl with dynamic audio/podcast player & oral history archive stream behavior rules enabled '--behaviors autoclick,autofetch,autoscroll,audio' and audio stream manifest pre-fetching."
@@ -1881,6 +1962,8 @@ def generate_targeted_remediation_plan(
     res_types = {b.resource_type for b in result.broken_resources}
     reasons_set = set(result.reasons)
 
+    if any(r in reasons_set for r in ("datatable_export_endpoint_loss_detected", "broken_datatable_grids_detected")) or any(t in res_types for t in ("datatable_rows", "datatable_endpoint", "data_export_file")):
+        behaviors.append("datatable")
     if any(r in reasons_set for r in ("dynamic_audio_stream_loss_detected", "broken_audio_streams_detected")) or any(t in res_types for t in ("audio_stream", "podcast_feed", "oral_history_audio")):
         behaviors.append("audio")
     if any(r in reasons_set for r in ("embedded_document_reader_loss_detected", "broken_flipbook_viewers_detected")) or any(t in res_types for t in ("flipbook_page", "document_reader_asset", "page_tile")):
