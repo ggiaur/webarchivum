@@ -41,14 +41,16 @@ MULTILINGUAL_LOCALE_REGEX = re.compile(r'(?:loadLocale|switchLanguage|fetchI18n|
 LIGHTBOX_GALLERY_REGEX = re.compile(r'(?:openLightbox|loadGalleryImage|fetchGalleryData|showPhotoSwipe|viewGalleryPhoto|loadHighRes)\(\s*[\'"]([^\'"]+)[\'"]', re.IGNORECASE)
 # Regular expressions to extract interactive map / GIS vector tile layers and GeoJSON overlays
 GIS_MAP_TILES_REGEX = re.compile(r'(?:loadGeoJSON|fetchVectorTiles|addMapLayer|loadGisLayer|initLeafletMap|initOpenLayers|fetchTileLayer|mapTileUrl)\(\s*[\'"]([^\'"]+)[\'"]', re.IGNORECASE)
+# Regular expressions to extract embedded document reader / flipbook viewer page assets
+FLIPBOOK_DOC_REGEX = re.compile(r'(?:loadFlipbook|initDearFlip|turnToPage|fetchPageTile|loadDocumentPages|initFlowPaper|loadIssuuPdf|flipbookPageUrl)\(\s*[\'"]([^\'"]+)[\'"]', re.IGNORECASE)
 
 
 @dataclass(frozen=True)
 class BrokenResource:
     url: str
-    resource_type: str  # "image" | "link" | "script" | "style" | "media" | "lazy_image" | "rewrite_mismatch" | "css_image" | "css_font" | "iframe" | "video" | "audio" | "media_stream" | "script_bundle" | "style_sheet" | "shadow_dom" | "custom_element" | "websocket" | "sse_stream" | "web_storage" | "state_hydration" | "service_worker" | "canvas_snapshot" | "webgl_texture" | "webgl_model" | "shader_source" | "webxr_environment" | "webxr_skybox" | "spatial_audio" | "spatial_anchor" | "pdf_document" | "pdfjs_worker" | "pdf_attachment" | "consent_shield" | "cookie_banner" | "modal_overlay" | "pagination_feed" | "infinite_scroll" | "page_endpoint" | "search_form" | "search_api" | "search_query" | "multilingual_locale" | "locale_bundle" | "alternate_language" | "lightbox_image" | "gallery_metadata" | "highres_photo" | "vector_tile" | "geojson_layer" | "gis_map_layer"
+    resource_type: str  # "image" | "link" | "script" | "style" | "media" | "lazy_image" | "rewrite_mismatch" | "css_image" | "css_font" | "iframe" | "video" | "audio" | "media_stream" | "script_bundle" | "style_sheet" | "shadow_dom" | "custom_element" | "websocket" | "sse_stream" | "web_storage" | "state_hydration" | "service_worker" | "canvas_snapshot" | "webgl_texture" | "webgl_model" | "shader_source" | "webxr_environment" | "webxr_skybox" | "spatial_audio" | "spatial_anchor" | "pdf_document" | "pdfjs_worker" | "pdf_attachment" | "consent_shield" | "cookie_banner" | "modal_overlay" | "pagination_feed" | "infinite_scroll" | "page_endpoint" | "search_form" | "search_api" | "search_query" | "multilingual_locale" | "locale_bundle" | "alternate_language" | "lightbox_image" | "gallery_metadata" | "highres_photo" | "vector_tile" | "geojson_layer" | "gis_map_layer" | "flipbook_page" | "document_reader_asset" | "page_tile"
     element_tag: str
-    reason: str  # "missing_in_cdx" | "http_404" | "net_failed" | "replay_bad" | "pywb_rewrite_mismatch" | "dynamic_lazyload_missing" | "css_background_missing" | "css_font_missing" | "iframe_embedded_missing" | "media_resource_missing" | "media_stream_missing" | "script_bundle_missing" | "style_sheet_missing" | "shadow_dom_resource_missing" | "shadow_dom_template_missing" | "websocket_endpoint_missing" | "sse_stream_missing" | "storage_state_missing" | "hydration_data_missing" | "service_worker_missing" | "canvas_snapshot_missing" | "webgl_texture_missing" | "webgl_model_missing" | "shader_source_missing" | "webxr_environment_missing" | "webxr_skybox_missing" | "spatial_audio_missing" | "spatial_anchor_missing" | "pdf_document_missing" | "pdfjs_worker_missing" | "pdf_attachment_missing" | "consent_shield_blocking" | "cookie_banner_blocking" | "modal_overlay_blocking" | "pagination_feed_missing" | "infinite_scroll_missing" | "page_endpoint_missing" | "search_form_missing" | "search_api_missing" | "search_query_missing" | "multilingual_locale_missing" | "locale_bundle_missing" | "alternate_language_missing" | "lightbox_image_missing" | "gallery_metadata_missing" | "highres_photo_missing" | "vector_tile_missing" | "geojson_layer_missing" | "gis_map_layer_missing"
+    reason: str  # "missing_in_cdx" | "http_404" | "net_failed" | "replay_bad" | "pywb_rewrite_mismatch" | "dynamic_lazyload_missing" | "css_background_missing" | "css_font_missing" | "iframe_embedded_missing" | "media_resource_missing" | "media_stream_missing" | "script_bundle_missing" | "style_sheet_missing" | "shadow_dom_resource_missing" | "shadow_dom_template_missing" | "websocket_endpoint_missing" | "sse_stream_missing" | "storage_state_missing" | "hydration_data_missing" | "service_worker_missing" | "canvas_snapshot_missing" | "webgl_texture_missing" | "webgl_model_missing" | "shader_source_missing" | "webxr_environment_missing" | "webxr_skybox_missing" | "spatial_audio_missing" | "spatial_anchor_missing" | "pdf_document_missing" | "pdfjs_worker_missing" | "pdf_attachment_missing" | "consent_shield_blocking" | "cookie_banner_blocking" | "modal_overlay_blocking" | "pagination_feed_missing" | "infinite_scroll_missing" | "page_endpoint_missing" | "search_form_missing" | "search_api_missing" | "search_query_missing" | "multilingual_locale_missing" | "locale_bundle_missing" | "alternate_language_missing" | "lightbox_image_missing" | "gallery_metadata_missing" | "highres_photo_missing" | "vector_tile_missing" | "geojson_layer_missing" | "gis_map_layer_missing" | "flipbook_page_missing" | "document_reader_asset_missing" | "page_tile_missing"
     context: str  # HTML snippet or context description
 
 
@@ -77,6 +79,7 @@ class VisitorReplayQualityResult:
     broken_multilingual_count: int = 0
     broken_lightbox_count: int = 0
     broken_gis_count: int = 0
+    broken_flipbook_count: int = 0
     broken_resources: Tuple[BrokenResource, ...] = ()
     reasons: Tuple[str, ...] = ()
     actionable_evidence: Dict[str, Any] = field(default_factory=dict)
@@ -109,6 +112,7 @@ class _DOMResourceExtractor(HTMLParser):
         self.multilingual_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'multilingual_locale'|'locale_bundle'|'alternate_language')
         self.lightbox_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'lightbox_image'|'gallery_metadata'|'highres_photo')
         self.gis_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'vector_tile'|'geojson_layer'|'gis_map_layer')
+        self.flipbook_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'flipbook_page'|'document_reader_asset'|'page_tile')
         self._in_style_tag = False
         self._style_content_chunks: List[str] = []
         self._in_script_tag = False
@@ -396,6 +400,40 @@ class _DOMResourceExtractor(HTMLParser):
                     if not any(u[0] == resolved for u in self.gis_urls):
                         self.gis_urls.append((resolved, raw_val, g_type))
 
+        # Check Embedded Document Reader & Flipbook Viewer attributes and elements
+        if tag_lower in ("div", "canvas", "iframe", "object", "embed", "a") and any(fb_attr in attr_dict for fb_attr in ("data-flipbook-src", "data-dearflip-src", "data-turnjs-src", "data-document-pages", "data-book-config", "data-flipbook-pages", "data-flowpaper-src", "data-issuu-pdf", "data-pdf-flipbook", "data-page-tile-template", "data-page-url", "page-tiles", "flipbook-pages")):
+            fb_src = (
+                attr_dict.get("data-flipbook-src")
+                or attr_dict.get("data-dearflip-src")
+                or attr_dict.get("data-turnjs-src")
+                or attr_dict.get("data-document-pages")
+                or attr_dict.get("data-book-config")
+                or attr_dict.get("data-flipbook-pages")
+                or attr_dict.get("data-flowpaper-src")
+                or attr_dict.get("data-issuu-pdf")
+                or attr_dict.get("data-pdf-flipbook")
+                or attr_dict.get("data-page-tile-template")
+                or attr_dict.get("data-page-url")
+                or attr_dict.get("page-tiles")
+                or attr_dict.get("flipbook-pages")
+            )
+            if fb_src:
+                raw_fb = fb_src.strip()
+                if raw_fb and not raw_fb.startswith(("javascript:", "mailto:", "tel:", "#", "data:")):
+                    resolved = resolve_protocol_relative(raw_fb, effective_base)
+                    f_type = "page_tile" if "tile" in raw_fb or "{page}" in raw_fb else ("flipbook_page" if raw_fb.lower().endswith((".png", ".jpg", ".svg", ".pdf")) else "document_reader_asset")
+                    if not any(u[0] == resolved for u in self.flipbook_urls):
+                        self.flipbook_urls.append((resolved, raw_fb, f_type))
+
+        for fb_attr in ("data-flipbook-src", "data-dearflip-src", "data-turnjs-src", "data-document-pages", "data-book-config", "data-flipbook-pages", "data-flowpaper-src", "data-issuu-pdf", "data-pdf-flipbook", "data-page-tile-template", "data-page-url", "page-tiles", "flipbook-pages"):
+            if fb_attr in attr_dict:
+                raw_val = attr_dict[fb_attr].strip()
+                if raw_val and not raw_val.startswith("data:"):
+                    resolved = resolve_protocol_relative(raw_val, effective_base)
+                    f_type = "page_tile" if "tile" in fb_attr or "{page}" in raw_val else ("flipbook_page" if raw_val.lower().endswith((".png", ".jpg", ".svg", ".pdf")) else "document_reader_asset")
+                    if not any(u[0] == resolved for u in self.flipbook_urls):
+                        self.flipbook_urls.append((resolved, raw_val, f_type))
+
         if tag_lower == "img":
             if "src" in attr_dict:
                 raw_src = attr_dict["src"].strip()
@@ -610,6 +648,14 @@ class _DOMResourceExtractor(HTMLParser):
                     g_type = "geojson_layer" if raw_url.lower().endswith((".geojson", ".topojson")) else ("vector_tile" if raw_url.lower().endswith((".pbf", ".mvt")) or "{z}" in raw_url else "gis_map_layer")
                     if not any(u[0] == resolved for u in self.gis_urls):
                         self.gis_urls.append((resolved, raw_url, g_type))
+
+            for match in FLIPBOOK_DOC_REGEX.finditer(script_text):
+                raw_url = match.group(1).strip()
+                if raw_url and not raw_url.startswith("data:"):
+                    resolved = resolve_protocol_relative(raw_url, effective_base)
+                    f_type = "page_tile" if "tile" in raw_url or "{page}" in raw_url else ("flipbook_page" if raw_url.lower().endswith((".png", ".jpg", ".svg", ".pdf")) else "document_reader_asset")
+                    if not any(u[0] == resolved for u in self.flipbook_urls):
+                        self.flipbook_urls.append((resolved, raw_url, f_type))
 
 
 def resolve_protocol_relative(raw_url: str, base_url: str) -> str:
@@ -1074,6 +1120,28 @@ def inspect_visitor_replay_dom(
                     )
                 )
 
+    # 20. Check Embedded Document Reader & Flipbook Viewer Assets
+    flipbook_broken = 0
+    for resolved_url, raw_url, res_type in extractor.flipbook_urls:
+        if cdx_index_urls is not None:
+            if not _is_url_in_cdx(resolved_url, cdx_index_urls, canonical_cdx):
+                flipbook_broken += 1
+                if res_type == "flipbook_page":
+                    reason_code = "flipbook_page_missing"
+                elif res_type == "page_tile":
+                    reason_code = "page_tile_missing"
+                else:
+                    reason_code = "document_reader_asset_missing"
+                broken.append(
+                    BrokenResource(
+                        url=resolved_url,
+                        resource_type=res_type,
+                        element_tag=f'<{res_type} url="{raw_url}">',
+                        reason=reason_code,
+                        context=f"Embedded document reader / flipbook viewer asset ({res_type}) {resolved_url} missing in WACZ archive.",
+                    )
+                )
+
     total_checked = (
         len(extractor.images)
         + len(extractor.lazy_images)
@@ -1094,6 +1162,7 @@ def inspect_visitor_replay_dom(
         + len(extractor.multilingual_urls)
         + len(extractor.lightbox_urls)
         + len(extractor.gis_urls)
+        + len(extractor.flipbook_urls)
     )
     total_broken = len(broken)
     replay_good = total_checked - total_broken
@@ -1154,6 +1223,9 @@ def inspect_visitor_replay_dom(
     if gis_broken > max_allowed_broken_canvas:
         reasons.append(f"broken_gis_map_layers_detected ({gis_broken} > {max_allowed_broken_canvas})")
 
+    if flipbook_broken > max_allowed_broken_canvas:
+        reasons.append(f"broken_flipbook_viewers_detected ({flipbook_broken} > {max_allowed_broken_canvas})")
+
     if any(b.reason == "pywb_rewrite_mismatch" for b in broken):
         reasons.append("pywb_rewrite_mismatch_detected")
 
@@ -1208,6 +1280,9 @@ def inspect_visitor_replay_dom(
     if any(b.reason in ("vector_tile_missing", "geojson_layer_missing", "gis_map_layer_missing") for b in broken):
         reasons.append("gis_vector_tile_loss_detected")
 
+    if any(b.reason in ("flipbook_page_missing", "document_reader_asset_missing", "page_tile_missing") for b in broken):
+        reasons.append("embedded_document_reader_loss_detected")
+
     passed = len(reasons) == 0
 
     remediation = None
@@ -1237,6 +1312,7 @@ def inspect_visitor_replay_dom(
         "broken_multilingual_count": multilingual_broken,
         "broken_lightbox_count": lightbox_broken,
         "broken_gis_count": gis_broken,
+        "broken_flipbook_count": flipbook_broken,
         "quality_score": quality_score,
         "broken_resources": [
             {
@@ -1274,6 +1350,7 @@ def inspect_visitor_replay_dom(
         broken_multilingual_count=multilingual_broken,
         broken_lightbox_count=lightbox_broken,
         broken_gis_count=gis_broken,
+        broken_flipbook_count=flipbook_broken,
         broken_resources=tuple(broken),
         reasons=tuple(reasons),
         actionable_evidence=actionable_evidence,
@@ -1368,6 +1445,11 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
     if not broken_resources:
         return "No remediation needed."
 
+    has_flipbook = any(
+        b.reason in ("flipbook_page_missing", "document_reader_asset_missing", "page_tile_missing")
+        or b.resource_type in ("flipbook_page", "document_reader_asset", "page_tile")
+        for b in broken_resources
+    )
     has_gis = any(
         b.reason in ("vector_tile_missing", "geojson_layer_missing", "gis_map_layer_missing")
         or b.resource_type in ("vector_tile", "geojson_layer", "gis_map_layer")
@@ -1445,6 +1527,10 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
     has_links = any(b.resource_type == "link" for b in broken_resources)
 
     suggestions = []
+    if has_flipbook:
+        suggestions.append(
+            "Re-crawl with embedded document reader & flipbook viewer behavior rules enabled '--behaviors autoclick,autofetch,autoscroll,flipbook' and page tile asset pre-fetching."
+        )
     if has_gis:
         suggestions.append(
             "Re-crawl with interactive map & GIS vector tile / GeoJSON capture rules enabled '--behaviors autoclick,autofetch,autoscroll,gis' with tile bounding box pre-fetching."

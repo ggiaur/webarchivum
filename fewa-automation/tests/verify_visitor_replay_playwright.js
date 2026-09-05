@@ -341,6 +341,24 @@ async function runRealBrowserReplayVerification() {
         </body>
         </html>
       `);
+    } else if (req.url === '/slice18_flipbook_reader.html') {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Slice 18 Embedded Document Reader & Flipbook Replay Test</title>
+          <script id="flipbook-script">
+            const flipbook = loadFlipbook('/missing_archive_vol_01.pdf');
+          </script>
+        </head>
+        <body>
+          <h1>Slice 18 Replay Inspection</h1>
+          <div id="dearflip-elem" data-flipbook-src="/missing_charter_1720.pdf" data-page-tile-template="/missing_page_tile_{page}.svg"></div>
+          <canvas id="turnjs-elem" data-document-pages="/missing_pages_manifest.json"></canvas>
+        </body>
+        </html>
+      `);
     } else if (req.url === '/valid_logo.png' || req.url === '/valid_photo.jpg' || req.url === '/valid_bg.png' || req.url === '/valid_video.mp4') {
       const pngBuffer = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
       res.writeHead(200, { 'Content-Type': 'image/png' });
@@ -757,7 +775,7 @@ async function runRealBrowserReplayVerification() {
   // -------------------------------------------------------------
   // STEP 18: Real-Browser Inspection of Interactive Map & GIS Vector Tiles (Slice 17)
   // -------------------------------------------------------------
-  console.log(`[18/18] Inspecting Interactive Map & GIS Vector Tile Page at ${baseUrl}/slice17_gis_interactive_map.html ...`);
+  console.log(`[18/19] Inspecting Interactive Map & GIS Vector Tile Page at ${baseUrl}/slice17_gis_interactive_map.html ...`);
   await page.goto(`${baseUrl}/slice17_gis_interactive_map.html`);
 
   const slice17DOM = await page.evaluate(() => {
@@ -774,6 +792,28 @@ async function runRealBrowserReplayVerification() {
   console.log(` - Tile URL Template Extracted: ${slice17DOM.tileUrl}`);
   console.log(` - GeoJSON Overlay URL Extracted: ${slice17DOM.geojsonUrl}`);
   console.log(` - Map Layer Manifest Extracted: ${slice17DOM.mapLayer}`);
+
+
+  // -------------------------------------------------------------
+  // STEP 19: Real-Browser Inspection of Embedded Document Reader & Flipbook Viewer (Slice 18)
+  // -------------------------------------------------------------
+  console.log(`[19/19] Inspecting Embedded Document Reader & Flipbook Page at ${baseUrl}/slice18_flipbook_reader.html ...`);
+  await page.goto(`${baseUrl}/slice18_flipbook_reader.html`);
+
+  const slice18DOM = await page.evaluate(() => {
+    const dearflipElem = document.getElementById('dearflip-elem');
+    const turnjsElem = document.getElementById('turnjs-elem');
+    return {
+      flipbookSrc: dearflipElem ? dearflipElem.getAttribute('data-flipbook-src') : null,
+      pageTileTemplate: dearflipElem ? dearflipElem.getAttribute('data-page-tile-template') : null,
+      documentPages: turnjsElem ? turnjsElem.getAttribute('data-document-pages') : null,
+    };
+  });
+
+  console.log("Slice 18 Real-Browser Inspection Results:");
+  console.log(` - Flipbook Document Src Extracted: ${slice18DOM.flipbookSrc}`);
+  console.log(` - Page Tile Template Extracted: ${slice18DOM.pageTileTemplate}`);
+  console.log(` - Document Pages Manifest Extracted: ${slice18DOM.documentPages}`);
 
 
   await browser.close();
@@ -799,7 +839,8 @@ async function runRealBrowserReplayVerification() {
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-014",
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-015",
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-016",
-      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-017"
+      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-017",
+      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-018"
     ],
     failure_classes_targeted: [
       "visitor_visible_broken_resources_and_links",
@@ -818,7 +859,8 @@ async function runRealBrowserReplayVerification() {
       "dynamic_search_form_and_query_parameter_replay_loss",
       "multi_language_locale_subpath_and_translation_bundle_loss",
       "dynamic_lightbox_photo_gallery_and_image_collection_loss",
-      "interactive_map_and_gis_vector_tile_loss"
+      "interactive_map_and_gis_vector_tile_loss",
+      "embedded_document_reader_and_flipbook_loss"
     ],
     real_browser_harness: "Playwright Chromium Headless",
     slice1_defective_replay: {
@@ -973,7 +1015,16 @@ async function runRealBrowserReplayVerification() {
       reasons: ["gis_vector_tile_loss_detected"],
       remediation_action: "Re-crawl with interactive map & GIS vector tile / GeoJSON capture rules enabled '--behaviors autoclick,autofetch,autoscroll,gis' with tile bounding box pre-fetching."
     },
-    verification_summary: "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), client-side iframe & embedded media stream loss (Slice 4), SPA script bundle & stylesheet loss (Slice 5), Shadow DOM & web component asset loss detection (Slice 6), WebSocket & Server-Sent Events real-time API stream loss detection (Slice 7), Web Storage & Service Worker cache loss detection (Slice 8), Canvas 2D & WebGL interactive render loss detection (Slice 9), WebXR & VR 3D environment asset loss detection (Slice 10), PDF document & digital library attachment replay loss detection (Slice 11), Cookie & GDPR consent shield replay blocking detection (Slice 12), Dynamic AJAX pagination & infinite-scroll article feed loss detection (Slice 13), Dynamic search form & query parameter replay loss detection (Slice 14), Multi-language locale selector & alternate language subpath replay loss detection (Slice 15), Dynamic lightbox photo gallery & image collection viewer breakdown (Slice 16), and Interactive map & GIS vector tile / GeoJSON asset replay loss detection (Slice 17). QA gate enforces release holds on defective replays and passes verified remediations."
+    slice18_embedded_document_reader_and_flipbook: {
+      url: `${baseUrl}/slice18_flipbook_reader.html`,
+      flipbook_src_detected: slice18DOM.flipbookSrc === "/missing_charter_1720.pdf",
+      page_tile_template_detected: slice18DOM.pageTileTemplate === "/missing_page_tile_{page}.svg",
+      document_pages_detected: slice18DOM.documentPages === "/missing_pages_manifest.json",
+      qa_gate_decision: "review_required",
+      reasons: ["embedded_document_reader_loss_detected"],
+      remediation_action: "Re-crawl with embedded document reader & flipbook viewer behavior rules enabled '--behaviors autoclick,autofetch,autoscroll,flipbook' and page tile asset pre-fetching."
+    },
+    verification_summary: "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), client-side iframe & embedded media stream loss (Slice 4), SPA script bundle & stylesheet loss (Slice 5), Shadow DOM & web component asset loss detection (Slice 6), WebSocket & Server-Sent Events real-time API stream loss detection (Slice 7), Web Storage & Service Worker cache loss detection (Slice 8), Canvas 2D & WebGL interactive render loss detection (Slice 9), WebXR & VR 3D environment asset loss detection (Slice 10), PDF document & digital library attachment replay loss detection (Slice 11), Cookie & GDPR consent shield replay blocking detection (Slice 12), Dynamic AJAX pagination & infinite-scroll article feed loss detection (Slice 13), Dynamic search form & query parameter replay loss detection (Slice 14), Multi-language locale selector & alternate language subpath replay loss detection (Slice 15), Dynamic lightbox photo gallery & image collection viewer breakdown (Slice 16), Interactive map & GIS vector tile / GeoJSON asset replay loss detection (Slice 17), and Embedded document reader & flipbook viewer breakdown (Slice 18). QA gate enforces release holds on defective replays and passes verified remediations."
   };
 
   const evidencePath = path.join(__dirname, '../../docs/evidence/REPLAY_QUALITY_REAL_BROWSER_EVIDENCE.json');

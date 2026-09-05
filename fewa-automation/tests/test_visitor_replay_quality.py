@@ -777,6 +777,41 @@ def test_visitor_replay_dom_detects_gis_map_defects():
     assert "interactive map & GIS vector tile / GeoJSON capture rules enabled" in result.remediation_suggestion
 
 
+def test_visitor_replay_dom_detects_embedded_document_reader_defects():
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <script>
+            const book = loadFlipbook('https://example.org/documents/archive_vol_01.pdf');
+            const pageTile = fetchPageTile('/viewer/tiles/page_02_tile_01.png');
+        </script>
+    </head>
+    <body>
+        <h1>Municipal Archive Flipbook Document Viewer</h1>
+        <div id="dearflip" data-flipbook-src="https://example.org/documents/charter_1720.pdf" data-page-tile-template="/viewer/tiles/{page}.svg"></div>
+        <canvas id="turnjs" data-document-pages="/viewer/pages_manifest.json"></canvas>
+    </body>
+    </html>
+    """
+    page_url = "https://example.org/archive/viewer"
+    # CDX index contains base page and pages_manifest.json, but misses archive_vol_01.pdf, page_02_tile_01.png, charter_1720.pdf, and {page}.svg
+    cdx_set = {
+        "https://example.org/archive/viewer",
+        "https://example.org/viewer/pages_manifest.json",
+    }
+
+    result = inspect_visitor_replay_dom(html, page_url, cdx_index_urls=cdx_set)
+
+    assert not result.passed
+    assert result.broken_flipbook_count >= 3
+    assert "embedded_document_reader_loss_detected" in result.reasons
+    reason_codes = [b.reason for b in result.broken_resources]
+    assert "flipbook_page_missing" in reason_codes or "page_tile_missing" in reason_codes
+    assert "embedded document reader & flipbook viewer behavior rules enabled" in result.remediation_suggestion
+
+
+
 
 
 
