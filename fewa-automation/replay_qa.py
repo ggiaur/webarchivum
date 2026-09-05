@@ -19,9 +19,9 @@ CSS_URL_REGEX = re.compile(r'url\(\s*[\'"]?([^\'")\s]+)[\'"]?\s*\)', re.IGNORECA
 @dataclass(frozen=True)
 class BrokenResource:
     url: str
-    resource_type: str  # "image" | "link" | "script" | "style" | "media" | "lazy_image" | "rewrite_mismatch" | "css_image" | "css_font"
+    resource_type: str  # "image" | "link" | "script" | "style" | "media" | "lazy_image" | "rewrite_mismatch" | "css_image" | "css_font" | "iframe" | "video" | "audio" | "media_stream"
     element_tag: str
-    reason: str  # "missing_in_cdx" | "http_404" | "net_failed" | "replay_bad" | "pywb_rewrite_mismatch" | "dynamic_lazyload_missing" | "css_background_missing" | "css_font_missing"
+    reason: str  # "missing_in_cdx" | "http_404" | "net_failed" | "replay_bad" | "pywb_rewrite_mismatch" | "dynamic_lazyload_missing" | "css_background_missing" | "css_font_missing" | "iframe_embedded_missing" | "media_resource_missing" | "media_stream_missing"
     context: str  # HTML snippet or context description
 
 
@@ -35,6 +35,7 @@ class VisitorReplayQualityResult:
     broken_image_count: int
     broken_link_count: int
     broken_css_count: int
+    broken_media_count: int
     broken_resources: Tuple[BrokenResource, ...]
     reasons: Tuple[str, ...]
     actionable_evidence: Dict[str, Any]
@@ -42,7 +43,7 @@ class VisitorReplayQualityResult:
 
 
 class _DOMResourceExtractor(HTMLParser):
-    """Extracts img, script, link[rel=stylesheet], a, lazyload, and CSS url(...) assets from HTML."""
+    """Extracts img, script, link[rel=stylesheet], a, lazyload, CSS url(...), iframe, and embedded video/audio/stream assets from HTML."""
 
     def __init__(self, base_url: str):
         super().__init__()
@@ -53,6 +54,7 @@ class _DOMResourceExtractor(HTMLParser):
         self.styles: List[Tuple[str, str]] = []         # (resolved_url, raw_href)
         self.scripts: List[Tuple[str, str]] = []        # (resolved_url, raw_src)
         self.css_urls: List[Tuple[str, str, str]] = []  # (resolved_url, raw_url, type: 'css_image'|'css_font')
+        self.media_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'iframe'|'video'|'audio'|'media_stream')
         self._in_style_tag = False
         self._style_content_chunks: List[str] = []
 
@@ -99,6 +101,23 @@ class _DOMResourceExtractor(HTMLParser):
                         resolved = resolve_protocol_relative(parts[0], effective_base)
                         self.lazy_images.append((resolved, parts[0]))
 
+        elif tag_lower in ("iframe", "frame"):
+            for src_attr in ("src", "data-src"):
+                if src_attr in attr_dict:
+                    raw_src = attr_dict[src_attr].strip()
+                    if raw_src and not raw_src.startswith(("javascript:", "about:", "data:")):
+                        resolved = resolve_protocol_relative(raw_src, effective_base)
+                        self.media_urls.append((resolved, raw_src, "iframe"))
+
+        elif tag_lower in ("video", "audio", "source", "embed", "object"):
+            media_src = attr_dict.get("src") or attr_dict.get("data")
+            if media_src:
+                raw_src = media_src.strip()
+                if raw_src and not raw_src.startswith("data:"):
+                    resolved = resolve_protocol_relative(raw_src, effective_base)
+                    res_type = "media_stream" if _is_media_stream_url(resolved) else (tag_lower if tag_lower in ("video", "audio") else "media")
+                    self.media_urls.append((resolved, raw_src, res_type))
+
         elif tag_lower == "a" and "href" in attr_dict:
             raw_href = attr_dict["href"].strip()
             if raw_href and not raw_href.startswith(("javascript:", "mailto:", "tel:", "#")):
@@ -116,6 +135,7 @@ class _DOMResourceExtractor(HTMLParser):
             if raw_src and not raw_src.startswith("data:"):
                 resolved = resolve_protocol_relative(raw_src, effective_base)
                 self.scripts.append((resolved, raw_src))
+
 
     def handle_data(self, data: str):
         if self._in_style_tag:
@@ -182,11 +202,12 @@ def inspect_visitor_replay_dom(
     max_allowed_broken_images: int = 0,
     max_allowed_broken_links: int = 0,
     max_allowed_broken_css: int = 0,
+    max_allowed_broken_media: int = 0,
     canonicalize_cdx: bool = True,
 ) -> VisitorReplayQualityResult:
-    """Inspect visitor-visible DOM for broken images, missing links, pywb rewrite mismatches, lazy-load, and CSS embedded asset defects.
+    """Inspect visitor-visible DOM for broken images, missing links, pywb rewrite mismatches, lazy-load, CSS embedded assets, and iframe/embedded media defects.
 
-    Checks rendered DOM elements (img, lazyload, a, link, script, CSS url(...) background-images & fonts) against CDX.
+    Checks rendered DOM elements (img, lazyload, a, link, script, CSS url(...), iframe, video/audio/streams) against CDX.
     Returns structured VisitorReplayQualityResult with actionable evidence.
     """
     extractor = extract_dom_resources(html_content, page_url)
@@ -267,11 +288,38 @@ def inspect_visitor_replay_dom(
                         )
                     )
 
+    # 5. Check Embedded iFrames and Video/Audio Media Streams
+    media_broken = 0
+    for resolved_url, raw_url, res_type in extractor.media_urls:
+        if cdx_index_urls is not None:
+            if not _is_url_in_cdx(resolved_url, cdx_index_urls, canonical_cdx):
+                media_broken += 1
+                if res_type == "iframe":
+                    reason_code = "iframe_embedded_missing"
+                    tag_repr = f'<iframe src="{raw_url}">'
+                elif res_type == "media_stream":
+                    reason_code = "media_stream_missing"
+                    tag_repr = f'<source src="{raw_url}">'
+                else:
+                    reason_code = "media_resource_missing"
+                    tag_repr = f'<{res_type} src="{raw_url}">'
+
+                broken.append(
+                    BrokenResource(
+                        url=resolved_url,
+                        resource_type=res_type,
+                        element_tag=tag_repr,
+                        reason=reason_code,
+                        context=f"Embedded {res_type} resource {resolved_url} missing in WACZ archive.",
+                    )
+                )
+
     total_checked = (
         len(extractor.images)
         + len(extractor.lazy_images)
         + len(extractor.css_urls)
         + len(extractor.links)
+        + len(extractor.media_urls)
         + len(extractor.styles)
         + len(extractor.scripts)
     )
@@ -292,6 +340,9 @@ def inspect_visitor_replay_dom(
     if css_broken > max_allowed_broken_css:
         reasons.append(f"broken_css_resources_detected ({css_broken} > {max_allowed_broken_css})")
 
+    if media_broken > max_allowed_broken_media:
+        reasons.append(f"broken_embedded_media_detected ({media_broken} > {max_allowed_broken_media})")
+
     if any(b.reason == "pywb_rewrite_mismatch" for b in broken):
         reasons.append("pywb_rewrite_mismatch_detected")
 
@@ -300,6 +351,9 @@ def inspect_visitor_replay_dom(
 
     if any(b.reason in ("css_background_missing", "css_font_missing") for b in broken):
         reasons.append("css_embedded_resources_missing_detected")
+
+    if any(b.reason in ("iframe_embedded_missing", "media_resource_missing", "media_stream_missing") for b in broken):
+        reasons.append("embedded_media_resources_missing_detected")
 
     passed = len(reasons) == 0
 
@@ -315,6 +369,7 @@ def inspect_visitor_replay_dom(
         "broken_image_count": total_bad_images,
         "broken_link_count": broken_links,
         "broken_css_count": css_broken,
+        "broken_media_count": media_broken,
         "quality_score": quality_score,
         "broken_resources": [
             {
@@ -337,6 +392,7 @@ def inspect_visitor_replay_dom(
         broken_image_count=total_bad_images,
         broken_link_count=broken_links,
         broken_css_count=css_broken,
+        broken_media_count=media_broken,
         broken_resources=tuple(broken),
         reasons=tuple(reasons),
         actionable_evidence=actionable_evidence,
@@ -409,6 +465,7 @@ def inspect_visitor_replay_qa_log(
         broken_image_count=len(broken),
         broken_link_count=0,
         broken_css_count=0,
+        broken_media_count=0,
         broken_resources=tuple(broken),
         reasons=tuple(reasons),
         actionable_evidence=actionable_evidence,
@@ -421,6 +478,11 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
     if not broken_resources:
         return "No remediation needed."
 
+    has_media = any(
+        b.reason in ("iframe_embedded_missing", "media_resource_missing", "media_stream_missing")
+        or b.resource_type in ("iframe", "video", "audio", "media_stream")
+        for b in broken_resources
+    )
     has_rewrite_mismatch = any(b.reason == "pywb_rewrite_mismatch" for b in broken_resources)
     has_lazyload = any(b.reason == "dynamic_lazyload_missing" or b.resource_type == "lazy_image" for b in broken_resources)
     has_css = any(b.reason in ("css_background_missing", "css_font_missing") or b.resource_type in ("css_image", "css_font") for b in broken_resources)
@@ -428,6 +490,10 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
     has_links = any(b.resource_type == "link" for b in broken_resources)
 
     suggestions = []
+    if has_media:
+        suggestions.append(
+            "Re-crawl with expanded media & iframe behaviors '--behaviors autoclick,autofetch,autoscroll,media' and video extraction enabled."
+        )
     if has_css:
         suggestions.append(
             "Re-crawl with expanded CSS & font capture rules `--media max` and sub-resource fetching enabled."
@@ -440,7 +506,7 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
         suggestions.append(
             "Enable `--behaviors autoclick,autofetch,autoscroll` with scroll delays to trigger and capture dynamic lazy-loaded images."
         )
-    if has_images and not has_lazyload and not has_rewrite_mismatch and not has_css:
+    if has_images and not has_lazyload and not has_rewrite_mismatch and not has_css and not has_media:
         suggestions.append(
             "Re-crawl with expanded behaviors `--behaviors autoclick,autofetch,autoscroll` and `--media max` "
             "to capture lazy-loaded images, responsive srcset images, and dynamic consent-shielded assets."
@@ -461,6 +527,12 @@ def _is_font_url(url: str) -> bool:
     return path.endswith((".woff2", ".woff", ".ttf", ".otf", ".eot"))
 
 
+def _is_media_stream_url(url: str) -> bool:
+    """Check if URL points to an HLS, DASH, or media stream manifest."""
+    path = urlparse(url).path.lower()
+    return path.endswith((".m3u8", ".mpd", ".f4m")) or "manifest" in path or "master.m3u8" in path
+
+
 def _is_url_in_cdx(url: str, raw_cdx: Set[str], canonical_cdx: Optional[Set[str]]) -> bool:
     """Check if URL exists in raw or canonicalized CDX index."""
     if url in raw_cdx:
@@ -471,6 +543,7 @@ def _is_url_in_cdx(url: str, raw_cdx: Set[str], canonical_cdx: Optional[Set[str]
     if canonical_cdx and (url in canonical_cdx or norm in canonical_cdx or _strip_query_params(url) in canonical_cdx):
         return True
     return False
+
 
 
 def _is_scheme_or_param_mismatch(url: str, raw_cdx: Set[str]) -> bool:

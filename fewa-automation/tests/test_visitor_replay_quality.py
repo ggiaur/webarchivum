@@ -281,3 +281,37 @@ def test_visitor_replay_dom_detects_css_background_images_and_fonts():
     assert "css_background_missing" in reasons_codes
     assert "--media max" in result.remediation_suggestion
 
+
+def test_visitor_replay_dom_detects_embedded_iframes_and_media_streams():
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <body>
+        <h1>Media & iFrame Page</h1>
+        <iframe src="/embed/player.html" data-src="/embed/fallback.html"></iframe>
+        <video src="https://example.org/videos/archive.mp4">
+            <source src="https://example.org/streams/live.m3u8" type="application/x-mpegURL">
+        </video>
+        <audio src="/audio/interview.mp3"></audio>
+    </body>
+    </html>
+    """
+    page_url = "https://example.org/media.html"
+    # CDX contains media.html and audio/interview.mp3, but misses iframe embed, archive.mp4, and live.m3u8
+    cdx_set = {
+        "https://example.org/media.html",
+        "https://example.org/audio/interview.mp3",
+    }
+
+    result = inspect_visitor_replay_dom(html, page_url, cdx_index_urls=cdx_set)
+
+    assert not result.passed
+    assert result.broken_media_count >= 3
+    assert "embedded_media_resources_missing_detected" in result.reasons
+    reason_codes = [b.reason for b in result.broken_resources]
+    assert "iframe_embedded_missing" in reason_codes
+    assert "media_stream_missing" in reason_codes
+    assert "media_resource_missing" in reason_codes
+    assert "'--behaviors autoclick,autofetch,autoscroll,media'" in result.remediation_suggestion
+
+

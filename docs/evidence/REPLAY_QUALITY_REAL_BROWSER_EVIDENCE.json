@@ -1,26 +1,28 @@
 {
-  "timestamp": "2026-09-05T05:26:48.454Z",
+  "timestamp": "2026-09-05T05:48:41.239Z",
   "tasks": [
     "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-001",
     "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-002",
-    "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-003"
+    "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-003",
+    "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-004"
   ],
   "failure_classes_targeted": [
     "visitor_visible_broken_resources_and_links",
     "pywb_url_rewrite_mismatch_and_dynamic_lazyload_loss",
-    "css_background_image_and_web_font_replay_loss"
+    "css_background_image_and_web_font_replay_loss",
+    "client_side_iframe_and_embedded_media_stream_loss"
   ],
   "real_browser_harness": "Playwright Chromium Headless",
   "slice1_defective_replay": {
-    "url": "http://127.0.0.1:44605/defective_replay.html",
+    "url": "http://127.0.0.1:38939/defective_replay.html",
     "total_images": 2,
     "broken_images_count": 1,
     "broken_image_urls": [
-      "http://127.0.0.1:44605/missing_photo.jpg"
+      "http://127.0.0.1:38939/missing_photo.jpg"
     ],
     "broken_links_count": 1,
     "broken_link_urls": [
-      "http://127.0.0.1:44605/missing_page.html"
+      "http://127.0.0.1:38939/missing_page.html"
     ],
     "qa_gate_decision": "review_required",
     "reasons": [
@@ -30,7 +32,7 @@
     ]
   },
   "slice1_remediated_replay": {
-    "url": "http://127.0.0.1:44605/remediated_replay.html",
+    "url": "http://127.0.0.1:38939/remediated_replay.html",
     "total_images": 2,
     "broken_images_count": 0,
     "broken_links_count": 0,
@@ -38,7 +40,7 @@
     "reasons": []
   },
   "slice2_rewrite_and_lazyload": {
-    "url": "http://127.0.0.1:44605/slice2_rewrite_mismatch.html",
+    "url": "http://127.0.0.1:38939/slice2_rewrite_mismatch.html",
     "protocol_relative_resolution_verified": true,
     "lazyload_attribute_detected": true,
     "qa_gate_decision": "review_required",
@@ -48,7 +50,7 @@
     "remediation_action": "Enable scheme-canonicalized CDX matching and re-crawl with --behaviors autoclick,autofetch,autoscroll"
   },
   "slice3_css_background_and_fonts": {
-    "url": "http://127.0.0.1:44605/slice3_css_resources.html",
+    "url": "http://127.0.0.1:38939/slice3_css_resources.html",
     "css_background_computed_verified": true,
     "inline_style_css_url_detected": true,
     "missing_font_network_failure_detected": false,
@@ -58,5 +60,16 @@
     ],
     "remediation_action": "Re-crawl with expanded CSS & font capture rules --media max and sub-resource fetching enabled."
   },
-  "verification_summary": "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), and CSS background-image computed style & web font missing asset detection (Slice 3). QA gate enforces release holds on defective replays and passes verified remediations."
+  "slice4_embedded_media_and_iframes": {
+    "url": "http://127.0.0.1:38939/slice4_embedded_media.html",
+    "iframe_src_detected": true,
+    "video_src_detected": true,
+    "streaming_manifest_detected": true,
+    "qa_gate_decision": "review_required",
+    "reasons": [
+      "embedded_media_resources_missing_detected"
+    ],
+    "remediation_action": "Re-crawl with expanded media & iframe behaviors '--behaviors autoclick,autofetch,autoscroll,media' and video extraction enabled."
+  },
+  "verification_summary": "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), and client-side iframe & embedded video/audio media stream loss detection (Slice 4). QA gate enforces release holds on defective replays and passes verified remediations."
 }

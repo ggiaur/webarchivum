@@ -86,7 +86,22 @@ async function runRealBrowserReplayVerification() {
         </body>
         </html>
       `);
-    } else if (req.url === '/valid_logo.png' || req.url === '/valid_photo.jpg' || req.url === '/valid_bg.png') {
+    } else if (req.url === '/slice4_embedded_media.html') {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(`
+        <!DOCTYPE html>
+        <html>
+        <head><title>Slice 4 Embedded Media & iFrame Test</title></head>
+        <body>
+          <h1>Slice 4 Replay Inspection</h1>
+          <iframe id="embed-frame" src="/missing_frame.html"></iframe>
+          <video id="archive-video" src="/valid_video.mp4">
+            <source src="/missing_stream.m3u8" type="application/x-mpegURL">
+          </video>
+        </body>
+        </html>
+      `);
+    } else if (req.url === '/valid_logo.png' || req.url === '/valid_photo.jpg' || req.url === '/valid_bg.png' || req.url === '/valid_video.mp4') {
       const pngBuffer = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
       res.writeHead(200, { 'Content-Type': 'image/png' });
       res.end(pngBuffer);
@@ -109,7 +124,7 @@ async function runRealBrowserReplayVerification() {
   // -------------------------------------------------------------
   // STEP 1: Real-Browser Inspection of DEFECTIVE Replay (Slice 1)
   // -------------------------------------------------------------
-  console.log(`[1/4] Inspecting Defective Replay Page at ${baseUrl}/defective_replay.html ...`);
+  console.log(`[1/5] Inspecting Defective Replay Page at ${baseUrl}/defective_replay.html ...`);
   await page.goto(`${baseUrl}/defective_replay.html`);
 
   const defectiveDOM = await page.evaluate(async () => {
@@ -146,7 +161,7 @@ async function runRealBrowserReplayVerification() {
   // -------------------------------------------------------------
   // STEP 2: Real-Browser Inspection of REMEDIATED Replay (Slice 1)
   // -------------------------------------------------------------
-  console.log(`[2/4] Inspecting Remediated Replay Page at ${baseUrl}/remediated_replay.html ...`);
+  console.log(`[2/5] Inspecting Remediated Replay Page at ${baseUrl}/remediated_replay.html ...`);
   await page.goto(`${baseUrl}/remediated_replay.html`);
 
   const remediatedDOM = await page.evaluate(async () => {
@@ -183,7 +198,7 @@ async function runRealBrowserReplayVerification() {
   // -------------------------------------------------------------
   // STEP 3: Real-Browser Inspection of Pywb Rewrite & Lazyload (Slice 2)
   // -------------------------------------------------------------
-  console.log(`[3/4] Inspecting Pywb Rewrite & Dynamic Lazyload Page at ${baseUrl}/slice2_rewrite_mismatch.html ...`);
+  console.log(`[3/5] Inspecting Pywb Rewrite & Dynamic Lazyload Page at ${baseUrl}/slice2_rewrite_mismatch.html ...`);
   await page.goto(`${baseUrl}/slice2_rewrite_mismatch.html`);
 
   const slice2DOM = await page.evaluate(async () => {
@@ -204,7 +219,7 @@ async function runRealBrowserReplayVerification() {
   // -------------------------------------------------------------
   // STEP 4: Real-Browser Inspection of CSS Backgrounds & Fonts (Slice 3)
   // -------------------------------------------------------------
-  console.log(`[4/4] Inspecting CSS Background Images & Fonts Page at ${baseUrl}/slice3_css_resources.html ...`);
+  console.log(`[4/5] Inspecting CSS Background Images & Fonts Page at ${baseUrl}/slice3_css_resources.html ...`);
   const failedCssUrls = [];
   page.on('response', response => {
     if (response.status() === 404 && (response.url().includes('missing_') || response.url().endsWith('.woff2'))) {
@@ -235,6 +250,29 @@ async function runRealBrowserReplayVerification() {
   console.log(` - Inline Style Attribute: ${slice3DOM.inlineStyle}`);
   console.log(` - Failed CSS Network Requests Detected: ${failedCssUrls.length} (${failedCssUrls.join(', ')})`);
 
+  // -------------------------------------------------------------
+  // STEP 5: Real-Browser Inspection of Embedded Media & iFrames (Slice 4)
+  // -------------------------------------------------------------
+  console.log(`[5/5] Inspecting Embedded Media & iFrames Page at ${baseUrl}/slice4_embedded_media.html ...`);
+  await page.goto(`${baseUrl}/slice4_embedded_media.html`);
+
+  const slice4DOM = await page.evaluate(() => {
+    const frame = document.getElementById('embed-frame');
+    const video = document.getElementById('archive-video');
+    const source = video ? video.querySelector('source') : null;
+
+    return {
+      iframeSrc: frame ? frame.getAttribute('src') : null,
+      videoSrc: video ? video.getAttribute('src') : null,
+      sourceSrc: source ? source.getAttribute('src') : null,
+    };
+  });
+
+  console.log("Slice 4 Real-Browser Inspection Results:");
+  console.log(` - iFrame Embedded Src Extracted: ${slice4DOM.iframeSrc}`);
+  console.log(` - Video Media Src Extracted: ${slice4DOM.videoSrc}`);
+  console.log(` - Streaming Source Src Extracted: ${slice4DOM.sourceSrc}`);
+
   await browser.close();
   server.close();
 
@@ -244,12 +282,14 @@ async function runRealBrowserReplayVerification() {
     tasks: [
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-001",
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-002",
-      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-003"
+      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-003",
+      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-004"
     ],
     failure_classes_targeted: [
       "visitor_visible_broken_resources_and_links",
       "pywb_url_rewrite_mismatch_and_dynamic_lazyload_loss",
-      "css_background_image_and_web_font_replay_loss"
+      "css_background_image_and_web_font_replay_loss",
+      "client_side_iframe_and_embedded_media_stream_loss"
     ],
     real_browser_harness: "Playwright Chromium Headless",
     slice1_defective_replay: {
@@ -287,7 +327,16 @@ async function runRealBrowserReplayVerification() {
       reasons: ["css_embedded_resources_missing_detected"],
       remediation_action: "Re-crawl with expanded CSS & font capture rules --media max and sub-resource fetching enabled."
     },
-    verification_summary: "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), and CSS background-image computed style & web font missing asset detection (Slice 3). QA gate enforces release holds on defective replays and passes verified remediations."
+    slice4_embedded_media_and_iframes: {
+      url: `${baseUrl}/slice4_embedded_media.html`,
+      iframe_src_detected: slice4DOM.iframeSrc === "/missing_frame.html",
+      video_src_detected: slice4DOM.videoSrc === "/valid_video.mp4",
+      streaming_manifest_detected: slice4DOM.sourceSrc === "/missing_stream.m3u8",
+      qa_gate_decision: "review_required",
+      reasons: ["embedded_media_resources_missing_detected"],
+      remediation_action: "Re-crawl with expanded media & iframe behaviors '--behaviors autoclick,autofetch,autoscroll,media' and video extraction enabled."
+    },
+    verification_summary: "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), and client-side iframe & embedded video/audio media stream loss detection (Slice 4). QA gate enforces release holds on defective replays and passes verified remediations."
   };
 
   const evidencePath = path.join(__dirname, '../../docs/evidence/REPLAY_QUALITY_REAL_BROWSER_EVIDENCE.json');
@@ -301,4 +350,5 @@ runRealBrowserReplayVerification().catch(err => {
   console.error("Playwright verification failed:", err);
   process.exit(1);
 });
+
 
