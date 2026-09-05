@@ -29,14 +29,16 @@ WEBXR_ASSET_REGEX = re.compile(r'[\'"]([^\'"]*\.(?:hdr|exr|env|spatial\.wav|spat
 # Regular expressions to extract PDF document / digital library attachment and PDF.js worker assets
 PDF_DOC_REGEX = re.compile(r'(?:PDFViewerApplication|PDFJS\.getDocument|loadPDF|openDocument|file)\s*[:=]\s*[\'"]([^\'"]*\.pdf[^\'"]*)[\'"]', re.IGNORECASE)
 PDFJS_WORKER_REGEX = re.compile(r'(?:pdf\.worker|pdfjsWorker|PDFJS\.workerSrc|workerSrc)\s*[:=]\s*[\'"]([^\'"]+)[\'"]', re.IGNORECASE)
+# Regular expressions to extract Cookie / GDPR consent shield overlays and blocking CMP scripts
+CONSENT_SHIELD_REGEX = re.compile(r'(?:CookieConsent|Didomi|OneTrust|QuantcastChoice|GDPRBanner|cookieNotice|consentModal|initCMP|loadConsentScript)\(\s*[\'"]([^\'"]+)[\'"]', re.IGNORECASE)
 
 
 @dataclass(frozen=True)
 class BrokenResource:
     url: str
-    resource_type: str  # "image" | "link" | "script" | "style" | "media" | "lazy_image" | "rewrite_mismatch" | "css_image" | "css_font" | "iframe" | "video" | "audio" | "media_stream" | "script_bundle" | "style_sheet" | "shadow_dom" | "custom_element" | "websocket" | "sse_stream" | "web_storage" | "state_hydration" | "service_worker" | "canvas_snapshot" | "webgl_texture" | "webgl_model" | "shader_source" | "webxr_environment" | "webxr_skybox" | "spatial_audio" | "spatial_anchor" | "pdf_document" | "pdfjs_worker" | "pdf_attachment"
+    resource_type: str  # "image" | "link" | "script" | "style" | "media" | "lazy_image" | "rewrite_mismatch" | "css_image" | "css_font" | "iframe" | "video" | "audio" | "media_stream" | "script_bundle" | "style_sheet" | "shadow_dom" | "custom_element" | "websocket" | "sse_stream" | "web_storage" | "state_hydration" | "service_worker" | "canvas_snapshot" | "webgl_texture" | "webgl_model" | "shader_source" | "webxr_environment" | "webxr_skybox" | "spatial_audio" | "spatial_anchor" | "pdf_document" | "pdfjs_worker" | "pdf_attachment" | "consent_shield" | "cookie_banner" | "modal_overlay"
     element_tag: str
-    reason: str  # "missing_in_cdx" | "http_404" | "net_failed" | "replay_bad" | "pywb_rewrite_mismatch" | "dynamic_lazyload_missing" | "css_background_missing" | "css_font_missing" | "iframe_embedded_missing" | "media_resource_missing" | "media_stream_missing" | "script_bundle_missing" | "style_sheet_missing" | "shadow_dom_resource_missing" | "shadow_dom_template_missing" | "websocket_endpoint_missing" | "sse_stream_missing" | "storage_state_missing" | "hydration_data_missing" | "service_worker_missing" | "canvas_snapshot_missing" | "webgl_texture_missing" | "webgl_model_missing" | "shader_source_missing" | "webxr_environment_missing" | "webxr_skybox_missing" | "spatial_audio_missing" | "spatial_anchor_missing" | "pdf_document_missing" | "pdfjs_worker_missing" | "pdf_attachment_missing"
+    reason: str  # "missing_in_cdx" | "http_404" | "net_failed" | "replay_bad" | "pywb_rewrite_mismatch" | "dynamic_lazyload_missing" | "css_background_missing" | "css_font_missing" | "iframe_embedded_missing" | "media_resource_missing" | "media_stream_missing" | "script_bundle_missing" | "style_sheet_missing" | "shadow_dom_resource_missing" | "shadow_dom_template_missing" | "websocket_endpoint_missing" | "sse_stream_missing" | "storage_state_missing" | "hydration_data_missing" | "service_worker_missing" | "canvas_snapshot_missing" | "webgl_texture_missing" | "webgl_model_missing" | "shader_source_missing" | "webxr_environment_missing" | "webxr_skybox_missing" | "spatial_audio_missing" | "spatial_anchor_missing" | "pdf_document_missing" | "pdfjs_worker_missing" | "pdf_attachment_missing" | "consent_shield_blocking" | "cookie_banner_blocking" | "modal_overlay_blocking"
     context: str  # HTML snippet or context description
 
 
@@ -59,6 +61,7 @@ class VisitorReplayQualityResult:
     broken_canvas_count: int = 0
     broken_webxr_count: int = 0
     broken_pdf_count: int = 0
+    broken_consent_count: int = 0
     broken_resources: Tuple[BrokenResource, ...] = ()
     reasons: Tuple[str, ...] = ()
     actionable_evidence: Dict[str, Any] = field(default_factory=dict)
@@ -85,6 +88,7 @@ class _DOMResourceExtractor(HTMLParser):
         self.canvas_webgl_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'canvas_snapshot'|'webgl_texture'|'webgl_model'|'shader_source')
         self.webxr_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'webxr_environment'|'webxr_skybox'|'spatial_audio'|'spatial_anchor')
         self.pdf_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'pdf_document'|'pdfjs_worker'|'pdf_attachment')
+        self.consent_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'consent_shield'|'cookie_banner'|'modal_overlay')
         self._in_style_tag = False
         self._style_content_chunks: List[str] = []
         self._in_script_tag = False
@@ -212,6 +216,35 @@ class _DOMResourceExtractor(HTMLParser):
                     resolved = resolve_protocol_relative(raw_val, effective_base)
                     p_type = "pdfjs_worker" if "worker" in pdf_attr or raw_val.endswith((".worker.js", "worker.js")) else ("pdf_attachment" if "attachment" in pdf_attr else "pdf_document")
                     self.pdf_urls.append((resolved, raw_val, p_type))
+
+        # Check Cookie / GDPR consent shield overlays and modal backdrops
+        element_id = attr_dict.get("id", "")
+        element_class = attr_dict.get("class", "")
+        element_src = attr_dict.get("src", "")
+        if any(c_kw in element_id.lower() or c_kw in element_class.lower() or c_kw in element_src.lower() for c_kw in ("cookie-banner", "cookie-consent", "gdpr-banner", "consent-modal", "didomi-host", "onetrust-banner", "quantcast-choice", "cookie-notice")):
+            c_src = (
+                attr_dict.get("data-consent-shield")
+                or attr_dict.get("data-modal-overlay")
+                or attr_dict.get("data-consent-src")
+                or attr_dict.get("src")
+                or attr_dict.get("data-src")
+            )
+            if c_src:
+                raw_c = c_src.strip()
+                if raw_c and not raw_c.startswith("data:"):
+                    resolved = resolve_protocol_relative(raw_c, effective_base)
+                    c_type = "cookie_banner" if "cookie" in (element_id + element_class + element_src).lower() else ("consent_shield" if "consent" in (element_id + element_class + element_src).lower() or "gdpr" in (element_id + element_class + element_src).lower() else "modal_overlay")
+                    if not any(u[0] == resolved for u in self.consent_urls):
+                        self.consent_urls.append((resolved, raw_c, c_type))
+
+        for cs_attr in ("data-consent-modal", "data-gdpr-banner", "data-cookie-banner", "consent-src", "data-consent-src", "data-consent-shield", "data-modal-overlay"):
+            if cs_attr in attr_dict:
+                raw_val = attr_dict[cs_attr].strip()
+                if raw_val and not raw_val.startswith("data:"):
+                    resolved = resolve_protocol_relative(raw_val, effective_base)
+                    c_type = "modal_overlay" if "overlay" in cs_attr or "modal" in cs_attr else "consent_shield"
+                    if not any(u[0] == resolved for u in self.consent_urls):
+                        self.consent_urls.append((resolved, raw_val, c_type))
 
         if tag_lower == "img":
             if "src" in attr_dict:
@@ -386,6 +419,12 @@ class _DOMResourceExtractor(HTMLParser):
                 if raw_url and not raw_url.startswith("data:"):
                     resolved = resolve_protocol_relative(raw_url, effective_base)
                     self.pdf_urls.append((resolved, raw_url, "pdfjs_worker"))
+
+            for match in CONSENT_SHIELD_REGEX.finditer(script_text):
+                raw_url = match.group(1).strip()
+                if raw_url and not raw_url.startswith("data:"):
+                    resolved = resolve_protocol_relative(raw_url, effective_base)
+                    self.consent_urls.append((resolved, raw_url, "consent_shield"))
 
 
 def resolve_protocol_relative(raw_url: str, base_url: str) -> str:
@@ -718,6 +757,28 @@ def inspect_visitor_replay_dom(
                     )
                 )
 
+    # 14. Check Cookie / GDPR Consent Shield Overlays
+    consent_broken = 0
+    for resolved_url, raw_url, res_type in extractor.consent_urls:
+        if cdx_index_urls is not None:
+            if not _is_url_in_cdx(resolved_url, cdx_index_urls, canonical_cdx):
+                consent_broken += 1
+                if res_type == "cookie_banner":
+                    reason_code = "cookie_banner_blocking"
+                elif res_type == "modal_overlay":
+                    reason_code = "modal_overlay_blocking"
+                else:
+                    reason_code = "consent_shield_blocking"
+                broken.append(
+                    BrokenResource(
+                        url=resolved_url,
+                        resource_type=res_type,
+                        element_tag=f'<{res_type} url="{raw_url}">',
+                        reason=reason_code,
+                        context=f"Cookie / GDPR consent shield overlay ({res_type}) {resolved_url} missing in WACZ archive.",
+                    )
+                )
+
     total_checked = (
         len(extractor.images)
         + len(extractor.lazy_images)
@@ -732,6 +793,7 @@ def inspect_visitor_replay_dom(
         + len(extractor.canvas_webgl_urls)
         + len(extractor.webxr_urls)
         + len(extractor.pdf_urls)
+        + len(extractor.consent_urls)
     )
     total_broken = len(broken)
     replay_good = total_checked - total_broken
@@ -774,6 +836,9 @@ def inspect_visitor_replay_dom(
     if pdf_broken > max_allowed_broken_canvas:
         reasons.append(f"broken_pdf_documents_detected ({pdf_broken} > {max_allowed_broken_canvas})")
 
+    if consent_broken > max_allowed_broken_canvas:
+        reasons.append(f"broken_consent_shields_detected ({consent_broken} > {max_allowed_broken_canvas})")
+
     if any(b.reason == "pywb_rewrite_mismatch" for b in broken):
         reasons.append("pywb_rewrite_mismatch_detected")
 
@@ -810,6 +875,9 @@ def inspect_visitor_replay_dom(
     if any(b.reason in ("pdf_document_missing", "pdfjs_worker_missing", "pdf_attachment_missing") for b in broken):
         reasons.append("pdf_document_viewer_missing_detected")
 
+    if any(b.reason in ("consent_shield_blocking", "cookie_banner_blocking", "modal_overlay_blocking") for b in broken):
+        reasons.append("consent_shield_replay_blocking_detected")
+
     passed = len(reasons) == 0
 
     remediation = None
@@ -833,6 +901,7 @@ def inspect_visitor_replay_dom(
         "broken_canvas_count": canvas_broken,
         "broken_webxr_count": webxr_broken,
         "broken_pdf_count": pdf_broken,
+        "broken_consent_count": consent_broken,
         "quality_score": quality_score,
         "broken_resources": [
             {
@@ -864,6 +933,7 @@ def inspect_visitor_replay_dom(
         broken_canvas_count=canvas_broken,
         broken_webxr_count=webxr_broken,
         broken_pdf_count=pdf_broken,
+        broken_consent_count=consent_broken,
         broken_resources=tuple(broken),
         reasons=tuple(reasons),
         actionable_evidence=actionable_evidence,
@@ -958,6 +1028,11 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
     if not broken_resources:
         return "No remediation needed."
 
+    has_consent = any(
+        b.reason in ("consent_shield_blocking", "cookie_banner_blocking", "modal_overlay_blocking")
+        or b.resource_type in ("consent_shield", "cookie_banner", "modal_overlay")
+        for b in broken_resources
+    )
     has_pdf = any(
         b.reason in ("pdf_document_missing", "pdfjs_worker_missing", "pdf_attachment_missing")
         or b.resource_type in ("pdf_document", "pdfjs_worker", "pdf_attachment")
@@ -1005,6 +1080,10 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
     has_links = any(b.resource_type == "link" for b in broken_resources)
 
     suggestions = []
+    if has_consent:
+        suggestions.append(
+            "Re-crawl with cookie / GDPR consent banner auto-dismissal rules enabled '--behaviors autoclick,autofetch,autoscroll,consent' and WACZ overlay stripping enabled."
+        )
     if has_pdf:
         suggestions.append(
             "Re-crawl with PDF document & digital library attachment pre-fetching enabled '--behaviors autoclick,autofetch,autoscroll,pdf' and PDF.js worker asset pre-caching enabled."

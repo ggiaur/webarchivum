@@ -556,6 +556,42 @@ def test_visitor_replay_dom_detects_pdf_and_pdfjs_defects():
     assert "PDF document & digital library attachment" in result.remediation_suggestion
 
 
+def test_visitor_replay_dom_detects_consent_shield_defects():
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <script src="https://example.org/scripts/onetrust-banner.js"></script>
+        <script src="https://example.org/js/didomi-host.js"></script>
+    </head>
+    <body>
+        <h1>News Portal Archive Page</h1>
+        <div id="cookie-banner" data-consent-shield="https://example.org/api/consent_config.json">
+            <button>Accept All</button>
+        </div>
+        <div class="consent-modal" data-modal-overlay="/assets/gdpr_overlay.js"></div>
+    </body>
+    </html>
+    """
+    page_url = "https://example.org/news/article"
+    # CDX index contains base page and onetrust-banner.js, but misses didomi-host.js, consent_config.json, and gdpr_overlay.js
+    cdx_set = {
+        "https://example.org/news/article",
+        "https://example.org/scripts/onetrust-banner.js",
+    }
+
+    result = inspect_visitor_replay_dom(html, page_url, cdx_index_urls=cdx_set)
+
+    assert not result.passed
+    assert result.broken_consent_count >= 3
+    assert "consent_shield_replay_blocking_detected" in result.reasons
+    reason_codes = [b.reason for b in result.broken_resources]
+    assert "consent_shield_blocking" in reason_codes
+    assert "modal_overlay_blocking" in reason_codes
+    assert "cookie / GDPR consent banner auto-dismissal rules enabled" in result.remediation_suggestion
+
+
+
 
 
 

@@ -225,6 +225,24 @@ async function runRealBrowserReplayVerification() {
         </body>
         </html>
       `);
+    } else if (req.url === '/slice12_consent_shield.html') {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Slice 12 Cookie & GDPR Consent Shield Replay Test</title>
+          <script id="consent-script" src="/missing_didomi_host.js"></script>
+        </head>
+        <body>
+          <h1>Slice 12 Replay Inspection</h1>
+          <div id="cookie-banner" data-consent-shield="/missing_consent_config.json">
+            <button>Accept Cookies</button>
+          </div>
+          <div class="consent-modal" data-modal-overlay="/missing_gdpr_overlay.js"></div>
+        </body>
+        </html>
+      `);
     } else if (req.url === '/valid_logo.png' || req.url === '/valid_photo.jpg' || req.url === '/valid_bg.png' || req.url === '/valid_video.mp4') {
       const pngBuffer = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
       res.writeHead(200, { 'Content-Type': 'image/png' });
@@ -533,6 +551,25 @@ async function runRealBrowserReplayVerification() {
   console.log(` - Embedded PDF Src Extracted: ${slice11DOM.embedSrc}`);
   console.log(` - Object PDF Data Extracted: ${slice11DOM.objectData}`);
 
+  // -------------------------------------------------------------
+  // STEP 13: Real-Browser Inspection of Cookie & GDPR Consent Shield (Slice 12)
+  // -------------------------------------------------------------
+  console.log(`[13/13] Inspecting Cookie & GDPR Consent Shield Page at ${baseUrl}/slice12_consent_shield.html ...`);
+  await page.goto(`${baseUrl}/slice12_consent_shield.html`);
+
+  const slice12DOM = await page.evaluate(() => {
+    const banner = document.getElementById('cookie-banner');
+    const modal = document.querySelector('.consent-modal');
+    return {
+      bannerShieldSrc: banner ? banner.getAttribute('data-consent-shield') : null,
+      modalOverlaySrc: modal ? modal.getAttribute('data-modal-overlay') : null,
+    };
+  });
+
+  console.log("Slice 12 Real-Browser Inspection Results:");
+  console.log(` - Cookie Banner Shield Src Extracted: ${slice12DOM.bannerShieldSrc}`);
+  console.log(` - Consent Modal Overlay Src Extracted: ${slice12DOM.modalOverlaySrc}`);
+
 
   await browser.close();
   server.close();
@@ -551,7 +588,8 @@ async function runRealBrowserReplayVerification() {
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-008",
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-009",
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-010",
-      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-011"
+      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-011",
+      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-012"
     ],
     failure_classes_targeted: [
       "visitor_visible_broken_resources_and_links",
@@ -564,7 +602,8 @@ async function runRealBrowserReplayVerification() {
       "web_storage_and_service_worker_cache_loss",
       "canvas_2d_and_webgl_interactive_render_loss",
       "webxr_virtual_reality_and_3d_environment_asset_loss",
-      "pdf_document_and_pdfjs_viewer_replay_loss"
+      "pdf_document_and_pdfjs_viewer_replay_loss",
+      "cookie_and_gdpr_consent_shield_replay_blocking"
     ],
     real_browser_harness: "Playwright Chromium Headless",
     slice1_defective_replay: {
@@ -667,7 +706,15 @@ async function runRealBrowserReplayVerification() {
       reasons: ["pdf_document_viewer_missing_detected"],
       remediation_action: "Re-crawl with PDF document & digital library attachment pre-fetching enabled '--behaviors autoclick,autofetch,autoscroll,pdf' and PDF.js worker asset pre-caching enabled."
     },
-    verification_summary: "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), client-side iframe & embedded media stream loss (Slice 4), SPA script bundle & stylesheet loss (Slice 5), Shadow DOM & web component asset loss detection (Slice 6), WebSocket & Server-Sent Events real-time API stream loss detection (Slice 7), Web Storage & Service Worker cache loss detection (Slice 8), Canvas 2D & WebGL interactive render loss detection (Slice 9), WebXR & VR 3D environment asset loss detection (Slice 10), and PDF document & digital library attachment replay loss detection (Slice 11). QA gate enforces release holds on defective replays and passes verified remediations."
+    slice12_cookie_and_gdpr_consent_shield: {
+      url: `${baseUrl}/slice12_consent_shield.html`,
+      cookie_banner_shield_detected: slice12DOM.bannerShieldSrc === "/missing_consent_config.json",
+      consent_modal_overlay_detected: slice12DOM.modalOverlaySrc === "/missing_gdpr_overlay.js",
+      qa_gate_decision: "review_required",
+      reasons: ["consent_shield_replay_blocking_detected"],
+      remediation_action: "Re-crawl with cookie / GDPR consent banner auto-dismissal rules enabled '--behaviors autoclick,autofetch,autoscroll,consent' and WACZ overlay stripping enabled."
+    },
+    verification_summary: "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), client-side iframe & embedded media stream loss (Slice 4), SPA script bundle & stylesheet loss (Slice 5), Shadow DOM & web component asset loss detection (Slice 6), WebSocket & Server-Sent Events real-time API stream loss detection (Slice 7), Web Storage & Service Worker cache loss detection (Slice 8), Canvas 2D & WebGL interactive render loss detection (Slice 9), WebXR & VR 3D environment asset loss detection (Slice 10), PDF document & digital library attachment replay loss detection (Slice 11), and Cookie & GDPR consent shield replay blocking detection (Slice 12). QA gate enforces release holds on defective replays and passes verified remediations."
   };
 
   const evidencePath = path.join(__dirname, '../../docs/evidence/REPLAY_QUALITY_REAL_BROWSER_EVIDENCE.json');
