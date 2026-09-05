@@ -1,36 +1,49 @@
 {
-  "timestamp": "2026-09-04T23:01:44.617Z",
-  "task": "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-001",
-  "failure_class_targeted": "visitor_visible_broken_resources_and_links",
+  "timestamp": "2026-09-05T05:24:44.810Z",
+  "tasks": [
+    "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-001",
+    "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-002"
+  ],
+  "failure_classes_targeted": [
+    "visitor_visible_broken_resources_and_links",
+    "pywb_url_rewrite_mismatch_and_dynamic_lazyload_loss"
+  ],
   "real_browser_harness": "Playwright Chromium Headless",
-  "defective_replay": {
-    "url": "http://127.0.0.1:41387/defective_replay.html",
+  "slice1_defective_replay": {
+    "url": "http://127.0.0.1:41657/defective_replay.html",
     "total_images": 2,
     "broken_images_count": 1,
     "broken_image_urls": [
-      "http://127.0.0.1:41387/missing_photo.jpg"
+      "http://127.0.0.1:41657/missing_photo.jpg"
     ],
     "broken_links_count": 1,
     "broken_link_urls": [
-      "http://127.0.0.1:41387/missing_page.html"
+      "http://127.0.0.1:41657/missing_page.html"
     ],
     "qa_gate_decision": "review_required",
     "reasons": [
       "replay_broken_resources_detected",
       "broken_images_detected",
       "broken_internal_links_detected"
-    ],
-    "remediation_action": "Trigger auto-retry with --behaviors autoclick,autofetch,autoscroll and --media max"
+    ]
   },
-  "remediated_replay": {
-    "url": "http://127.0.0.1:41387/remediated_replay.html",
+  "slice1_remediated_replay": {
+    "url": "http://127.0.0.1:41657/remediated_replay.html",
     "total_images": 2,
     "broken_images_count": 0,
-    "broken_image_urls": [],
     "broken_links_count": 0,
-    "broken_link_urls": [],
     "qa_gate_decision": "qc_passed_pending_release",
     "reasons": []
   },
-  "verification_summary": "PASS - Real browser Playwright DOM inspection accurately detected broken images (naturalWidth === 0) & 404 link targets in defective replay, enforced QA gate release hold, and verified complete 0-broken resource pass after remediation."
+  "slice2_rewrite_and_lazyload": {
+    "url": "http://127.0.0.1:41657/slice2_rewrite_mismatch.html",
+    "protocol_relative_resolution_verified": true,
+    "lazyload_attribute_detected": true,
+    "qa_gate_decision": "review_required",
+    "reasons": [
+      "dynamic_lazyload_missing_detected"
+    ],
+    "remediation_action": "Enable scheme-canonicalized CDX matching and re-crawl with --behaviors autoclick,autofetch,autoscroll"
+  },
+  "verification_summary": "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1) AND pywb protocol-relative URL resolution with data-src lazyload inspection (Slice 2). QA gate enforces release holds on defective replays and passes verified remediations."
 }

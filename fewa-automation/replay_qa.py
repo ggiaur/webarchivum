@@ -15,9 +15,9 @@ from urllib.parse import urljoin, urlparse
 @dataclass(frozen=True)
 class BrokenResource:
     url: str
-    resource_type: str  # "image" | "link" | "script" | "style" | "media"
+    resource_type: str  # "image" | "link" | "script" | "style" | "media" | "lazy_image" | "rewrite_mismatch"
     element_tag: str
-    reason: str  # "missing_in_cdx" | "http_404" | "net_failed" | "replay_bad"
+    reason: str  # "missing_in_cdx" | "http_404" | "net_failed" | "replay_bad" | "pywb_rewrite_mismatch" | "dynamic_lazyload_missing"
     context: str  # HTML snippet or context description
 
 
@@ -37,43 +37,77 @@ class VisitorReplayQualityResult:
 
 
 class _DOMResourceExtractor(HTMLParser):
-    """Extracts img, script, link[rel=stylesheet], and a elements from HTML."""
+    """Extracts img, script, link[rel=stylesheet], a, and lazy-loaded elements from HTML."""
 
     def __init__(self, base_url: str):
         super().__init__()
         self.base_url = base_url
-        self.images: List[Tuple[str, str]] = []  # (resolved_url, raw_src)
-        self.links: List[Tuple[str, str]] = []   # (resolved_url, raw_href)
-        self.styles: List[Tuple[str, str]] = []  # (resolved_url, raw_href)
-        self.scripts: List[Tuple[str, str]] = [] # (resolved_url, raw_src)
+        self.images: List[Tuple[str, str]] = []         # (resolved_url, raw_src)
+        self.lazy_images: List[Tuple[str, str]] = []    # (resolved_url, raw_attr)
+        self.links: List[Tuple[str, str]] = []          # (resolved_url, raw_href)
+        self.styles: List[Tuple[str, str]] = []         # (resolved_url, raw_href)
+        self.scripts: List[Tuple[str, str]] = []        # (resolved_url, raw_src)
 
     def handle_starttag(self, tag: str, attrs: List[Tuple[str, Optional[str]]]):
         attr_dict = {k.lower(): v for k, v in attrs if v is not None}
         tag_lower = tag.lower()
 
-        if tag_lower == "img" and "src" in attr_dict:
-            raw_src = attr_dict["src"].strip()
-            if raw_src and not raw_src.startswith("data:"):
-                resolved = urljoin(self.base_url, raw_src)
-                self.images.append((resolved, raw_src))
+        # Handle Protocol-Relative base URL resolution
+        effective_base = self.base_url
+        if effective_base.startswith("//"):
+            effective_base = "https:" + effective_base
+
+        if tag_lower == "img":
+            # Standard src
+            if "src" in attr_dict:
+                raw_src = attr_dict["src"].strip()
+                if raw_src and not raw_src.startswith("data:"):
+                    resolved = resolve_protocol_relative(raw_src, effective_base)
+                    self.images.append((resolved, raw_src))
+
+            # Lazy-loaded image attributes
+            for lazy_attr in ("data-src", "data-lazy-src", "data-original", "data-url"):
+                if lazy_attr in attr_dict:
+                    raw_lazy = attr_dict[lazy_attr].strip()
+                    if raw_lazy and not raw_lazy.startswith("data:"):
+                        resolved = resolve_protocol_relative(raw_lazy, effective_base)
+                        self.lazy_images.append((resolved, raw_lazy))
+
+            # srcset attributes
+            if "srcset" in attr_dict:
+                raw_srcset = attr_dict["srcset"].strip()
+                for entry in raw_srcset.split(","):
+                    parts = entry.strip().split()
+                    if parts and not parts[0].startswith("data:"):
+                        resolved = resolve_protocol_relative(parts[0], effective_base)
+                        self.lazy_images.append((resolved, parts[0]))
 
         elif tag_lower == "a" and "href" in attr_dict:
             raw_href = attr_dict["href"].strip()
             if raw_href and not raw_href.startswith(("javascript:", "mailto:", "tel:", "#")):
-                resolved = urljoin(self.base_url, raw_href)
+                resolved = resolve_protocol_relative(raw_href, effective_base)
                 self.links.append((resolved, raw_href))
 
         elif tag_lower == "link" and attr_dict.get("rel") == "stylesheet" and "href" in attr_dict:
             raw_href = attr_dict["href"].strip()
             if raw_href and not raw_href.startswith("data:"):
-                resolved = urljoin(self.base_url, raw_href)
+                resolved = resolve_protocol_relative(raw_href, effective_base)
                 self.styles.append((resolved, raw_href))
 
         elif tag_lower == "script" and "src" in attr_dict:
             raw_src = attr_dict["src"].strip()
             if raw_src and not raw_src.startswith("data:"):
-                resolved = urljoin(self.base_url, raw_src)
+                resolved = resolve_protocol_relative(raw_src, effective_base)
                 self.scripts.append((resolved, raw_src))
+
+
+def resolve_protocol_relative(raw_url: str, base_url: str) -> str:
+    """Resolve relative, protocol-relative (//example.com), and absolute URLs against base_url."""
+    raw = raw_url.strip()
+    if raw.startswith("//"):
+        base_scheme = urlparse(base_url).scheme or "https"
+        return f"{base_scheme}:{raw}"
+    return urljoin(base_url, raw)
 
 
 def extract_dom_resources(html_content: str, base_url: str) -> _DOMResourceExtractor:
@@ -83,49 +117,91 @@ def extract_dom_resources(html_content: str, base_url: str) -> _DOMResourceExtra
     return parser
 
 
+def canonicalize_cdx_index_for_pywb(cdx_urls: Set[str]) -> Set[str]:
+    """Build scheme-agnostic & query-stripping lookup set to resolve pywb rewrite mismatches.
+
+    Adds both http://, https://, and query-stripped variants of every CDX URL.
+    """
+    canonical_set = set(cdx_urls)
+    for url in list(cdx_urls):
+        norm = _normalize_url_for_cdx(url)
+        canonical_set.add(norm)
+        # Scheme swapping
+        if url.startswith("https://"):
+            canonical_set.add("http://" + url[8:])
+            canonical_set.add("http://" + norm[8:])
+        elif url.startswith("http://"):
+            canonical_set.add("https://" + url[7:])
+            canonical_set.add("https://" + norm[7:])
+        # Strip query params
+        query_stripped = _strip_query_params(url)
+        canonical_set.add(query_stripped)
+    return canonical_set
+
+
 def inspect_visitor_replay_dom(
     html_content: str,
     page_url: str,
     cdx_index_urls: Optional[Set[str]] = None,
     max_allowed_broken_images: int = 0,
     max_allowed_broken_links: int = 0,
+    canonicalize_cdx: bool = True,
 ) -> VisitorReplayQualityResult:
-    """Inspect visitor-visible DOM for broken images, missing links, and resource failures.
+    """Inspect visitor-visible DOM for broken images, missing links, pywb rewrite mismatches, and lazy-load defects.
 
-    Checks rendered DOM elements (img, a, link, script) against CDX index or replay path.
+    Checks rendered DOM elements (img, lazy-load attributes, a, link, script) against CDX index or replay path.
     Returns structured VisitorReplayQualityResult with actionable evidence.
     """
     extractor = extract_dom_resources(html_content, page_url)
     page_host = urlparse(page_url).netloc.lower()
 
+    canonical_cdx = cdx_index_urls
+    if cdx_index_urls is not None and canonicalize_cdx:
+        canonical_cdx = canonicalize_cdx_index_for_pywb(cdx_index_urls)
+
     broken: List[BrokenResource] = []
     reasons: List[str] = []
 
-    # 1. Check Images
+    # 1. Check Standard Images
     broken_images = 0
     for resolved_url, raw_src in extractor.images:
         if cdx_index_urls is not None:
-            norm_url = _normalize_url_for_cdx(resolved_url)
-            if norm_url not in cdx_index_urls and resolved_url not in cdx_index_urls:
+            if not _is_url_in_cdx(resolved_url, cdx_index_urls, canonical_cdx):
                 broken_images += 1
+                reason_code = "pywb_rewrite_mismatch" if _is_scheme_or_param_mismatch(resolved_url, cdx_index_urls) else "missing_in_cdx"
                 broken.append(
                     BrokenResource(
                         url=resolved_url,
                         resource_type="image",
                         element_tag=f'<img src="{raw_src}">',
-                        reason="missing_in_cdx",
-                        context=f"Image URL {resolved_url} was not captured in WACZ archive.",
+                        reason=reason_code,
+                        context=f"Image URL {resolved_url} was not captured or failed pywb rewrite matching.",
                     )
                 )
 
-    # 2. Check Internal Links
+    # 2. Check Lazy-Loaded Images
+    lazy_broken = 0
+    for resolved_url, raw_attr in extractor.lazy_images:
+        if cdx_index_urls is not None:
+            if not _is_url_in_cdx(resolved_url, cdx_index_urls, canonical_cdx):
+                lazy_broken += 1
+                broken.append(
+                    BrokenResource(
+                        url=resolved_url,
+                        resource_type="lazy_image",
+                        element_tag=f'<img data-src/srcset="{raw_attr}">',
+                        reason="dynamic_lazyload_missing",
+                        context=f"Lazy-loaded asset {resolved_url} was not captured prior to scroll/interaction.",
+                    )
+                )
+
+    # 3. Check Internal Links
     broken_links = 0
     for resolved_url, raw_href in extractor.links:
         link_host = urlparse(resolved_url).netloc.lower()
         if link_host == page_host or not link_host:
             if cdx_index_urls is not None:
-                norm_url = _normalize_url_for_cdx(resolved_url)
-                if norm_url not in cdx_index_urls and resolved_url not in cdx_index_urls:
+                if not _is_url_in_cdx(resolved_url, cdx_index_urls, canonical_cdx):
                     broken_links += 1
                     broken.append(
                         BrokenResource(
@@ -137,18 +213,32 @@ def inspect_visitor_replay_dom(
                         )
                     )
 
-    total_checked = len(extractor.images) + len(extractor.links) + len(extractor.styles) + len(extractor.scripts)
+    total_checked = (
+        len(extractor.images)
+        + len(extractor.lazy_images)
+        + len(extractor.links)
+        + len(extractor.styles)
+        + len(extractor.scripts)
+    )
     total_broken = len(broken)
     replay_good = total_checked - total_broken
     replay_bad = total_broken
 
     quality_score = 100.0 if total_checked == 0 else round((replay_good / total_checked) * 100.0, 2)
 
-    if broken_images > max_allowed_broken_images:
-        reasons.append(f"broken_images_detected ({broken_images} > {max_allowed_broken_images})")
+    total_bad_images = broken_images + lazy_broken
+
+    if total_bad_images > max_allowed_broken_images:
+        reasons.append(f"broken_images_detected ({total_bad_images} > {max_allowed_broken_images})")
 
     if broken_links > max_allowed_broken_links:
         reasons.append(f"broken_internal_links_detected ({broken_links} > {max_allowed_broken_links})")
+
+    if any(b.reason == "pywb_rewrite_mismatch" for b in broken):
+        reasons.append("pywb_rewrite_mismatch_detected")
+
+    if any(b.reason == "dynamic_lazyload_missing" for b in broken):
+        reasons.append("dynamic_lazyload_missing_detected")
 
     passed = len(reasons) == 0
 
@@ -161,7 +251,7 @@ def inspect_visitor_replay_dom(
         "total_checked": total_checked,
         "replay_good": replay_good,
         "replay_bad": replay_bad,
-        "broken_image_count": broken_images,
+        "broken_image_count": total_bad_images,
         "broken_link_count": broken_links,
         "quality_score": quality_score,
         "broken_resources": [
@@ -182,7 +272,7 @@ def inspect_visitor_replay_dom(
         total_resources_checked=total_checked,
         replay_good_count=replay_good,
         replay_bad_count=replay_bad,
-        broken_image_count=broken_images,
+        broken_image_count=total_bad_images,
         broken_link_count=broken_links,
         broken_resources=tuple(broken),
         reasons=tuple(reasons),
@@ -267,11 +357,21 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
     if not broken_resources:
         return "No remediation needed."
 
+    has_rewrite_mismatch = any(b.reason == "pywb_rewrite_mismatch" for b in broken_resources)
+    has_lazyload = any(b.reason == "dynamic_lazyload_missing" or b.resource_type == "lazy_image" for b in broken_resources)
     has_images = any(b.resource_type in ("image", "page_resources") for b in broken_resources)
     has_links = any(b.resource_type == "link" for b in broken_resources)
 
     suggestions = []
-    if has_images:
+    if has_rewrite_mismatch:
+        suggestions.append(
+            "Enable pywb scheme-canonicalization & query-string alias rewriting (map http/https and strip cache-busting params in CDX index)."
+        )
+    if has_lazyload:
+        suggestions.append(
+            "Enable `--behaviors autoclick,autofetch,autoscroll` with scroll delays to trigger and capture dynamic lazy-loaded images."
+        )
+    if has_images and not has_lazyload and not has_rewrite_mismatch:
         suggestions.append(
             "Re-crawl with expanded behaviors `--behaviors autoclick,autofetch,autoscroll` and `--media max` "
             "to capture lazy-loaded images, responsive srcset images, and dynamic consent-shielded assets."
@@ -284,6 +384,40 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
         suggestions.append("Hold publication for manual curator review due to unverified replay resource failures.")
 
     return " | ".join(suggestions)
+
+
+def _is_url_in_cdx(url: str, raw_cdx: Set[str], canonical_cdx: Optional[Set[str]]) -> bool:
+    """Check if URL exists in raw or canonicalized CDX index."""
+    if url in raw_cdx:
+        return True
+    norm = _normalize_url_for_cdx(url)
+    if norm in raw_cdx:
+        return True
+    if canonical_cdx and (url in canonical_cdx or norm in canonical_cdx or _strip_query_params(url) in canonical_cdx):
+        return True
+    return False
+
+
+def _is_scheme_or_param_mismatch(url: str, raw_cdx: Set[str]) -> bool:
+    """Detect if asset exists in CDX under different scheme (http vs https) or stripped query param."""
+    stripped = _strip_query_params(url)
+    if stripped in raw_cdx:
+        return True
+    if url.startswith("https://"):
+        alt = "http://" + url[8:]
+        if alt in raw_cdx or _strip_query_params(alt) in raw_cdx:
+            return True
+    elif url.startswith("http://"):
+        alt = "https://" + url[7:]
+        if alt in raw_cdx or _strip_query_params(alt) in raw_cdx:
+            return True
+    return False
+
+
+def _strip_query_params(url: str) -> str:
+    """Strip query parameters from URL."""
+    idx = url.find("?")
+    return url[:idx] if idx != -1 else url
 
 
 def _normalize_url_for_cdx(url: str) -> str:

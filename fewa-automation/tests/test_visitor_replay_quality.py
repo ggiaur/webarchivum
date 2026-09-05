@@ -1,4 +1,4 @@
-"""Visitor-visible replay quality repair tests for WEBARCHIVUM-REPLAY-QUALITY-REPAIR-001."""
+"""Visitor-visible replay quality repair tests for WEBARCHIVUM-REPLAY-QUALITY-REPAIR-001 and REPAIR-002."""
 
 import sys
 from pathlib import Path
@@ -10,6 +10,7 @@ from qa_gate import ReplayEvidence, evaluate
 from replay_qa import (
     BrokenResource,
     VisitorReplayQualityResult,
+    canonicalize_cdx_index_for_pywb,
     inspect_visitor_replay_dom,
     inspect_visitor_replay_qa_log,
     suggest_remediation,
@@ -78,6 +79,66 @@ def test_visitor_replay_dom_passes_when_all_resources_exist_in_archive():
     assert len(result.reasons) == 0
 
 
+def test_visitor_replay_dom_resolves_protocol_relative_and_lazyload_attributes():
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <body>
+        <!-- Protocol-relative asset -->
+        <img src="//example.org/assets/header.png">
+        <!-- Dynamic lazyload attribute -->
+        <img src="data:image/svg+xml;base64,123" data-src="/assets/photo_large.jpg">
+        <!-- Responsive srcset -->
+        <img srcset="/assets/small.jpg 320w, /assets/large.jpg 800w">
+    </body>
+    </html>
+    """
+    page_url = "https://example.org/article"
+    # CDX has header.png and small.jpg, but missing photo_large.jpg and large.jpg
+    cdx_set = {
+        "https://example.org/article",
+        "https://example.org/assets/header.png",
+        "https://example.org/assets/small.jpg",
+    }
+
+    result = inspect_visitor_replay_dom(html, page_url, cdx_index_urls=cdx_set)
+
+    assert not result.passed
+    assert result.broken_image_count == 2
+    assert "dynamic_lazyload_missing_detected" in result.reasons
+    assert any(b.reason == "dynamic_lazyload_missing" for b in result.broken_resources)
+    assert "autoclick,autofetch,autoscroll" in result.remediation_suggestion
+
+
+def test_pywb_rewrite_mismatch_and_canonical_cdx_fallback():
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <body>
+        <!-- Asset captured under http:// but requested via https:// -->
+        <img src="https://example.org/legacy_logo.png?v=2.0">
+    </body>
+    </html>
+    """
+    page_url = "https://example.org/"
+    # CDX has http:// (not https://) and without query param
+    cdx_set = {
+        "https://example.org/",
+        "http://example.org/legacy_logo.png",
+    }
+
+    # 1. Strict non-canonical match fails
+    result_strict = inspect_visitor_replay_dom(html, page_url, cdx_index_urls=cdx_set, canonicalize_cdx=False)
+    assert not result_strict.passed
+    assert result_strict.broken_resources[0].reason == "pywb_rewrite_mismatch"
+    assert "pywb_rewrite_mismatch_detected" in result_strict.reasons
+
+    # 2. Canonicalized CDX fallback resolves scheme & query parameter mismatch
+    result_canonical = inspect_visitor_replay_dom(html, page_url, cdx_index_urls=cdx_set, canonicalize_cdx=True)
+    assert result_canonical.passed
+    assert result_canonical.broken_image_count == 0
+
+
 def test_visitor_replay_qa_log_detects_replay_bad_failures():
     qa_log_data = [
         {
@@ -105,7 +166,7 @@ def test_qa_gate_holds_release_when_visitor_replay_quality_fails():
     seed = "https://example.org/"
     child = "https://example.org/a"
     event = EdgeEvent(
-        child, seed, seed, 1, True, "capture", None, "plan",
+        child, child, seed, 1, True, "capture", None, "plan",
         final_url=child, edge_source_page=seed, policy_decision="allowed",
         robots_decision="allowed", security_decision="allowed", scope_decision="in_scope",
         observed_at="2026-08-14T00:00:00Z",
