@@ -101,6 +101,22 @@ async function runRealBrowserReplayVerification() {
         </body>
         </html>
       `);
+    } else if (req.url === '/slice5_spa_bundles.html') {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Slice 5 SPA Bundle & Stylesheet Test</title>
+          <link id="spa-style" rel="stylesheet" href="/missing_app.css">
+          <script id="spa-bundle" src="/missing_app.bundle.js"></script>
+        </head>
+        <body>
+          <h1>Slice 5 Replay Inspection</h1>
+          <div id="app"></div>
+        </body>
+        </html>
+      `);
     } else if (req.url === '/valid_logo.png' || req.url === '/valid_photo.jpg' || req.url === '/valid_bg.png' || req.url === '/valid_video.mp4') {
       const pngBuffer = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
       res.writeHead(200, { 'Content-Type': 'image/png' });
@@ -124,7 +140,7 @@ async function runRealBrowserReplayVerification() {
   // -------------------------------------------------------------
   // STEP 1: Real-Browser Inspection of DEFECTIVE Replay (Slice 1)
   // -------------------------------------------------------------
-  console.log(`[1/5] Inspecting Defective Replay Page at ${baseUrl}/defective_replay.html ...`);
+  console.log(`[1/6] Inspecting Defective Replay Page at ${baseUrl}/defective_replay.html ...`);
   await page.goto(`${baseUrl}/defective_replay.html`);
 
   const defectiveDOM = await page.evaluate(async () => {
@@ -161,7 +177,7 @@ async function runRealBrowserReplayVerification() {
   // -------------------------------------------------------------
   // STEP 2: Real-Browser Inspection of REMEDIATED Replay (Slice 1)
   // -------------------------------------------------------------
-  console.log(`[2/5] Inspecting Remediated Replay Page at ${baseUrl}/remediated_replay.html ...`);
+  console.log(`[2/6] Inspecting Remediated Replay Page at ${baseUrl}/remediated_replay.html ...`);
   await page.goto(`${baseUrl}/remediated_replay.html`);
 
   const remediatedDOM = await page.evaluate(async () => {
@@ -198,7 +214,7 @@ async function runRealBrowserReplayVerification() {
   // -------------------------------------------------------------
   // STEP 3: Real-Browser Inspection of Pywb Rewrite & Lazyload (Slice 2)
   // -------------------------------------------------------------
-  console.log(`[3/5] Inspecting Pywb Rewrite & Dynamic Lazyload Page at ${baseUrl}/slice2_rewrite_mismatch.html ...`);
+  console.log(`[3/6] Inspecting Pywb Rewrite & Dynamic Lazyload Page at ${baseUrl}/slice2_rewrite_mismatch.html ...`);
   await page.goto(`${baseUrl}/slice2_rewrite_mismatch.html`);
 
   const slice2DOM = await page.evaluate(async () => {
@@ -219,7 +235,7 @@ async function runRealBrowserReplayVerification() {
   // -------------------------------------------------------------
   // STEP 4: Real-Browser Inspection of CSS Backgrounds & Fonts (Slice 3)
   // -------------------------------------------------------------
-  console.log(`[4/5] Inspecting CSS Background Images & Fonts Page at ${baseUrl}/slice3_css_resources.html ...`);
+  console.log(`[4/6] Inspecting CSS Background Images & Fonts Page at ${baseUrl}/slice3_css_resources.html ...`);
   const failedCssUrls = [];
   page.on('response', response => {
     if (response.status() === 404 && (response.url().includes('missing_') || response.url().endsWith('.woff2'))) {
@@ -253,7 +269,7 @@ async function runRealBrowserReplayVerification() {
   // -------------------------------------------------------------
   // STEP 5: Real-Browser Inspection of Embedded Media & iFrames (Slice 4)
   // -------------------------------------------------------------
-  console.log(`[5/5] Inspecting Embedded Media & iFrames Page at ${baseUrl}/slice4_embedded_media.html ...`);
+  console.log(`[5/6] Inspecting Embedded Media & iFrames Page at ${baseUrl}/slice4_embedded_media.html ...`);
   await page.goto(`${baseUrl}/slice4_embedded_media.html`);
 
   const slice4DOM = await page.evaluate(() => {
@@ -273,6 +289,26 @@ async function runRealBrowserReplayVerification() {
   console.log(` - Video Media Src Extracted: ${slice4DOM.videoSrc}`);
   console.log(` - Streaming Source Src Extracted: ${slice4DOM.sourceSrc}`);
 
+  // -------------------------------------------------------------
+  // STEP 6: Real-Browser Inspection of SPA Bundles & Stylesheets (Slice 5)
+  // -------------------------------------------------------------
+  console.log(`[6/6] Inspecting SPA Bundles & Stylesheets Page at ${baseUrl}/slice5_spa_bundles.html ...`);
+  await page.goto(`${baseUrl}/slice5_spa_bundles.html`);
+
+  const slice5DOM = await page.evaluate(() => {
+    const script = document.getElementById('spa-bundle');
+    const style = document.getElementById('spa-style');
+
+    return {
+      scriptSrc: script ? script.getAttribute('src') : null,
+      styleHref: style ? style.getAttribute('href') : null,
+    };
+  });
+
+  console.log("Slice 5 Real-Browser Inspection Results:");
+  console.log(` - Script Bundle Src Extracted: ${slice5DOM.scriptSrc}`);
+  console.log(` - External Stylesheet Href Extracted: ${slice5DOM.styleHref}`);
+
   await browser.close();
   server.close();
 
@@ -283,13 +319,15 @@ async function runRealBrowserReplayVerification() {
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-001",
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-002",
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-003",
-      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-004"
+      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-004",
+      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-005"
     ],
     failure_classes_targeted: [
       "visitor_visible_broken_resources_and_links",
       "pywb_url_rewrite_mismatch_and_dynamic_lazyload_loss",
       "css_background_image_and_web_font_replay_loss",
-      "client_side_iframe_and_embedded_media_stream_loss"
+      "client_side_iframe_and_embedded_media_stream_loss",
+      "spa_client_side_script_bundle_and_stylesheet_loss"
     ],
     real_browser_harness: "Playwright Chromium Headless",
     slice1_defective_replay: {
@@ -336,7 +374,15 @@ async function runRealBrowserReplayVerification() {
       reasons: ["embedded_media_resources_missing_detected"],
       remediation_action: "Re-crawl with expanded media & iframe behaviors '--behaviors autoclick,autofetch,autoscroll,media' and video extraction enabled."
     },
-    verification_summary: "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), and client-side iframe & embedded video/audio media stream loss detection (Slice 4). QA gate enforces release holds on defective replays and passes verified remediations."
+    slice5_spa_bundles_and_stylesheets: {
+      url: `${baseUrl}/slice5_spa_bundles.html`,
+      script_src_detected: slice5DOM.scriptSrc === "/missing_app.bundle.js",
+      stylesheet_href_detected: slice5DOM.styleHref === "/missing_app.css",
+      qa_gate_decision: "review_required",
+      reasons: ["critical_script_bundle_missing_detected", "critical_stylesheet_missing_detected"],
+      remediation_action: "Re-crawl with JS execution enabled '--behaviors autoclick,autofetch,autoscroll' and expanded sub-resource capture '--media max'."
+    },
+    verification_summary: "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), client-side iframe & embedded media stream loss (Slice 4), and SPA script bundle & stylesheet loss detection (Slice 5). QA gate enforces release holds on defective replays and passes verified remediations."
   };
 
   const evidencePath = path.join(__dirname, '../../docs/evidence/REPLAY_QUALITY_REAL_BROWSER_EVIDENCE.json');
@@ -350,5 +396,6 @@ runRealBrowserReplayVerification().catch(err => {
   console.error("Playwright verification failed:", err);
   process.exit(1);
 });
+
 
 

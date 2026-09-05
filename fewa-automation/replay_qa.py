@@ -21,7 +21,7 @@ class BrokenResource:
     url: str
     resource_type: str  # "image" | "link" | "script" | "style" | "media" | "lazy_image" | "rewrite_mismatch" | "css_image" | "css_font" | "iframe" | "video" | "audio" | "media_stream"
     element_tag: str
-    reason: str  # "missing_in_cdx" | "http_404" | "net_failed" | "replay_bad" | "pywb_rewrite_mismatch" | "dynamic_lazyload_missing" | "css_background_missing" | "css_font_missing" | "iframe_embedded_missing" | "media_resource_missing" | "media_stream_missing"
+    reason: str  # "missing_in_cdx" | "http_404" | "net_failed" | "replay_bad" | "pywb_rewrite_mismatch" | "dynamic_lazyload_missing" | "css_background_missing" | "css_font_missing" | "iframe_embedded_missing" | "media_resource_missing" | "media_stream_missing" | "script_bundle_missing" | "style_sheet_missing"
     context: str  # HTML snippet or context description
 
 
@@ -36,10 +36,13 @@ class VisitorReplayQualityResult:
     broken_link_count: int
     broken_css_count: int
     broken_media_count: int
+    broken_script_count: int
+    broken_style_count: int
     broken_resources: Tuple[BrokenResource, ...]
     reasons: Tuple[str, ...]
     actionable_evidence: Dict[str, Any]
     remediation_suggestion: Optional[str] = None
+
 
 
 class _DOMResourceExtractor(HTMLParser):
@@ -203,9 +206,11 @@ def inspect_visitor_replay_dom(
     max_allowed_broken_links: int = 0,
     max_allowed_broken_css: int = 0,
     max_allowed_broken_media: int = 0,
+    max_allowed_broken_scripts: int = 0,
+    max_allowed_broken_styles: int = 0,
     canonicalize_cdx: bool = True,
 ) -> VisitorReplayQualityResult:
-    """Inspect visitor-visible DOM for broken images, missing links, pywb rewrite mismatches, lazy-load, CSS embedded assets, and iframe/embedded media defects.
+    """Inspect visitor-visible DOM for broken images, missing links, pywb rewrite mismatches, lazy-load, CSS embedded assets, iframe/media streams, and critical script/style bundles.
 
     Checks rendered DOM elements (img, lazyload, a, link, script, CSS url(...), iframe, video/audio/streams) against CDX.
     Returns structured VisitorReplayQualityResult with actionable evidence.
@@ -314,6 +319,38 @@ def inspect_visitor_replay_dom(
                     )
                 )
 
+    # 6. Check Critical Script Bundles
+    script_broken = 0
+    for resolved_url, raw_src in extractor.scripts:
+        if cdx_index_urls is not None:
+            if not _is_url_in_cdx(resolved_url, cdx_index_urls, canonical_cdx):
+                script_broken += 1
+                broken.append(
+                    BrokenResource(
+                        url=resolved_url,
+                        resource_type="script",
+                        element_tag=f'<script src="{raw_src}">',
+                        reason="script_bundle_missing",
+                        context=f"Critical script bundle {resolved_url} missing in WACZ archive.",
+                    )
+                )
+
+    # 7. Check External Stylesheets
+    style_broken = 0
+    for resolved_url, raw_href in extractor.styles:
+        if cdx_index_urls is not None:
+            if not _is_url_in_cdx(resolved_url, cdx_index_urls, canonical_cdx):
+                style_broken += 1
+                broken.append(
+                    BrokenResource(
+                        url=resolved_url,
+                        resource_type="style",
+                        element_tag=f'<link rel="stylesheet" href="{raw_href}">',
+                        reason="style_sheet_missing",
+                        context=f"External stylesheet {resolved_url} missing in WACZ archive.",
+                    )
+                )
+
     total_checked = (
         len(extractor.images)
         + len(extractor.lazy_images)
@@ -343,6 +380,12 @@ def inspect_visitor_replay_dom(
     if media_broken > max_allowed_broken_media:
         reasons.append(f"broken_embedded_media_detected ({media_broken} > {max_allowed_broken_media})")
 
+    if script_broken > max_allowed_broken_scripts:
+        reasons.append(f"broken_script_bundles_detected ({script_broken} > {max_allowed_broken_scripts})")
+
+    if style_broken > max_allowed_broken_styles:
+        reasons.append(f"broken_stylesheets_detected ({style_broken} > {max_allowed_broken_styles})")
+
     if any(b.reason == "pywb_rewrite_mismatch" for b in broken):
         reasons.append("pywb_rewrite_mismatch_detected")
 
@@ -354,6 +397,12 @@ def inspect_visitor_replay_dom(
 
     if any(b.reason in ("iframe_embedded_missing", "media_resource_missing", "media_stream_missing") for b in broken):
         reasons.append("embedded_media_resources_missing_detected")
+
+    if any(b.reason == "script_bundle_missing" for b in broken):
+        reasons.append("critical_script_bundle_missing_detected")
+
+    if any(b.reason == "style_sheet_missing" for b in broken):
+        reasons.append("critical_stylesheet_missing_detected")
 
     passed = len(reasons) == 0
 
@@ -370,6 +419,8 @@ def inspect_visitor_replay_dom(
         "broken_link_count": broken_links,
         "broken_css_count": css_broken,
         "broken_media_count": media_broken,
+        "broken_script_count": script_broken,
+        "broken_style_count": style_broken,
         "quality_score": quality_score,
         "broken_resources": [
             {
@@ -393,6 +444,8 @@ def inspect_visitor_replay_dom(
         broken_link_count=broken_links,
         broken_css_count=css_broken,
         broken_media_count=media_broken,
+        broken_script_count=script_broken,
+        broken_style_count=style_broken,
         broken_resources=tuple(broken),
         reasons=tuple(reasons),
         actionable_evidence=actionable_evidence,
@@ -466,6 +519,8 @@ def inspect_visitor_replay_qa_log(
         broken_link_count=0,
         broken_css_count=0,
         broken_media_count=0,
+        broken_script_count=0,
+        broken_style_count=0,
         broken_resources=tuple(broken),
         reasons=tuple(reasons),
         actionable_evidence=actionable_evidence,
@@ -473,11 +528,17 @@ def inspect_visitor_replay_qa_log(
     )
 
 
+
 def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
     """Provide specific, actionable remediation options based on failure class."""
     if not broken_resources:
         return "No remediation needed."
 
+    has_bundles = any(
+        b.reason in ("script_bundle_missing", "style_sheet_missing")
+        or b.resource_type in ("script", "style")
+        for b in broken_resources
+    )
     has_media = any(
         b.reason in ("iframe_embedded_missing", "media_resource_missing", "media_stream_missing")
         or b.resource_type in ("iframe", "video", "audio", "media_stream")
@@ -490,6 +551,10 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
     has_links = any(b.resource_type == "link" for b in broken_resources)
 
     suggestions = []
+    if has_bundles:
+        suggestions.append(
+            "Re-crawl with JS execution enabled '--behaviors autoclick,autofetch,autoscroll' and expanded sub-resource capture '--media max'."
+        )
     if has_media:
         suggestions.append(
             "Re-crawl with expanded media & iframe behaviors '--behaviors autoclick,autofetch,autoscroll,media' and video extraction enabled."
@@ -506,7 +571,7 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
         suggestions.append(
             "Enable `--behaviors autoclick,autofetch,autoscroll` with scroll delays to trigger and capture dynamic lazy-loaded images."
         )
-    if has_images and not has_lazyload and not has_rewrite_mismatch and not has_css and not has_media:
+    if has_images and not has_lazyload and not has_rewrite_mismatch and not has_css and not has_media and not has_bundles:
         suggestions.append(
             "Re-crawl with expanded behaviors `--behaviors autoclick,autofetch,autoscroll` and `--media max` "
             "to capture lazy-loaded images, responsive srcset images, and dynamic consent-shielded assets."
@@ -519,6 +584,7 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
         suggestions.append("Hold publication for manual curator review due to unverified replay resource failures.")
 
     return " | ".join(suggestions)
+
 
 
 def _is_font_url(url: str) -> bool:

@@ -315,3 +315,38 @@ def test_visitor_replay_dom_detects_embedded_iframes_and_media_streams():
     assert "'--behaviors autoclick,autofetch,autoscroll,media'" in result.remediation_suggestion
 
 
+def test_visitor_replay_dom_detects_missing_script_bundles_and_stylesheets():
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <link rel="stylesheet" href="/assets/app.css">
+        <script src="https://example.org/js/app.bundle.js"></script>
+        <script src="/js/vendor.js"></script>
+    </head>
+    <body>
+        <div id="app"></div>
+    </body>
+    </html>
+    """
+    page_url = "https://example.org/spa"
+    # CDX index contains page and vendor.js, but misses app.css and app.bundle.js
+    cdx_set = {
+        "https://example.org/spa",
+        "https://example.org/js/vendor.js",
+    }
+
+    result = inspect_visitor_replay_dom(html, page_url, cdx_index_urls=cdx_set)
+
+    assert not result.passed
+    assert result.broken_script_count == 1
+    assert result.broken_style_count == 1
+    assert "critical_script_bundle_missing_detected" in result.reasons
+    assert "critical_stylesheet_missing_detected" in result.reasons
+    reason_codes = [b.reason for b in result.broken_resources]
+    assert "script_bundle_missing" in reason_codes
+    assert "style_sheet_missing" in reason_codes
+    assert "JS execution enabled" in result.remediation_suggestion
+
+
+
