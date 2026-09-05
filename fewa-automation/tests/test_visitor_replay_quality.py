@@ -742,6 +742,41 @@ def test_visitor_replay_dom_detects_lightbox_defects():
     assert "dynamic lightbox gallery & image collection viewer behavior rules enabled" in result.remediation_suggestion
 
 
+def test_visitor_replay_dom_detects_gis_map_defects():
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <script>
+            const geojson = loadGeoJSON('https://example.org/gis/district_boundaries.geojson');
+            const tiles = fetchVectorTiles('/gis/tiles/{z}/{x}/{y}.vector.pbf');
+        </script>
+    </head>
+    <body>
+        <h1>Municipal Cadastral GIS & Historical City Map</h1>
+        <div id="gis-map" data-tile-url="https://example.org/gis/tiles/{z}/{x}/{y}.pbf" data-geojson-url="/gis/cadastral_1890.geojson"></div>
+        <canvas id="leaflet-layer" data-map-layer="/gis/historical_layers_manifest.json"></canvas>
+    </body>
+    </html>
+    """
+    page_url = "https://example.org/map/cadastral"
+    # CDX index contains base page and historical_layers_manifest.json, but misses district_boundaries.geojson, {z}/{x}/{y}.vector.pbf, {z}/{x}/{y}.pbf, and cadastral_1890.geojson
+    cdx_set = {
+        "https://example.org/map/cadastral",
+        "https://example.org/gis/historical_layers_manifest.json",
+    }
+
+    result = inspect_visitor_replay_dom(html, page_url, cdx_index_urls=cdx_set)
+
+    assert not result.passed
+    assert result.broken_gis_count >= 3
+    assert "gis_vector_tile_loss_detected" in result.reasons
+    reason_codes = [b.reason for b in result.broken_resources]
+    assert "geojson_layer_missing" in reason_codes
+    assert "vector_tile_missing" in reason_codes
+    assert "interactive map & GIS vector tile / GeoJSON capture rules enabled" in result.remediation_suggestion
+
+
 
 
 

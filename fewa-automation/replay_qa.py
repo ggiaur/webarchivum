@@ -39,14 +39,16 @@ SEARCH_FORM_REGEX = re.compile(r'(?:fetchSearch|searchApi|executeSearch|loadSear
 MULTILINGUAL_LOCALE_REGEX = re.compile(r'(?:loadLocale|switchLanguage|fetchI18n|loadTranslationBundle|setLanguage|localeUrl)\(\s*[\'"]([^\'"]+)[\'"]', re.IGNORECASE)
 # Regular expressions to extract dynamic lightbox photo gallery and high-resolution image collection assets
 LIGHTBOX_GALLERY_REGEX = re.compile(r'(?:openLightbox|loadGalleryImage|fetchGalleryData|showPhotoSwipe|viewGalleryPhoto|loadHighRes)\(\s*[\'"]([^\'"]+)[\'"]', re.IGNORECASE)
+# Regular expressions to extract interactive map / GIS vector tile layers and GeoJSON overlays
+GIS_MAP_TILES_REGEX = re.compile(r'(?:loadGeoJSON|fetchVectorTiles|addMapLayer|loadGisLayer|initLeafletMap|initOpenLayers|fetchTileLayer|mapTileUrl)\(\s*[\'"]([^\'"]+)[\'"]', re.IGNORECASE)
 
 
 @dataclass(frozen=True)
 class BrokenResource:
     url: str
-    resource_type: str  # "image" | "link" | "script" | "style" | "media" | "lazy_image" | "rewrite_mismatch" | "css_image" | "css_font" | "iframe" | "video" | "audio" | "media_stream" | "script_bundle" | "style_sheet" | "shadow_dom" | "custom_element" | "websocket" | "sse_stream" | "web_storage" | "state_hydration" | "service_worker" | "canvas_snapshot" | "webgl_texture" | "webgl_model" | "shader_source" | "webxr_environment" | "webxr_skybox" | "spatial_audio" | "spatial_anchor" | "pdf_document" | "pdfjs_worker" | "pdf_attachment" | "consent_shield" | "cookie_banner" | "modal_overlay" | "pagination_feed" | "infinite_scroll" | "page_endpoint" | "search_form" | "search_api" | "search_query" | "multilingual_locale" | "locale_bundle" | "alternate_language" | "lightbox_image" | "gallery_metadata" | "highres_photo"
+    resource_type: str  # "image" | "link" | "script" | "style" | "media" | "lazy_image" | "rewrite_mismatch" | "css_image" | "css_font" | "iframe" | "video" | "audio" | "media_stream" | "script_bundle" | "style_sheet" | "shadow_dom" | "custom_element" | "websocket" | "sse_stream" | "web_storage" | "state_hydration" | "service_worker" | "canvas_snapshot" | "webgl_texture" | "webgl_model" | "shader_source" | "webxr_environment" | "webxr_skybox" | "spatial_audio" | "spatial_anchor" | "pdf_document" | "pdfjs_worker" | "pdf_attachment" | "consent_shield" | "cookie_banner" | "modal_overlay" | "pagination_feed" | "infinite_scroll" | "page_endpoint" | "search_form" | "search_api" | "search_query" | "multilingual_locale" | "locale_bundle" | "alternate_language" | "lightbox_image" | "gallery_metadata" | "highres_photo" | "vector_tile" | "geojson_layer" | "gis_map_layer"
     element_tag: str
-    reason: str  # "missing_in_cdx" | "http_404" | "net_failed" | "replay_bad" | "pywb_rewrite_mismatch" | "dynamic_lazyload_missing" | "css_background_missing" | "css_font_missing" | "iframe_embedded_missing" | "media_resource_missing" | "media_stream_missing" | "script_bundle_missing" | "style_sheet_missing" | "shadow_dom_resource_missing" | "shadow_dom_template_missing" | "websocket_endpoint_missing" | "sse_stream_missing" | "storage_state_missing" | "hydration_data_missing" | "service_worker_missing" | "canvas_snapshot_missing" | "webgl_texture_missing" | "webgl_model_missing" | "shader_source_missing" | "webxr_environment_missing" | "webxr_skybox_missing" | "spatial_audio_missing" | "spatial_anchor_missing" | "pdf_document_missing" | "pdfjs_worker_missing" | "pdf_attachment_missing" | "consent_shield_blocking" | "cookie_banner_blocking" | "modal_overlay_blocking" | "pagination_feed_missing" | "infinite_scroll_missing" | "page_endpoint_missing" | "search_form_missing" | "search_api_missing" | "search_query_missing" | "multilingual_locale_missing" | "locale_bundle_missing" | "alternate_language_missing" | "lightbox_image_missing" | "gallery_metadata_missing" | "highres_photo_missing"
+    reason: str  # "missing_in_cdx" | "http_404" | "net_failed" | "replay_bad" | "pywb_rewrite_mismatch" | "dynamic_lazyload_missing" | "css_background_missing" | "css_font_missing" | "iframe_embedded_missing" | "media_resource_missing" | "media_stream_missing" | "script_bundle_missing" | "style_sheet_missing" | "shadow_dom_resource_missing" | "shadow_dom_template_missing" | "websocket_endpoint_missing" | "sse_stream_missing" | "storage_state_missing" | "hydration_data_missing" | "service_worker_missing" | "canvas_snapshot_missing" | "webgl_texture_missing" | "webgl_model_missing" | "shader_source_missing" | "webxr_environment_missing" | "webxr_skybox_missing" | "spatial_audio_missing" | "spatial_anchor_missing" | "pdf_document_missing" | "pdfjs_worker_missing" | "pdf_attachment_missing" | "consent_shield_blocking" | "cookie_banner_blocking" | "modal_overlay_blocking" | "pagination_feed_missing" | "infinite_scroll_missing" | "page_endpoint_missing" | "search_form_missing" | "search_api_missing" | "search_query_missing" | "multilingual_locale_missing" | "locale_bundle_missing" | "alternate_language_missing" | "lightbox_image_missing" | "gallery_metadata_missing" | "highres_photo_missing" | "vector_tile_missing" | "geojson_layer_missing" | "gis_map_layer_missing"
     context: str  # HTML snippet or context description
 
 
@@ -74,6 +76,7 @@ class VisitorReplayQualityResult:
     broken_search_count: int = 0
     broken_multilingual_count: int = 0
     broken_lightbox_count: int = 0
+    broken_gis_count: int = 0
     broken_resources: Tuple[BrokenResource, ...] = ()
     reasons: Tuple[str, ...] = ()
     actionable_evidence: Dict[str, Any] = field(default_factory=dict)
@@ -105,6 +108,7 @@ class _DOMResourceExtractor(HTMLParser):
         self.search_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'search_form'|'search_api'|'search_query')
         self.multilingual_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'multilingual_locale'|'locale_bundle'|'alternate_language')
         self.lightbox_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'lightbox_image'|'gallery_metadata'|'highres_photo')
+        self.gis_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'vector_tile'|'geojson_layer'|'gis_map_layer')
         self._in_style_tag = False
         self._style_content_chunks: List[str] = []
         self._in_script_tag = False
@@ -360,6 +364,38 @@ class _DOMResourceExtractor(HTMLParser):
                     if not any(u[0] == resolved for u in self.lightbox_urls):
                         self.lightbox_urls.append((resolved, raw_val, lb_type))
 
+        # Check Interactive Map & GIS Vector Tile / GeoJSON overlay attributes and elements
+        if tag_lower in ("div", "map", "canvas", "a") and any(gis_attr in attr_dict for gis_attr in ("data-tile-url", "data-vector-tile", "data-geojson-src", "data-geojson-url", "data-map-layer", "data-gis-endpoint", "data-arcgis-src", "data-leaflet-src", "data-map-tiles", "map-tile-url", "geojson-src")):
+            gis_src = (
+                attr_dict.get("data-tile-url")
+                or attr_dict.get("data-vector-tile")
+                or attr_dict.get("data-geojson-src")
+                or attr_dict.get("data-geojson-url")
+                or attr_dict.get("data-map-layer")
+                or attr_dict.get("data-gis-endpoint")
+                or attr_dict.get("data-arcgis-src")
+                or attr_dict.get("data-leaflet-src")
+                or attr_dict.get("data-map-tiles")
+                or attr_dict.get("map-tile-url")
+                or attr_dict.get("geojson-src")
+            )
+            if gis_src:
+                raw_gis = gis_src.strip()
+                if raw_gis and not raw_gis.startswith(("javascript:", "mailto:", "tel:", "#", "data:")):
+                    resolved = resolve_protocol_relative(raw_gis, effective_base)
+                    g_type = "geojson_layer" if raw_gis.lower().endswith((".geojson", ".topojson")) else ("vector_tile" if raw_gis.lower().endswith((".pbf", ".mvt")) or "{z}" in raw_gis else "gis_map_layer")
+                    if not any(u[0] == resolved for u in self.gis_urls):
+                        self.gis_urls.append((resolved, raw_gis, g_type))
+
+        for gis_attr in ("data-tile-url", "data-vector-tile", "data-geojson-src", "data-geojson-url", "data-map-layer", "data-gis-endpoint", "data-arcgis-src", "data-leaflet-src", "data-map-tiles", "map-tile-url", "geojson-src"):
+            if gis_attr in attr_dict:
+                raw_val = attr_dict[gis_attr].strip()
+                if raw_val and not raw_val.startswith("data:"):
+                    resolved = resolve_protocol_relative(raw_val, effective_base)
+                    g_type = "geojson_layer" if "geojson" in gis_attr or raw_val.lower().endswith((".geojson", ".topojson")) else ("vector_tile" if "tile" in gis_attr or raw_val.lower().endswith((".pbf", ".mvt")) or "{z}" in raw_val else "gis_map_layer")
+                    if not any(u[0] == resolved for u in self.gis_urls):
+                        self.gis_urls.append((resolved, raw_val, g_type))
+
         if tag_lower == "img":
             if "src" in attr_dict:
                 raw_src = attr_dict["src"].strip()
@@ -566,6 +602,14 @@ class _DOMResourceExtractor(HTMLParser):
                     lb_type = "gallery_metadata" if raw_url.endswith(".json") else "lightbox_image"
                     if not any(u[0] == resolved for u in self.lightbox_urls):
                         self.lightbox_urls.append((resolved, raw_url, lb_type))
+
+            for match in GIS_MAP_TILES_REGEX.finditer(script_text):
+                raw_url = match.group(1).strip()
+                if raw_url and not raw_url.startswith("data:"):
+                    resolved = resolve_protocol_relative(raw_url, effective_base)
+                    g_type = "geojson_layer" if raw_url.lower().endswith((".geojson", ".topojson")) else ("vector_tile" if raw_url.lower().endswith((".pbf", ".mvt")) or "{z}" in raw_url else "gis_map_layer")
+                    if not any(u[0] == resolved for u in self.gis_urls):
+                        self.gis_urls.append((resolved, raw_url, g_type))
 
 
 def resolve_protocol_relative(raw_url: str, base_url: str) -> str:
@@ -1008,6 +1052,28 @@ def inspect_visitor_replay_dom(
                     )
                 )
 
+    # 19. Check Interactive Map & GIS Vector Tile / GeoJSON Overlay Assets
+    gis_broken = 0
+    for resolved_url, raw_url, res_type in extractor.gis_urls:
+        if cdx_index_urls is not None:
+            if not _is_url_in_cdx(resolved_url, cdx_index_urls, canonical_cdx):
+                gis_broken += 1
+                if res_type == "geojson_layer":
+                    reason_code = "geojson_layer_missing"
+                elif res_type == "vector_tile":
+                    reason_code = "vector_tile_missing"
+                else:
+                    reason_code = "gis_map_layer_missing"
+                broken.append(
+                    BrokenResource(
+                        url=resolved_url,
+                        resource_type=res_type,
+                        element_tag=f'<{res_type} url="{raw_url}">',
+                        reason=reason_code,
+                        context=f"Interactive map / GIS vector tile or GeoJSON overlay asset ({res_type}) {resolved_url} missing in WACZ archive.",
+                    )
+                )
+
     total_checked = (
         len(extractor.images)
         + len(extractor.lazy_images)
@@ -1027,6 +1093,7 @@ def inspect_visitor_replay_dom(
         + len(extractor.search_urls)
         + len(extractor.multilingual_urls)
         + len(extractor.lightbox_urls)
+        + len(extractor.gis_urls)
     )
     total_broken = len(broken)
     replay_good = total_checked - total_broken
@@ -1084,6 +1151,9 @@ def inspect_visitor_replay_dom(
     if lightbox_broken > max_allowed_broken_canvas:
         reasons.append(f"broken_lightbox_galleries_detected ({lightbox_broken} > {max_allowed_broken_canvas})")
 
+    if gis_broken > max_allowed_broken_canvas:
+        reasons.append(f"broken_gis_map_layers_detected ({gis_broken} > {max_allowed_broken_canvas})")
+
     if any(b.reason == "pywb_rewrite_mismatch" for b in broken):
         reasons.append("pywb_rewrite_mismatch_detected")
 
@@ -1135,6 +1205,9 @@ def inspect_visitor_replay_dom(
     if any(b.reason in ("lightbox_image_missing", "gallery_metadata_missing", "highres_photo_missing") for b in broken):
         reasons.append("lightbox_gallery_image_loss_detected")
 
+    if any(b.reason in ("vector_tile_missing", "geojson_layer_missing", "gis_map_layer_missing") for b in broken):
+        reasons.append("gis_vector_tile_loss_detected")
+
     passed = len(reasons) == 0
 
     remediation = None
@@ -1163,6 +1236,7 @@ def inspect_visitor_replay_dom(
         "broken_search_count": search_broken,
         "broken_multilingual_count": multilingual_broken,
         "broken_lightbox_count": lightbox_broken,
+        "broken_gis_count": gis_broken,
         "quality_score": quality_score,
         "broken_resources": [
             {
@@ -1199,6 +1273,7 @@ def inspect_visitor_replay_dom(
         broken_search_count=search_broken,
         broken_multilingual_count=multilingual_broken,
         broken_lightbox_count=lightbox_broken,
+        broken_gis_count=gis_broken,
         broken_resources=tuple(broken),
         reasons=tuple(reasons),
         actionable_evidence=actionable_evidence,
@@ -1293,6 +1368,11 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
     if not broken_resources:
         return "No remediation needed."
 
+    has_gis = any(
+        b.reason in ("vector_tile_missing", "geojson_layer_missing", "gis_map_layer_missing")
+        or b.resource_type in ("vector_tile", "geojson_layer", "gis_map_layer")
+        for b in broken_resources
+    )
     has_lightbox = any(
         b.reason in ("lightbox_image_missing", "gallery_metadata_missing", "highres_photo_missing")
         or b.resource_type in ("lightbox_image", "gallery_metadata", "highres_photo")
@@ -1365,6 +1445,10 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
     has_links = any(b.resource_type == "link" for b in broken_resources)
 
     suggestions = []
+    if has_gis:
+        suggestions.append(
+            "Re-crawl with interactive map & GIS vector tile / GeoJSON capture rules enabled '--behaviors autoclick,autofetch,autoscroll,gis' with tile bounding box pre-fetching."
+        )
     if has_lightbox:
         suggestions.append(
             "Re-crawl with dynamic lightbox gallery & image collection viewer behavior rules enabled '--behaviors autoclick,autofetch,autoscroll,lightbox' and high-resolution image asset pre-fetching."
