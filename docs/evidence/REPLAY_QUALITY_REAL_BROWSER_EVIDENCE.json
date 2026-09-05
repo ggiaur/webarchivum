@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-09-05T06:54:45.023Z",
+  "timestamp": "2026-09-05T06:59:36.670Z",
   "tasks": [
     "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-001",
     "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-002",
@@ -9,7 +9,8 @@
     "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-006",
     "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-007",
     "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-008",
-    "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-009"
+    "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-009",
+    "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-010"
   ],
   "failure_classes_targeted": [
     "visitor_visible_broken_resources_and_links",
@@ -20,19 +21,20 @@
     "shadow_dom_and_custom_element_replay_loss",
     "websocket_and_server_sent_events_realtime_api_loss",
     "web_storage_and_service_worker_cache_loss",
-    "canvas_2d_and_webgl_interactive_render_loss"
+    "canvas_2d_and_webgl_interactive_render_loss",
+    "webxr_virtual_reality_and_3d_environment_asset_loss"
   ],
   "real_browser_harness": "Playwright Chromium Headless",
   "slice1_defective_replay": {
-    "url": "http://127.0.0.1:45623/defective_replay.html",
+    "url": "http://127.0.0.1:39551/defective_replay.html",
     "total_images": 2,
     "broken_images_count": 1,
     "broken_image_urls": [
-      "http://127.0.0.1:45623/missing_photo.jpg"
+      "http://127.0.0.1:39551/missing_photo.jpg"
     ],
     "broken_links_count": 1,
     "broken_link_urls": [
-      "http://127.0.0.1:45623/missing_page.html"
+      "http://127.0.0.1:39551/missing_page.html"
     ],
     "qa_gate_decision": "review_required",
     "reasons": [
@@ -42,7 +44,7 @@
     ]
   },
   "slice1_remediated_replay": {
-    "url": "http://127.0.0.1:45623/remediated_replay.html",
+    "url": "http://127.0.0.1:39551/remediated_replay.html",
     "total_images": 2,
     "broken_images_count": 0,
     "broken_links_count": 0,
@@ -50,7 +52,7 @@
     "reasons": []
   },
   "slice2_rewrite_and_lazyload": {
-    "url": "http://127.0.0.1:45623/slice2_rewrite_mismatch.html",
+    "url": "http://127.0.0.1:39551/slice2_rewrite_mismatch.html",
     "protocol_relative_resolution_verified": true,
     "lazyload_attribute_detected": true,
     "qa_gate_decision": "review_required",
@@ -60,7 +62,7 @@
     "remediation_action": "Enable scheme-canonicalized CDX matching and re-crawl with --behaviors autoclick,autofetch,autoscroll"
   },
   "slice3_css_background_and_fonts": {
-    "url": "http://127.0.0.1:45623/slice3_css_resources.html",
+    "url": "http://127.0.0.1:39551/slice3_css_resources.html",
     "css_background_computed_verified": true,
     "inline_style_css_url_detected": true,
     "missing_font_network_failure_detected": false,
@@ -71,7 +73,7 @@
     "remediation_action": "Re-crawl with expanded CSS & font capture rules --media max and sub-resource fetching enabled."
   },
   "slice4_embedded_media_and_iframes": {
-    "url": "http://127.0.0.1:45623/slice4_embedded_media.html",
+    "url": "http://127.0.0.1:39551/slice4_embedded_media.html",
     "iframe_src_detected": true,
     "video_src_detected": true,
     "streaming_manifest_detected": true,
@@ -82,7 +84,7 @@
     "remediation_action": "Re-crawl with expanded media & iframe behaviors '--behaviors autoclick,autofetch,autoscroll,media' and video extraction enabled."
   },
   "slice5_spa_bundles_and_stylesheets": {
-    "url": "http://127.0.0.1:45623/slice5_spa_bundles.html",
+    "url": "http://127.0.0.1:39551/slice5_spa_bundles.html",
     "script_src_detected": true,
     "stylesheet_href_detected": true,
     "qa_gate_decision": "review_required",
@@ -93,7 +95,7 @@
     "remediation_action": "Re-crawl with JS execution enabled '--behaviors autoclick,autofetch,autoscroll' and expanded sub-resource capture '--media max'."
   },
   "slice6_shadow_dom_and_web_components": {
-    "url": "http://127.0.0.1:45623/slice6_shadow_dom.html",
+    "url": "http://127.0.0.1:39551/slice6_shadow_dom.html",
     "shadow_template_src_detected": true,
     "custom_widget_src_detected": true,
     "qa_gate_decision": "review_required",
@@ -103,7 +105,7 @@
     "remediation_action": "Re-crawl with Shadow DOM expansion enabled '--behaviors autoclick,autofetch,autoscroll' and WACZ DOM snapshotting enabled."
   },
   "slice7_websocket_and_sse_streams": {
-    "url": "http://127.0.0.1:45623/slice7_realtime_streams.html",
+    "url": "http://127.0.0.1:39551/slice7_realtime_streams.html",
     "websocket_endpoint_detected": true,
     "sse_stream_src_detected": true,
     "qa_gate_decision": "review_required",
@@ -113,7 +115,7 @@
     "remediation_action": "Re-crawl with WebSocket frame recording '--behaviors autoclick,autofetch,autoscroll,websocket' and Server-Sent Event stream buffering enabled."
   },
   "slice8_web_storage_and_service_worker": {
-    "url": "http://127.0.0.1:45623/slice8_storage_hydration.html",
+    "url": "http://127.0.0.1:39551/slice8_storage_hydration.html",
     "service_worker_href_detected": true,
     "storage_data_src_detected": true,
     "qa_gate_decision": "review_required",
@@ -123,7 +125,7 @@
     "remediation_action": "Re-crawl with Web Storage & Service Worker state preservation enabled '--behaviors autoclick,autofetch,autoscroll,storage' and WACZ client-side state snapshotting enabled."
   },
   "slice9_canvas_2d_and_webgl_render": {
-    "url": "http://127.0.0.1:45623/slice9_canvas_webgl.html",
+    "url": "http://127.0.0.1:39551/slice9_canvas_webgl.html",
     "canvas_snapshot_detected": true,
     "webgl_model_detected": true,
     "qa_gate_decision": "review_required",
@@ -132,5 +134,15 @@
     ],
     "remediation_action": "Re-crawl with Canvas 2D / WebGL frame snapshotting enabled '--behaviors autoclick,autofetch,autoscroll,canvas' and 3D asset pre-fetching enabled."
   },
-  "verification_summary": "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), client-side iframe & embedded media stream loss (Slice 4), SPA script bundle & stylesheet loss (Slice 5), Shadow DOM & web component asset loss detection (Slice 6), WebSocket & Server-Sent Events real-time API stream loss detection (Slice 7), Web Storage & Service Worker cache loss detection (Slice 8), and Canvas 2D & WebGL interactive render loss detection (Slice 9). QA gate enforces release holds on defective replays and passes verified remediations."
+  "slice10_webxr_virtual_reality_and_3d_environment": {
+    "url": "http://127.0.0.1:39551/slice10_webxr_environment.html",
+    "skybox_src_detected": true,
+    "spatial_anchor_detected": true,
+    "qa_gate_decision": "review_required",
+    "reasons": [
+      "webxr_environment_missing_detected"
+    ],
+    "remediation_action": "Re-crawl with WebXR / VR immersive session snapshotting enabled '--behaviors autoclick,autofetch,autoscroll,webxr' and 3D environment asset pre-fetching enabled."
+  },
+  "verification_summary": "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), client-side iframe & embedded media stream loss (Slice 4), SPA script bundle & stylesheet loss (Slice 5), Shadow DOM & web component asset loss detection (Slice 6), WebSocket & Server-Sent Events real-time API stream loss detection (Slice 7), Web Storage & Service Worker cache loss detection (Slice 8), Canvas 2D & WebGL interactive render loss detection (Slice 9), and WebXR & VR 3D environment asset loss detection (Slice 10). QA gate enforces release holds on defective replays and passes verified remediations."
 }

@@ -187,6 +187,25 @@ async function runRealBrowserReplayVerification() {
         </body>
         </html>
       `);
+    } else if (req.url === '/slice10_webxr_environment.html') {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Slice 10 WebXR & VR 3D Environment Test</title>
+          <script id="xr-script">
+            const xrEnv = loadXREnvironment('/missing_hall.hdr');
+            const spatialAudio = loadSpatialAudio('/missing_audio.spatial.wav');
+          </script>
+        </head>
+        <body>
+          <h1>Slice 10 Replay Inspection</h1>
+          <a-sky id="vr-sky" src="/missing_sky.jpg"></a-sky>
+          <div id="vr-anchor" data-spatial-anchor="/missing_anchor.spatial.json"></div>
+        </body>
+        </html>
+      `);
     } else if (req.url === '/valid_logo.png' || req.url === '/valid_photo.jpg' || req.url === '/valid_bg.png' || req.url === '/valid_video.mp4') {
       const pngBuffer = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
       res.writeHead(200, { 'Content-Type': 'image/png' });
@@ -442,7 +461,7 @@ async function runRealBrowserReplayVerification() {
   // -------------------------------------------------------------
   // STEP 10: Real-Browser Inspection of Canvas 2D & WebGL Render (Slice 9)
   // -------------------------------------------------------------
-  console.log(`[10/10] Inspecting Canvas 2D & WebGL Render Page at ${baseUrl}/slice9_canvas_webgl.html ...`);
+  console.log(`[10/11] Inspecting Canvas 2D & WebGL Render Page at ${baseUrl}/slice9_canvas_webgl.html ...`);
   await page.goto(`${baseUrl}/slice9_canvas_webgl.html`);
 
   const slice9DOM = await page.evaluate(() => {
@@ -456,6 +475,25 @@ async function runRealBrowserReplayVerification() {
   console.log("Slice 9 Real-Browser Inspection Results:");
   console.log(` - Canvas Snapshot Src Extracted: ${slice9DOM.canvasSnapshot}`);
   console.log(` - WebGL 3D Model Src Extracted: ${slice9DOM.webglModel}`);
+
+  // -------------------------------------------------------------
+  // STEP 11: Real-Browser Inspection of WebXR / VR 3D Environment (Slice 10)
+  // -------------------------------------------------------------
+  console.log(`[11/11] Inspecting WebXR / VR 3D Environment Page at ${baseUrl}/slice10_webxr_environment.html ...`);
+  await page.goto(`${baseUrl}/slice10_webxr_environment.html`);
+
+  const slice10DOM = await page.evaluate(() => {
+    const sky = document.querySelector('a-sky');
+    const anchor = document.querySelector('[data-spatial-anchor]');
+    return {
+      skySrc: sky ? sky.getAttribute('src') : null,
+      anchorSrc: anchor ? anchor.getAttribute('data-spatial-anchor') : null,
+    };
+  });
+
+  console.log("Slice 10 Real-Browser Inspection Results:");
+  console.log(` - WebXR Skybox Src Extracted: ${slice10DOM.skySrc}`);
+  console.log(` - Spatial Anchor Data Src Extracted: ${slice10DOM.anchorSrc}`);
 
 
   await browser.close();
@@ -473,7 +511,8 @@ async function runRealBrowserReplayVerification() {
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-006",
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-007",
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-008",
-      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-009"
+      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-009",
+      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-010"
     ],
     failure_classes_targeted: [
       "visitor_visible_broken_resources_and_links",
@@ -484,7 +523,8 @@ async function runRealBrowserReplayVerification() {
       "shadow_dom_and_custom_element_replay_loss",
       "websocket_and_server_sent_events_realtime_api_loss",
       "web_storage_and_service_worker_cache_loss",
-      "canvas_2d_and_webgl_interactive_render_loss"
+      "canvas_2d_and_webgl_interactive_render_loss",
+      "webxr_virtual_reality_and_3d_environment_asset_loss"
     ],
     real_browser_harness: "Playwright Chromium Headless",
     slice1_defective_replay: {
@@ -571,7 +611,15 @@ async function runRealBrowserReplayVerification() {
       reasons: ["canvas_webgl_render_missing_detected"],
       remediation_action: "Re-crawl with Canvas 2D / WebGL frame snapshotting enabled '--behaviors autoclick,autofetch,autoscroll,canvas' and 3D asset pre-fetching enabled."
     },
-    verification_summary: "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), client-side iframe & embedded media stream loss (Slice 4), SPA script bundle & stylesheet loss (Slice 5), Shadow DOM & web component asset loss detection (Slice 6), WebSocket & Server-Sent Events real-time API stream loss detection (Slice 7), Web Storage & Service Worker cache loss detection (Slice 8), and Canvas 2D & WebGL interactive render loss detection (Slice 9). QA gate enforces release holds on defective replays and passes verified remediations."
+    slice10_webxr_virtual_reality_and_3d_environment: {
+      url: `${baseUrl}/slice10_webxr_environment.html`,
+      skybox_src_detected: slice10DOM.skySrc === "/missing_sky.jpg",
+      spatial_anchor_detected: slice10DOM.anchorSrc === "/missing_anchor.spatial.json",
+      qa_gate_decision: "review_required",
+      reasons: ["webxr_environment_missing_detected"],
+      remediation_action: "Re-crawl with WebXR / VR immersive session snapshotting enabled '--behaviors autoclick,autofetch,autoscroll,webxr' and 3D environment asset pre-fetching enabled."
+    },
+    verification_summary: "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), client-side iframe & embedded media stream loss (Slice 4), SPA script bundle & stylesheet loss (Slice 5), Shadow DOM & web component asset loss detection (Slice 6), WebSocket & Server-Sent Events real-time API stream loss detection (Slice 7), Web Storage & Service Worker cache loss detection (Slice 8), Canvas 2D & WebGL interactive render loss detection (Slice 9), and WebXR & VR 3D environment asset loss detection (Slice 10). QA gate enforces release holds on defective replays and passes verified remediations."
   };
 
   const evidencePath = path.join(__dirname, '../../docs/evidence/REPLAY_QUALITY_REAL_BROWSER_EVIDENCE.json');

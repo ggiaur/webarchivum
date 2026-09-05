@@ -484,6 +484,44 @@ def test_visitor_replay_dom_detects_canvas_and_webgl_defects():
     assert "Canvas 2D / WebGL frame snapshotting" in result.remediation_suggestion
 
 
+def test_visitor_replay_dom_detects_webxr_defects():
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <script>
+            const xrSession = navigator.xr.requestSession('/xr/session_config.json');
+            const envMap = loadXREnvironment('/xr/environments/museum_hall.hdr');
+            const spatialAudio = loadSpatialAudio('/xr/audio/guide.spatial.wav');
+        </script>
+    </head>
+    <body>
+        <h1>WebXR Immersive Archive Page</h1>
+        <a-sky src="/xr/skyboxes/sky_panorama.jpg"></a-sky>
+        <div data-spatial-anchor="/xr/anchors/exhibit_anchor.spatial.json"></div>
+    </body>
+    </html>
+    """
+    page_url = "https://example.org/vr_tour"
+    # CDX index contains base page and sky_panorama.jpg, but misses session_config.json, museum_hall.hdr, guide.spatial.wav, and exhibit_anchor.spatial.json
+    cdx_set = {
+        "https://example.org/vr_tour",
+        "https://example.org/xr/skyboxes/sky_panorama.jpg",
+    }
+
+    result = inspect_visitor_replay_dom(html, page_url, cdx_index_urls=cdx_set)
+
+    assert not result.passed
+    assert result.broken_webxr_count >= 3
+    assert "webxr_environment_missing_detected" in result.reasons
+    reason_codes = [b.reason for b in result.broken_resources]
+    assert "webxr_environment_missing" in reason_codes
+    assert "spatial_audio_missing" in reason_codes
+    assert "spatial_anchor_missing" in reason_codes
+    assert "WebXR / VR immersive session snapshotting" in result.remediation_suggestion
+
+
+
 
 
 
