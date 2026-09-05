@@ -17,14 +17,17 @@ CSS_URL_REGEX = re.compile(r'url\(\s*[\'"]?([^\'")\s]+)[\'"]?\s*\)', re.IGNORECA
 # Regular expressions to extract WebSocket (ws://, wss://) and Server-Sent Events (EventSource) real-time streams
 WS_REGEX = re.compile(r'wss?://[^\s\'"<>)]+', re.IGNORECASE)
 SSE_REGEX = re.compile(r'(?:new\s+EventSource|EventSource)\(\s*[\'"]([^\'"]+)[\'"]', re.IGNORECASE)
+# Regular expressions to extract Web Storage, state hydration, and Service Worker cache endpoints
+SW_REGEX = re.compile(r'navigator\.serviceWorker\.register\(\s*[\'"]([^\'"]+)[\'"]', re.IGNORECASE)
+HYDRATION_REGEX = re.compile(r'(?:__NEXT_DATA__|__INITIAL_STATE__|__STATE_URL__)\s*[:=]\s*[\'"]([^\'"]+)[\'"]', re.IGNORECASE)
 
 
 @dataclass(frozen=True)
 class BrokenResource:
     url: str
-    resource_type: str  # "image" | "link" | "script" | "style" | "media" | "lazy_image" | "rewrite_mismatch" | "css_image" | "css_font" | "iframe" | "video" | "audio" | "media_stream" | "script_bundle" | "style_sheet" | "shadow_dom" | "custom_element" | "websocket" | "sse_stream"
+    resource_type: str  # "image" | "link" | "script" | "style" | "media" | "lazy_image" | "rewrite_mismatch" | "css_image" | "css_font" | "iframe" | "video" | "audio" | "media_stream" | "script_bundle" | "style_sheet" | "shadow_dom" | "custom_element" | "websocket" | "sse_stream" | "web_storage" | "state_hydration" | "service_worker"
     element_tag: str
-    reason: str  # "missing_in_cdx" | "http_404" | "net_failed" | "replay_bad" | "pywb_rewrite_mismatch" | "dynamic_lazyload_missing" | "css_background_missing" | "css_font_missing" | "iframe_embedded_missing" | "media_resource_missing" | "media_stream_missing" | "script_bundle_missing" | "style_sheet_missing" | "shadow_dom_resource_missing" | "shadow_dom_template_missing" | "websocket_endpoint_missing" | "sse_stream_missing"
+    reason: str  # "missing_in_cdx" | "http_404" | "net_failed" | "replay_bad" | "pywb_rewrite_mismatch" | "dynamic_lazyload_missing" | "css_background_missing" | "css_font_missing" | "iframe_embedded_missing" | "media_resource_missing" | "media_stream_missing" | "script_bundle_missing" | "style_sheet_missing" | "shadow_dom_resource_missing" | "shadow_dom_template_missing" | "websocket_endpoint_missing" | "sse_stream_missing" | "storage_state_missing" | "hydration_data_missing" | "service_worker_missing"
     context: str  # HTML snippet or context description
 
 
@@ -43,6 +46,7 @@ class VisitorReplayQualityResult:
     broken_style_count: int
     broken_shadow_dom_count: int
     broken_realtime_count: int = 0
+    broken_storage_count: int = 0
     broken_resources: Tuple[BrokenResource, ...] = ()
     reasons: Tuple[str, ...] = ()
     actionable_evidence: Dict[str, Any] = field(default_factory=dict)
@@ -51,7 +55,7 @@ class VisitorReplayQualityResult:
 
 
 class _DOMResourceExtractor(HTMLParser):
-    """Extracts img, script, link[rel=stylesheet], a, lazyload, CSS url(...), iframe, video/audio/stream, Shadow DOM / web component, and WebSocket/SSE real-time API assets from HTML."""
+    """Extracts img, script, link[rel=stylesheet], a, lazyload, CSS url(...), iframe, video/audio/stream, Shadow DOM, WebSocket/SSE, and Web Storage/Service Worker assets from HTML."""
 
     def __init__(self, base_url: str):
         super().__init__()
@@ -65,6 +69,7 @@ class _DOMResourceExtractor(HTMLParser):
         self.media_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'iframe'|'video'|'audio'|'media_stream')
         self.shadow_dom_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'shadow_dom'|'custom_element')
         self.realtime_urls: List[Tuple[str, str, str]] = []  # (resolved_url, raw_url, type: 'websocket'|'sse_stream')
+        self.storage_state_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'web_storage'|'state_hydration'|'service_worker')
         self._in_style_tag = False
         self._style_content_chunks: List[str] = []
         self._in_script_tag = False
@@ -115,6 +120,23 @@ class _DOMResourceExtractor(HTMLParser):
                 val = attr_dict[check_attr].strip()
                 if val.startswith(("ws://", "wss://")):
                     self.realtime_urls.append((val, val, "websocket"))
+
+        # Check Service Worker & Web Storage state hydration attributes/elements
+        if tag_lower == "link" and (attr_dict.get("rel") in ("serviceworker", "manifest")):
+            if "href" in attr_dict:
+                raw_val = attr_dict["href"].strip()
+                if raw_val and not raw_val.startswith("data:"):
+                    resolved = resolve_protocol_relative(raw_val, effective_base)
+                    res_t = "service_worker" if attr_dict.get("rel") == "serviceworker" or raw_val.endswith((".js", "sw.js")) else "state_hydration"
+                    self.storage_state_urls.append((resolved, raw_val, res_t))
+
+        for st_attr in ("data-sw-src", "data-sw-url", "data-service-worker", "data-hydration-src", "data-storage-src", "data-state-url", "data-initial-state-url", "storage-src"):
+            if st_attr in attr_dict:
+                raw_val = attr_dict[st_attr].strip()
+                if raw_val and not raw_val.startswith("data:"):
+                    resolved = resolve_protocol_relative(raw_val, effective_base)
+                    st_type = "service_worker" if "sw" in st_attr or "service" in st_attr else ("web_storage" if "storage" in st_attr else "state_hydration")
+                    self.storage_state_urls.append((resolved, raw_val, st_type))
 
         if tag_lower == "img":
             if "src" in attr_dict:
@@ -233,6 +255,18 @@ class _DOMResourceExtractor(HTMLParser):
                     resolved = resolve_protocol_relative(raw_url, effective_base)
                     self.realtime_urls.append((resolved, raw_url, "sse_stream"))
 
+            for match in SW_REGEX.finditer(script_text):
+                raw_url = match.group(1).strip()
+                if raw_url and not raw_url.startswith("data:"):
+                    resolved = resolve_protocol_relative(raw_url, effective_base)
+                    self.storage_state_urls.append((resolved, raw_url, "service_worker"))
+
+            for match in HYDRATION_REGEX.finditer(script_text):
+                raw_url = match.group(1).strip()
+                if raw_url and not raw_url.startswith("data:"):
+                    resolved = resolve_protocol_relative(raw_url, effective_base)
+                    self.storage_state_urls.append((resolved, raw_url, "state_hydration"))
+
 
 def resolve_protocol_relative(raw_url: str, base_url: str) -> str:
     """Resolve relative, protocol-relative (//example.com), and absolute URLs against base_url."""
@@ -293,6 +327,7 @@ def inspect_visitor_replay_dom(
     max_allowed_broken_scripts: int = 0,
     max_allowed_broken_styles: int = 0,
     max_allowed_broken_realtime: int = 0,
+    max_allowed_broken_storage: int = 0,
     canonicalize_cdx: bool = True,
 ) -> VisitorReplayQualityResult:
     """Inspect visitor-visible DOM for broken images, missing links, pywb rewrite mismatches, lazy-load, CSS embedded assets, iframe/media streams, critical script/style bundles, and WebSocket/SSE real-time streams.
@@ -470,6 +505,28 @@ def inspect_visitor_replay_dom(
                     )
                 )
 
+    # 10. Check Web Storage State Hydration & Service Worker Cache Assets
+    storage_broken = 0
+    for resolved_url, raw_url, res_type in extractor.storage_state_urls:
+        if cdx_index_urls is not None:
+            if not _is_url_in_cdx(resolved_url, cdx_index_urls, canonical_cdx):
+                storage_broken += 1
+                if res_type == "service_worker":
+                    reason_code = "service_worker_missing"
+                elif res_type == "web_storage":
+                    reason_code = "storage_state_missing"
+                else:
+                    reason_code = "hydration_data_missing"
+                broken.append(
+                    BrokenResource(
+                        url=resolved_url,
+                        resource_type=res_type,
+                        element_tag=f'<{res_type} url="{raw_url}">',
+                        reason=reason_code,
+                        context=f"Client state {res_type} asset/manifest {resolved_url} missing in WACZ archive.",
+                    )
+                )
+
     total_checked = (
         len(extractor.images)
         + len(extractor.lazy_images)
@@ -480,6 +537,7 @@ def inspect_visitor_replay_dom(
         + len(extractor.scripts)
         + len(extractor.shadow_dom_urls)
         + len(extractor.realtime_urls)
+        + len(extractor.storage_state_urls)
     )
     total_broken = len(broken)
     replay_good = total_checked - total_broken
@@ -510,6 +568,9 @@ def inspect_visitor_replay_dom(
     if realtime_broken > max_allowed_broken_realtime:
         reasons.append(f"broken_realtime_api_detected ({realtime_broken} > {max_allowed_broken_realtime})")
 
+    if storage_broken > max_allowed_broken_storage:
+        reasons.append(f"broken_web_storage_hydration_detected ({storage_broken} > {max_allowed_broken_storage})")
+
     if any(b.reason == "pywb_rewrite_mismatch" for b in broken):
         reasons.append("pywb_rewrite_mismatch_detected")
 
@@ -534,6 +595,9 @@ def inspect_visitor_replay_dom(
     if any(b.reason in ("websocket_endpoint_missing", "sse_stream_missing") for b in broken):
         reasons.append("realtime_api_resources_missing_detected")
 
+    if any(b.reason in ("storage_state_missing", "hydration_data_missing", "service_worker_missing") for b in broken):
+        reasons.append("web_storage_hydration_missing_detected")
+
     passed = len(reasons) == 0
 
     remediation = None
@@ -553,6 +617,7 @@ def inspect_visitor_replay_dom(
         "broken_style_count": style_broken,
         "broken_shadow_dom_count": shadow_broken,
         "broken_realtime_count": realtime_broken,
+        "broken_storage_count": storage_broken,
         "quality_score": quality_score,
         "broken_resources": [
             {
@@ -580,6 +645,7 @@ def inspect_visitor_replay_dom(
         broken_style_count=style_broken,
         broken_shadow_dom_count=shadow_broken,
         broken_realtime_count=realtime_broken,
+        broken_storage_count=storage_broken,
         broken_resources=tuple(broken),
         reasons=tuple(reasons),
         actionable_evidence=actionable_evidence,
@@ -656,6 +722,8 @@ def inspect_visitor_replay_qa_log(
         broken_script_count=0,
         broken_style_count=0,
         broken_shadow_dom_count=0,
+        broken_realtime_count=0,
+        broken_storage_count=0,
         broken_resources=tuple(broken),
         reasons=tuple(reasons),
         actionable_evidence=actionable_evidence,
@@ -669,6 +737,11 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
     if not broken_resources:
         return "No remediation needed."
 
+    has_storage = any(
+        b.reason in ("storage_state_missing", "hydration_data_missing", "service_worker_missing")
+        or b.resource_type in ("web_storage", "state_hydration", "service_worker")
+        for b in broken_resources
+    )
     has_realtime = any(
         b.reason in ("websocket_endpoint_missing", "sse_stream_missing")
         or b.resource_type in ("websocket", "sse_stream")
@@ -696,6 +769,10 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
     has_links = any(b.resource_type == "link" for b in broken_resources)
 
     suggestions = []
+    if has_storage:
+        suggestions.append(
+            "Re-crawl with Web Storage & Service Worker state preservation enabled '--behaviors autoclick,autofetch,autoscroll,storage' and WACZ client-side state snapshotting enabled."
+        )
     if has_realtime:
         suggestions.append(
             "Re-crawl with WebSocket frame recording '--behaviors autoclick,autofetch,autoscroll,websocket' and Server-Sent Event stream buffering enabled."
@@ -724,7 +801,7 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
         suggestions.append(
             "Enable `--behaviors autoclick,autofetch,autoscroll` with scroll delays to trigger and capture dynamic lazy-loaded images."
         )
-    if has_images and not has_lazyload and not has_rewrite_mismatch and not has_css and not has_media and not has_bundles and not has_shadow_dom and not has_realtime:
+    if has_images and not has_lazyload and not has_rewrite_mismatch and not has_css and not has_media and not has_bundles and not has_shadow_dom and not has_realtime and not has_storage:
         suggestions.append(
             "Re-crawl with expanded behaviors `--behaviors autoclick,autofetch,autoscroll` and `--media max` "
             "to capture lazy-loaded images, responsive srcset images, and dynamic consent-shielded assets."

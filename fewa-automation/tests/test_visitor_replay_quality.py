@@ -412,6 +412,43 @@ def test_visitor_replay_dom_detects_websocket_and_sse_defects():
     assert "WebSocket frame recording" in result.remediation_suggestion
 
 
+def test_visitor_replay_dom_detects_web_storage_and_service_worker_defects():
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <link rel="serviceworker" href="/sw.js">
+        <script data-storage-src="/state/user_session.json"></script>
+    </head>
+    <body>
+        <h1>App Hydration Page</h1>
+        <script>
+            navigator.serviceWorker.register('/offline-worker.js');
+            window.__INITIAL_STATE__ = '/api/v1/hydration_state.json';
+        </script>
+    </body>
+    </html>
+    """
+    page_url = "https://example.org/pwa"
+    # CDX index contains base page and sw.js, but misses user_session.json, offline-worker.js, and hydration_state.json
+    cdx_set = {
+        "https://example.org/pwa",
+        "https://example.org/sw.js",
+    }
+
+    result = inspect_visitor_replay_dom(html, page_url, cdx_index_urls=cdx_set)
+
+    assert not result.passed
+    assert result.broken_storage_count >= 3
+    assert "web_storage_hydration_missing_detected" in result.reasons
+    reason_codes = [b.reason for b in result.broken_resources]
+    assert "service_worker_missing" in reason_codes
+    assert "storage_state_missing" in reason_codes
+    assert "hydration_data_missing" in reason_codes
+    assert "Web Storage & Service Worker state preservation" in result.remediation_suggestion
+
+
+
 
 
 

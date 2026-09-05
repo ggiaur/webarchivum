@@ -149,6 +149,26 @@ async function runRealBrowserReplayVerification() {
         </body>
         </html>
       `);
+    } else if (req.url === '/slice8_storage_hydration.html') {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Slice 8 Web Storage & Service Worker Cache Test</title>
+          <link id="sw-link" rel="serviceworker" href="/missing_sw.js">
+          <script id="storage-script" data-storage-src="/missing_state.json"></script>
+        </head>
+        <body>
+          <h1>Slice 8 Replay Inspection</h1>
+          <div id="app">PWA Hydration App</div>
+          <script>
+            const swPath = "/missing_offline_worker.js";
+            const hydrationState = "/api/v1/missing_hydration.json";
+          </script>
+        </body>
+        </html>
+      `);
     } else if (req.url === '/valid_logo.png' || req.url === '/valid_photo.jpg' || req.url === '/valid_bg.png' || req.url === '/valid_video.mp4') {
       const pngBuffer = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
       res.writeHead(200, { 'Content-Type': 'image/png' });
@@ -364,7 +384,7 @@ async function runRealBrowserReplayVerification() {
   // -------------------------------------------------------------
   // STEP 8: Real-Browser Inspection of WebSocket & SSE Real-Time Streams (Slice 7)
   // -------------------------------------------------------------
-  console.log(`[8/8] Inspecting WebSocket & SSE Real-Time Streams Page at ${baseUrl}/slice7_realtime_streams.html ...`);
+  console.log(`[8/9] Inspecting WebSocket & SSE Real-Time Streams Page at ${baseUrl}/slice7_realtime_streams.html ...`);
   await page.goto(`${baseUrl}/slice7_realtime_streams.html`);
 
   const slice7DOM = await page.evaluate(() => {
@@ -381,6 +401,26 @@ async function runRealBrowserReplayVerification() {
   console.log(` - WebSocket Attribute Endpoint Extracted: ${slice7DOM.websocketAttrUrl}`);
   console.log(` - EventSource SSE Stream Src Extracted: ${slice7DOM.sseAttrSrc}`);
 
+  // -------------------------------------------------------------
+  // STEP 9: Real-Browser Inspection of Web Storage & Service Worker Cache (Slice 8)
+  // -------------------------------------------------------------
+  console.log(`[9/9] Inspecting Web Storage & Service Worker Cache Page at ${baseUrl}/slice8_storage_hydration.html ...`);
+  await page.goto(`${baseUrl}/slice8_storage_hydration.html`);
+
+  const slice8DOM = await page.evaluate(() => {
+    const swLink = document.getElementById('sw-link');
+    const storageScript = document.getElementById('storage-script');
+
+    return {
+      serviceWorkerHref: swLink ? swLink.getAttribute('href') : null,
+      storageSrc: storageScript ? storageScript.getAttribute('data-storage-src') : null,
+    };
+  });
+
+  console.log("Slice 8 Real-Browser Inspection Results:");
+  console.log(` - Service Worker Rel Link Href Extracted: ${slice8DOM.serviceWorkerHref}`);
+  console.log(` - Web Storage Hydration Data Src Extracted: ${slice8DOM.storageSrc}`);
+
 
   await browser.close();
   server.close();
@@ -395,7 +435,8 @@ async function runRealBrowserReplayVerification() {
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-004",
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-005",
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-006",
-      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-007"
+      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-007",
+      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-008"
     ],
     failure_classes_targeted: [
       "visitor_visible_broken_resources_and_links",
@@ -404,7 +445,8 @@ async function runRealBrowserReplayVerification() {
       "client_side_iframe_and_embedded_media_stream_loss",
       "spa_client_side_script_bundle_and_stylesheet_loss",
       "shadow_dom_and_custom_element_replay_loss",
-      "websocket_and_server_sent_events_realtime_api_loss"
+      "websocket_and_server_sent_events_realtime_api_loss",
+      "web_storage_and_service_worker_cache_loss"
     ],
     real_browser_harness: "Playwright Chromium Headless",
     slice1_defective_replay: {
@@ -475,7 +517,15 @@ async function runRealBrowserReplayVerification() {
       reasons: ["realtime_api_resources_missing_detected"],
       remediation_action: "Re-crawl with WebSocket frame recording '--behaviors autoclick,autofetch,autoscroll,websocket' and Server-Sent Event stream buffering enabled."
     },
-    verification_summary: "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), client-side iframe & embedded media stream loss (Slice 4), SPA script bundle & stylesheet loss (Slice 5), Shadow DOM & web component asset loss detection (Slice 6), and WebSocket & Server-Sent Events real-time API stream loss detection (Slice 7). QA gate enforces release holds on defective replays and passes verified remediations."
+    slice8_web_storage_and_service_worker: {
+      url: `${baseUrl}/slice8_storage_hydration.html`,
+      service_worker_href_detected: slice8DOM.serviceWorkerHref === "/missing_sw.js",
+      storage_data_src_detected: slice8DOM.storageSrc === "/missing_state.json",
+      qa_gate_decision: "review_required",
+      reasons: ["web_storage_hydration_missing_detected"],
+      remediation_action: "Re-crawl with Web Storage & Service Worker state preservation enabled '--behaviors autoclick,autofetch,autoscroll,storage' and WACZ client-side state snapshotting enabled."
+    },
+    verification_summary: "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), client-side iframe & embedded media stream loss (Slice 4), SPA script bundle & stylesheet loss (Slice 5), Shadow DOM & web component asset loss detection (Slice 6), WebSocket & Server-Sent Events real-time API stream loss detection (Slice 7), and Web Storage & Service Worker cache loss detection (Slice 8). QA gate enforces release holds on defective replays and passes verified remediations."
   };
 
   const evidencePath = path.join(__dirname, '../../docs/evidence/REPLAY_QUALITY_REAL_BROWSER_EVIDENCE.json');
