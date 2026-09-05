@@ -1,8 +1,9 @@
 """Visitor-visible replay quality inspection, evidence extraction, and safe remediation.
 
-Detects broken images, broken links, missing sub-resources, and pywb/WACZ replay
-mismatches from the visitor-visible replay path. Replaces synthetic/HTTP-only scores
-with real DOM & resource inspection evidence, and provides safe remediation / hold loops.
+Detects broken images, broken links, missing sub-resources, pywb/WACZ replay mismatches,
+and CSS embedded background-image / font resource losses from the visitor-visible replay path.
+Replaces synthetic/HTTP-only scores with real DOM & resource inspection evidence, and
+provides safe remediation / hold loops.
 """
 
 from dataclasses import dataclass, field
@@ -11,13 +12,16 @@ import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import urljoin, urlparse
 
+# Regular expression to extract url(...) references from inline CSS styles or <style> tags
+CSS_URL_REGEX = re.compile(r'url\(\s*[\'"]?([^\'")\s]+)[\'"]?\s*\)', re.IGNORECASE)
+
 
 @dataclass(frozen=True)
 class BrokenResource:
     url: str
-    resource_type: str  # "image" | "link" | "script" | "style" | "media" | "lazy_image" | "rewrite_mismatch"
+    resource_type: str  # "image" | "link" | "script" | "style" | "media" | "lazy_image" | "rewrite_mismatch" | "css_image" | "css_font"
     element_tag: str
-    reason: str  # "missing_in_cdx" | "http_404" | "net_failed" | "replay_bad" | "pywb_rewrite_mismatch" | "dynamic_lazyload_missing"
+    reason: str  # "missing_in_cdx" | "http_404" | "net_failed" | "replay_bad" | "pywb_rewrite_mismatch" | "dynamic_lazyload_missing" | "css_background_missing" | "css_font_missing"
     context: str  # HTML snippet or context description
 
 
@@ -30,6 +34,7 @@ class VisitorReplayQualityResult:
     replay_bad_count: int
     broken_image_count: int
     broken_link_count: int
+    broken_css_count: int
     broken_resources: Tuple[BrokenResource, ...]
     reasons: Tuple[str, ...]
     actionable_evidence: Dict[str, Any]
@@ -37,7 +42,7 @@ class VisitorReplayQualityResult:
 
 
 class _DOMResourceExtractor(HTMLParser):
-    """Extracts img, script, link[rel=stylesheet], a, and lazy-loaded elements from HTML."""
+    """Extracts img, script, link[rel=stylesheet], a, lazyload, and CSS url(...) assets from HTML."""
 
     def __init__(self, base_url: str):
         super().__init__()
@@ -47,25 +52,38 @@ class _DOMResourceExtractor(HTMLParser):
         self.links: List[Tuple[str, str]] = []          # (resolved_url, raw_href)
         self.styles: List[Tuple[str, str]] = []         # (resolved_url, raw_href)
         self.scripts: List[Tuple[str, str]] = []        # (resolved_url, raw_src)
+        self.css_urls: List[Tuple[str, str, str]] = []  # (resolved_url, raw_url, type: 'css_image'|'css_font')
+        self._in_style_tag = False
+        self._style_content_chunks: List[str] = []
 
     def handle_starttag(self, tag: str, attrs: List[Tuple[str, Optional[str]]]):
         attr_dict = {k.lower(): v for k, v in attrs if v is not None}
         tag_lower = tag.lower()
 
-        # Handle Protocol-Relative base URL resolution
         effective_base = self.base_url
         if effective_base.startswith("//"):
             effective_base = "https:" + effective_base
 
+        if tag_lower == "style":
+            self._in_style_tag = True
+
+        # Check inline style="background: url(...)" attributes on any element
+        if "style" in attr_dict:
+            style_str = attr_dict["style"]
+            for match in CSS_URL_REGEX.finditer(style_str):
+                raw_url = match.group(1).strip()
+                if raw_url and not raw_url.startswith("data:"):
+                    resolved = resolve_protocol_relative(raw_url, effective_base)
+                    res_type = "css_font" if _is_font_url(resolved) else "css_image"
+                    self.css_urls.append((resolved, raw_url, res_type))
+
         if tag_lower == "img":
-            # Standard src
             if "src" in attr_dict:
                 raw_src = attr_dict["src"].strip()
                 if raw_src and not raw_src.startswith("data:"):
                     resolved = resolve_protocol_relative(raw_src, effective_base)
                     self.images.append((resolved, raw_src))
 
-            # Lazy-loaded image attributes
             for lazy_attr in ("data-src", "data-lazy-src", "data-original", "data-url"):
                 if lazy_attr in attr_dict:
                     raw_lazy = attr_dict[lazy_attr].strip()
@@ -73,7 +91,6 @@ class _DOMResourceExtractor(HTMLParser):
                         resolved = resolve_protocol_relative(raw_lazy, effective_base)
                         self.lazy_images.append((resolved, raw_lazy))
 
-            # srcset attributes
             if "srcset" in attr_dict:
                 raw_srcset = attr_dict["srcset"].strip()
                 for entry in raw_srcset.split(","):
@@ -99,6 +116,27 @@ class _DOMResourceExtractor(HTMLParser):
             if raw_src and not raw_src.startswith("data:"):
                 resolved = resolve_protocol_relative(raw_src, effective_base)
                 self.scripts.append((resolved, raw_src))
+
+    def handle_data(self, data: str):
+        if self._in_style_tag:
+            self._style_content_chunks.append(data)
+
+    def handle_endtag(self, tag: str):
+        if tag.lower() == "style":
+            self._in_style_tag = False
+            style_text = "".join(self._style_content_chunks)
+            self._style_content_chunks.clear()
+
+            effective_base = self.base_url
+            if effective_base.startswith("//"):
+                effective_base = "https:" + effective_base
+
+            for match in CSS_URL_REGEX.finditer(style_text):
+                raw_url = match.group(1).strip()
+                if raw_url and not raw_url.startswith("data:"):
+                    resolved = resolve_protocol_relative(raw_url, effective_base)
+                    res_type = "css_font" if _is_font_url(resolved) else "css_image"
+                    self.css_urls.append((resolved, raw_url, res_type))
 
 
 def resolve_protocol_relative(raw_url: str, base_url: str) -> str:
@@ -126,14 +164,12 @@ def canonicalize_cdx_index_for_pywb(cdx_urls: Set[str]) -> Set[str]:
     for url in list(cdx_urls):
         norm = _normalize_url_for_cdx(url)
         canonical_set.add(norm)
-        # Scheme swapping
         if url.startswith("https://"):
             canonical_set.add("http://" + url[8:])
             canonical_set.add("http://" + norm[8:])
         elif url.startswith("http://"):
             canonical_set.add("https://" + url[7:])
             canonical_set.add("https://" + norm[7:])
-        # Strip query params
         query_stripped = _strip_query_params(url)
         canonical_set.add(query_stripped)
     return canonical_set
@@ -145,11 +181,12 @@ def inspect_visitor_replay_dom(
     cdx_index_urls: Optional[Set[str]] = None,
     max_allowed_broken_images: int = 0,
     max_allowed_broken_links: int = 0,
+    max_allowed_broken_css: int = 0,
     canonicalize_cdx: bool = True,
 ) -> VisitorReplayQualityResult:
-    """Inspect visitor-visible DOM for broken images, missing links, pywb rewrite mismatches, and lazy-load defects.
+    """Inspect visitor-visible DOM for broken images, missing links, pywb rewrite mismatches, lazy-load, and CSS embedded asset defects.
 
-    Checks rendered DOM elements (img, lazy-load attributes, a, link, script) against CDX index or replay path.
+    Checks rendered DOM elements (img, lazyload, a, link, script, CSS url(...) background-images & fonts) against CDX.
     Returns structured VisitorReplayQualityResult with actionable evidence.
     """
     extractor = extract_dom_resources(html_content, page_url)
@@ -195,7 +232,24 @@ def inspect_visitor_replay_dom(
                     )
                 )
 
-    # 3. Check Internal Links
+    # 3. Check CSS Embedded Background Images and Fonts
+    css_broken = 0
+    for resolved_url, raw_url, res_type in extractor.css_urls:
+        if cdx_index_urls is not None:
+            if not _is_url_in_cdx(resolved_url, cdx_index_urls, canonical_cdx):
+                css_broken += 1
+                reason_code = "css_font_missing" if res_type == "css_font" else "css_background_missing"
+                broken.append(
+                    BrokenResource(
+                        url=resolved_url,
+                        resource_type=res_type,
+                        element_tag=f'style="...url({raw_url})..."',
+                        reason=reason_code,
+                        context=f"CSS embedded resource ({res_type}) {resolved_url} missing in WACZ archive.",
+                    )
+                )
+
+    # 4. Check Internal Links
     broken_links = 0
     for resolved_url, raw_href in extractor.links:
         link_host = urlparse(resolved_url).netloc.lower()
@@ -216,6 +270,7 @@ def inspect_visitor_replay_dom(
     total_checked = (
         len(extractor.images)
         + len(extractor.lazy_images)
+        + len(extractor.css_urls)
         + len(extractor.links)
         + len(extractor.styles)
         + len(extractor.scripts)
@@ -234,11 +289,17 @@ def inspect_visitor_replay_dom(
     if broken_links > max_allowed_broken_links:
         reasons.append(f"broken_internal_links_detected ({broken_links} > {max_allowed_broken_links})")
 
+    if css_broken > max_allowed_broken_css:
+        reasons.append(f"broken_css_resources_detected ({css_broken} > {max_allowed_broken_css})")
+
     if any(b.reason == "pywb_rewrite_mismatch" for b in broken):
         reasons.append("pywb_rewrite_mismatch_detected")
 
     if any(b.reason == "dynamic_lazyload_missing" for b in broken):
         reasons.append("dynamic_lazyload_missing_detected")
+
+    if any(b.reason in ("css_background_missing", "css_font_missing") for b in broken):
+        reasons.append("css_embedded_resources_missing_detected")
 
     passed = len(reasons) == 0
 
@@ -253,6 +314,7 @@ def inspect_visitor_replay_dom(
         "replay_bad": replay_bad,
         "broken_image_count": total_bad_images,
         "broken_link_count": broken_links,
+        "broken_css_count": css_broken,
         "quality_score": quality_score,
         "broken_resources": [
             {
@@ -274,6 +336,7 @@ def inspect_visitor_replay_dom(
         replay_bad_count=replay_bad,
         broken_image_count=total_bad_images,
         broken_link_count=broken_links,
+        broken_css_count=css_broken,
         broken_resources=tuple(broken),
         reasons=tuple(reasons),
         actionable_evidence=actionable_evidence,
@@ -345,6 +408,7 @@ def inspect_visitor_replay_qa_log(
         replay_bad_count=total_replay_bad,
         broken_image_count=len(broken),
         broken_link_count=0,
+        broken_css_count=0,
         broken_resources=tuple(broken),
         reasons=tuple(reasons),
         actionable_evidence=actionable_evidence,
@@ -359,10 +423,15 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
 
     has_rewrite_mismatch = any(b.reason == "pywb_rewrite_mismatch" for b in broken_resources)
     has_lazyload = any(b.reason == "dynamic_lazyload_missing" or b.resource_type == "lazy_image" for b in broken_resources)
+    has_css = any(b.reason in ("css_background_missing", "css_font_missing") or b.resource_type in ("css_image", "css_font") for b in broken_resources)
     has_images = any(b.resource_type in ("image", "page_resources") for b in broken_resources)
     has_links = any(b.resource_type == "link" for b in broken_resources)
 
     suggestions = []
+    if has_css:
+        suggestions.append(
+            "Re-crawl with expanded CSS & font capture rules `--media max` and sub-resource fetching enabled."
+        )
     if has_rewrite_mismatch:
         suggestions.append(
             "Enable pywb scheme-canonicalization & query-string alias rewriting (map http/https and strip cache-busting params in CDX index)."
@@ -371,7 +440,7 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
         suggestions.append(
             "Enable `--behaviors autoclick,autofetch,autoscroll` with scroll delays to trigger and capture dynamic lazy-loaded images."
         )
-    if has_images and not has_lazyload and not has_rewrite_mismatch:
+    if has_images and not has_lazyload and not has_rewrite_mismatch and not has_css:
         suggestions.append(
             "Re-crawl with expanded behaviors `--behaviors autoclick,autofetch,autoscroll` and `--media max` "
             "to capture lazy-loaded images, responsive srcset images, and dynamic consent-shielded assets."
@@ -384,6 +453,12 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
         suggestions.append("Hold publication for manual curator review due to unverified replay resource failures.")
 
     return " | ".join(suggestions)
+
+
+def _is_font_url(url: str) -> bool:
+    """Check if URL points to a web font asset."""
+    path = urlparse(url).path.lower()
+    return path.endswith((".woff2", ".woff", ".ttf", ".otf", ".eot"))
 
 
 def _is_url_in_cdx(url: str, raw_cdx: Set[str], canonical_cdx: Optional[Set[str]]) -> bool:

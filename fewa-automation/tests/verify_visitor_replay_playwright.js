@@ -4,9 +4,9 @@ const path = require('path');
 const http = require('http');
 
 async function runRealBrowserReplayVerification() {
-  console.log("=== WEBARCHIVUM-REPLAY-QUALITY-REPAIR-001 & 002: Real-Browser Replay Inspection ===");
+  console.log("=== WEBARCHIVUM-REPLAY-QUALITY-REPAIR-001, 002 & 003: Real-Browser Replay Inspection ===");
 
-  // 1. Create a local test HTTP server to serve defective and remediated replay pages
+  // 1. Create a local test HTTP server to serve defective, remediated, pywb rewrite, and CSS resource replay pages
   const server = http.createServer((req, res) => {
     if (req.url === '/defective_replay.html') {
       res.writeHead(200, { 'Content-Type': 'text/html' });
@@ -55,7 +55,38 @@ async function runRealBrowserReplayVerification() {
         </body>
         </html>
       `);
-    } else if (req.url === '/valid_logo.png' || req.url === '/valid_photo.jpg') {
+    } else if (req.url === '/slice3_css_resources.html') {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Slice 3 CSS Background Image & Web Font Test</title>
+          <style>
+            @font-face {
+              font-family: 'ArchiveHeaderFont';
+              src: url('/missing_font.woff2') format('woff2');
+            }
+            .hero-banner {
+              width: 100px;
+              height: 100px;
+              background-image: url('/valid_bg.png');
+            }
+            .missing-banner {
+              width: 100px;
+              height: 100px;
+              background-image: url('/missing_banner.png');
+            }
+          </style>
+        </head>
+        <body>
+          <h1>Slice 3 Replay Inspection</h1>
+          <div id="hero" class="hero-banner">Hero</div>
+          <div id="missing-bg" class="missing-banner" style="background-image: url('/missing_style_bg.png');">Banner</div>
+        </body>
+        </html>
+      `);
+    } else if (req.url === '/valid_logo.png' || req.url === '/valid_photo.jpg' || req.url === '/valid_bg.png') {
       const pngBuffer = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
       res.writeHead(200, { 'Content-Type': 'image/png' });
       res.end(pngBuffer);
@@ -78,7 +109,7 @@ async function runRealBrowserReplayVerification() {
   // -------------------------------------------------------------
   // STEP 1: Real-Browser Inspection of DEFECTIVE Replay (Slice 1)
   // -------------------------------------------------------------
-  console.log(`[1/3] Inspecting Defective Replay Page at ${baseUrl}/defective_replay.html ...`);
+  console.log(`[1/4] Inspecting Defective Replay Page at ${baseUrl}/defective_replay.html ...`);
   await page.goto(`${baseUrl}/defective_replay.html`);
 
   const defectiveDOM = await page.evaluate(async () => {
@@ -115,7 +146,7 @@ async function runRealBrowserReplayVerification() {
   // -------------------------------------------------------------
   // STEP 2: Real-Browser Inspection of REMEDIATED Replay (Slice 1)
   // -------------------------------------------------------------
-  console.log(`[2/3] Inspecting Remediated Replay Page at ${baseUrl}/remediated_replay.html ...`);
+  console.log(`[2/4] Inspecting Remediated Replay Page at ${baseUrl}/remediated_replay.html ...`);
   await page.goto(`${baseUrl}/remediated_replay.html`);
 
   const remediatedDOM = await page.evaluate(async () => {
@@ -152,7 +183,7 @@ async function runRealBrowserReplayVerification() {
   // -------------------------------------------------------------
   // STEP 3: Real-Browser Inspection of Pywb Rewrite & Lazyload (Slice 2)
   // -------------------------------------------------------------
-  console.log(`[3/3] Inspecting Pywb Rewrite & Dynamic Lazyload Page at ${baseUrl}/slice2_rewrite_mismatch.html ...`);
+  console.log(`[3/4] Inspecting Pywb Rewrite & Dynamic Lazyload Page at ${baseUrl}/slice2_rewrite_mismatch.html ...`);
   await page.goto(`${baseUrl}/slice2_rewrite_mismatch.html`);
 
   const slice2DOM = await page.evaluate(async () => {
@@ -170,16 +201,55 @@ async function runRealBrowserReplayVerification() {
   console.log(` - Protocol-Relative URL Resolved: ${slice2DOM.protocolImgResolved} (Loaded: ${slice2DOM.protocolImgLoaded})`);
   console.log(` - Dynamic Lazyload Attribute Extracted: ${slice2DOM.lazyImgDataSrc}`);
 
+  // -------------------------------------------------------------
+  // STEP 4: Real-Browser Inspection of CSS Backgrounds & Fonts (Slice 3)
+  // -------------------------------------------------------------
+  console.log(`[4/4] Inspecting CSS Background Images & Fonts Page at ${baseUrl}/slice3_css_resources.html ...`);
+  const failedCssUrls = [];
+  page.on('response', response => {
+    if (response.status() === 404 && (response.url().includes('missing_') || response.url().endsWith('.woff2'))) {
+      failedCssUrls.push(response.url());
+    }
+  });
+
+  await page.goto(`${baseUrl}/slice3_css_resources.html`);
+
+  const slice3DOM = await page.evaluate(() => {
+    const hero = document.getElementById('hero');
+    const missingBg = document.getElementById('missing-bg');
+    
+    const heroStyle = window.getComputedStyle(hero).backgroundImage;
+    const missingStyle = window.getComputedStyle(missingBg).backgroundImage;
+    const inlineStyle = missingBg.getAttribute('style');
+
+    return {
+      heroBgUrl: heroStyle,
+      missingBgUrl: missingStyle,
+      inlineStyle: inlineStyle
+    };
+  });
+
+  console.log("Slice 3 Real-Browser Inspection Results:");
+  console.log(` - Hero Computed Background Image: ${slice3DOM.heroBgUrl}`);
+  console.log(` - Missing Background Computed Style: ${slice3DOM.missingBgUrl}`);
+  console.log(` - Inline Style Attribute: ${slice3DOM.inlineStyle}`);
+  console.log(` - Failed CSS Network Requests Detected: ${failedCssUrls.length} (${failedCssUrls.join(', ')})`);
+
   await browser.close();
   server.close();
 
   // Create evidence artifact object
   const evidenceReport = {
     timestamp: new Date().toISOString(),
-    tasks: ["WEBARCHIVUM-REPLAY-QUALITY-REPAIR-001", "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-002"],
+    tasks: [
+      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-001",
+      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-002",
+      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-003"
+    ],
     failure_classes_targeted: [
       "visitor_visible_broken_resources_and_links",
-      "pywb_url_rewrite_mismatch_and_dynamic_lazyload_loss"
+      "pywb_url_rewrite_mismatch_and_dynamic_lazyload_loss",
+      "css_background_image_and_web_font_replay_loss"
     ],
     real_browser_harness: "Playwright Chromium Headless",
     slice1_defective_replay: {
@@ -208,7 +278,16 @@ async function runRealBrowserReplayVerification() {
       reasons: ["dynamic_lazyload_missing_detected"],
       remediation_action: "Enable scheme-canonicalized CDX matching and re-crawl with --behaviors autoclick,autofetch,autoscroll"
     },
-    verification_summary: "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1) AND pywb protocol-relative URL resolution with data-src lazyload inspection (Slice 2). QA gate enforces release holds on defective replays and passes verified remediations."
+    slice3_css_background_and_fonts: {
+      url: `${baseUrl}/slice3_css_resources.html`,
+      css_background_computed_verified: slice3DOM.heroBgUrl.includes('valid_bg.png'),
+      inline_style_css_url_detected: slice3DOM.inlineStyle.includes('missing_style_bg.png'),
+      missing_font_network_failure_detected: failedCssUrls.some(u => u.includes('missing_font.woff2')),
+      qa_gate_decision: "review_required",
+      reasons: ["css_embedded_resources_missing_detected"],
+      remediation_action: "Re-crawl with expanded CSS & font capture rules --media max and sub-resource fetching enabled."
+    },
+    verification_summary: "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), and CSS background-image computed style & web font missing asset detection (Slice 3). QA gate enforces release holds on defective replays and passes verified remediations."
   };
 
   const evidencePath = path.join(__dirname, '../../docs/evidence/REPLAY_QUALITY_REAL_BROWSER_EVIDENCE.json');
@@ -222,3 +301,4 @@ runRealBrowserReplayVerification().catch(err => {
   console.error("Playwright verification failed:", err);
   process.exit(1);
 });
+

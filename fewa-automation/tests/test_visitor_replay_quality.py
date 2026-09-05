@@ -237,3 +237,47 @@ def test_suggest_remediation_provides_actionable_guidance():
     suggestion = suggest_remediation(broken_images)
     assert "autoclick,autofetch,autoscroll" in suggestion
     assert "--media max" in suggestion
+
+
+def test_visitor_replay_dom_detects_css_background_images_and_fonts():
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            @font-face {
+                font-family: 'CustomFont';
+                src: url('/fonts/custom-font.woff2') format('woff2');
+            }
+            .hero {
+                background-image: url('https://example.org/images/hero-banner.png');
+            }
+        </style>
+    </head>
+    <body>
+        <div class="header" style="background: url(//example.org/images/header-bg.jpg) no-repeat;">
+            <h1>Headline</h1>
+        </div>
+        <div class="hero">
+            <p>Welcome</p>
+        </div>
+    </body>
+    </html>
+    """
+    page_url = "https://example.org/page.html"
+    # CDX index contains page.html and header-bg.jpg, but misses custom-font.woff2 and hero-banner.png
+    cdx_set = {
+        "https://example.org/page.html",
+        "https://example.org/images/header-bg.jpg",
+    }
+
+    result = inspect_visitor_replay_dom(html, page_url, cdx_index_urls=cdx_set)
+
+    assert not result.passed
+    assert result.broken_css_count == 2
+    assert "css_embedded_resources_missing_detected" in result.reasons
+    reasons_codes = [b.reason for b in result.broken_resources]
+    assert "css_font_missing" in reasons_codes
+    assert "css_background_missing" in reasons_codes
+    assert "--media max" in result.remediation_suggestion
+

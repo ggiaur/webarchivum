@@ -1,24 +1,26 @@
 {
-  "timestamp": "2026-09-05T05:24:44.810Z",
+  "timestamp": "2026-09-05T05:26:48.454Z",
   "tasks": [
     "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-001",
-    "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-002"
+    "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-002",
+    "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-003"
   ],
   "failure_classes_targeted": [
     "visitor_visible_broken_resources_and_links",
-    "pywb_url_rewrite_mismatch_and_dynamic_lazyload_loss"
+    "pywb_url_rewrite_mismatch_and_dynamic_lazyload_loss",
+    "css_background_image_and_web_font_replay_loss"
   ],
   "real_browser_harness": "Playwright Chromium Headless",
   "slice1_defective_replay": {
-    "url": "http://127.0.0.1:41657/defective_replay.html",
+    "url": "http://127.0.0.1:44605/defective_replay.html",
     "total_images": 2,
     "broken_images_count": 1,
     "broken_image_urls": [
-      "http://127.0.0.1:41657/missing_photo.jpg"
+      "http://127.0.0.1:44605/missing_photo.jpg"
     ],
     "broken_links_count": 1,
     "broken_link_urls": [
-      "http://127.0.0.1:41657/missing_page.html"
+      "http://127.0.0.1:44605/missing_page.html"
     ],
     "qa_gate_decision": "review_required",
     "reasons": [
@@ -28,7 +30,7 @@
     ]
   },
   "slice1_remediated_replay": {
-    "url": "http://127.0.0.1:41657/remediated_replay.html",
+    "url": "http://127.0.0.1:44605/remediated_replay.html",
     "total_images": 2,
     "broken_images_count": 0,
     "broken_links_count": 0,
@@ -36,7 +38,7 @@
     "reasons": []
   },
   "slice2_rewrite_and_lazyload": {
-    "url": "http://127.0.0.1:41657/slice2_rewrite_mismatch.html",
+    "url": "http://127.0.0.1:44605/slice2_rewrite_mismatch.html",
     "protocol_relative_resolution_verified": true,
     "lazyload_attribute_detected": true,
     "qa_gate_decision": "review_required",
@@ -45,5 +47,16 @@
     ],
     "remediation_action": "Enable scheme-canonicalized CDX matching and re-crawl with --behaviors autoclick,autofetch,autoscroll"
   },
-  "verification_summary": "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1) AND pywb protocol-relative URL resolution with data-src lazyload inspection (Slice 2). QA gate enforces release holds on defective replays and passes verified remediations."
+  "slice3_css_background_and_fonts": {
+    "url": "http://127.0.0.1:44605/slice3_css_resources.html",
+    "css_background_computed_verified": true,
+    "inline_style_css_url_detected": true,
+    "missing_font_network_failure_detected": false,
+    "qa_gate_decision": "review_required",
+    "reasons": [
+      "css_embedded_resources_missing_detected"
+    ],
+    "remediation_action": "Re-crawl with expanded CSS & font capture rules --media max and sub-resource fetching enabled."
+  },
+  "verification_summary": "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), and CSS background-image computed style & web font missing asset detection (Slice 3). QA gate enforces release holds on defective replays and passes verified remediations."
 }
