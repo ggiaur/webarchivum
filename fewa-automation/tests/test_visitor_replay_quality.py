@@ -591,6 +591,42 @@ def test_visitor_replay_dom_detects_consent_shield_defects():
     assert "cookie / GDPR consent banner auto-dismissal rules enabled" in result.remediation_suggestion
 
 
+def test_visitor_replay_dom_detects_pagination_defects():
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <script>
+            const page2 = fetchPage('https://example.org/api/v1/articles?page=2');
+            const feed = loadMoreArticles('/api/v1/news_feed.json?offset=20');
+        </script>
+    </head>
+    <body>
+        <h1>Municipal News Listing Page</h1>
+        <div id="feed-pagination" data-page-url="/news/archive/page_02.html"></div>
+        <button class="load-more" data-infinite-scroll="https://example.org/api/v1/infinite_articles.json">Load More</button>
+    </body>
+    </html>
+    """
+    page_url = "https://example.org/news/listing"
+    # CDX index contains base page and page=2, but misses news_feed.json, page_02.html, and infinite_articles.json
+    cdx_set = {
+        "https://example.org/news/listing",
+        "https://example.org/api/v1/articles?page=2",
+    }
+
+    result = inspect_visitor_replay_dom(html, page_url, cdx_index_urls=cdx_set)
+
+    assert not result.passed
+    assert result.broken_pagination_count >= 3
+    assert "dynamic_pagination_feed_loss_detected" in result.reasons
+    reason_codes = [b.reason for b in result.broken_resources]
+    assert "pagination_feed_missing" in reason_codes
+    assert "infinite_scroll_missing" in reason_codes
+    assert "dynamic AJAX pagination & infinite-scroll behavior rules enabled" in result.remediation_suggestion
+
+
+
 
 
 

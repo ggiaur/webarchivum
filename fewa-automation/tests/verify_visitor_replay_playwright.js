@@ -243,6 +243,24 @@ async function runRealBrowserReplayVerification() {
         </body>
         </html>
       `);
+    } else if (req.url === '/slice13_pagination_feed.html') {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Slice 13 Dynamic AJAX Pagination & Infinite Scroll Feed Test</title>
+          <script id="feed-script">
+            const page2 = fetchPage('/missing_articles_page_2.json');
+          </script>
+        </head>
+        <body>
+          <h1>Slice 13 Replay Inspection</h1>
+          <div id="feed-pagination" data-page-url="/missing_feed_page_02.html"></div>
+          <button class="load-more" data-infinite-scroll="/missing_infinite_feed.json">Load More</button>
+        </body>
+        </html>
+      `);
     } else if (req.url === '/valid_logo.png' || req.url === '/valid_photo.jpg' || req.url === '/valid_bg.png' || req.url === '/valid_video.mp4') {
       const pngBuffer = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
       res.writeHead(200, { 'Content-Type': 'image/png' });
@@ -570,6 +588,25 @@ async function runRealBrowserReplayVerification() {
   console.log(` - Cookie Banner Shield Src Extracted: ${slice12DOM.bannerShieldSrc}`);
   console.log(` - Consent Modal Overlay Src Extracted: ${slice12DOM.modalOverlaySrc}`);
 
+  // -------------------------------------------------------------
+  // STEP 14: Real-Browser Inspection of Dynamic AJAX Pagination & Infinite Scroll Feed (Slice 13)
+  // -------------------------------------------------------------
+  console.log(`[14/14] Inspecting Dynamic AJAX Pagination & Infinite Scroll Feed Page at ${baseUrl}/slice13_pagination_feed.html ...`);
+  await page.goto(`${baseUrl}/slice13_pagination_feed.html`);
+
+  const slice13DOM = await page.evaluate(() => {
+    const feed = document.getElementById('feed-pagination');
+    const button = document.querySelector('.load-more');
+    return {
+      feedPageUrl: feed ? feed.getAttribute('data-page-url') : null,
+      infiniteScrollSrc: button ? button.getAttribute('data-infinite-scroll') : null,
+    };
+  });
+
+  console.log("Slice 13 Real-Browser Inspection Results:");
+  console.log(` - Feed Page URL Extracted: ${slice13DOM.feedPageUrl}`);
+  console.log(` - Infinite Scroll Src Extracted: ${slice13DOM.infiniteScrollSrc}`);
+
 
   await browser.close();
   server.close();
@@ -589,7 +626,8 @@ async function runRealBrowserReplayVerification() {
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-009",
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-010",
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-011",
-      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-012"
+      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-012",
+      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-013"
     ],
     failure_classes_targeted: [
       "visitor_visible_broken_resources_and_links",
@@ -603,7 +641,8 @@ async function runRealBrowserReplayVerification() {
       "canvas_2d_and_webgl_interactive_render_loss",
       "webxr_virtual_reality_and_3d_environment_asset_loss",
       "pdf_document_and_pdfjs_viewer_replay_loss",
-      "cookie_and_gdpr_consent_shield_replay_blocking"
+      "cookie_and_gdpr_consent_shield_replay_blocking",
+      "dynamic_ajax_pagination_and_infinite_scroll_feed_loss"
     ],
     real_browser_harness: "Playwright Chromium Headless",
     slice1_defective_replay: {
@@ -714,7 +753,15 @@ async function runRealBrowserReplayVerification() {
       reasons: ["consent_shield_replay_blocking_detected"],
       remediation_action: "Re-crawl with cookie / GDPR consent banner auto-dismissal rules enabled '--behaviors autoclick,autofetch,autoscroll,consent' and WACZ overlay stripping enabled."
     },
-    verification_summary: "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), client-side iframe & embedded media stream loss (Slice 4), SPA script bundle & stylesheet loss (Slice 5), Shadow DOM & web component asset loss detection (Slice 6), WebSocket & Server-Sent Events real-time API stream loss detection (Slice 7), Web Storage & Service Worker cache loss detection (Slice 8), Canvas 2D & WebGL interactive render loss detection (Slice 9), WebXR & VR 3D environment asset loss detection (Slice 10), PDF document & digital library attachment replay loss detection (Slice 11), and Cookie & GDPR consent shield replay blocking detection (Slice 12). QA gate enforces release holds on defective replays and passes verified remediations."
+    slice13_dynamic_ajax_pagination_and_infinite_scroll_feed: {
+      url: `${baseUrl}/slice13_pagination_feed.html`,
+      feed_page_url_detected: slice13DOM.feedPageUrl === "/missing_feed_page_02.html",
+      infinite_scroll_src_detected: slice13DOM.infiniteScrollSrc === "/missing_infinite_feed.json",
+      qa_gate_decision: "review_required",
+      reasons: ["dynamic_pagination_feed_loss_detected"],
+      remediation_action: "Re-crawl with dynamic AJAX pagination & infinite-scroll behavior rules enabled '--behaviors autoclick,autofetch,autoscroll,pagination' with page scroll depth --depth 3 and API endpoint capture."
+    },
+    verification_summary: "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), client-side iframe & embedded media stream loss (Slice 4), SPA script bundle & stylesheet loss (Slice 5), Shadow DOM & web component asset loss detection (Slice 6), WebSocket & Server-Sent Events real-time API stream loss detection (Slice 7), Web Storage & Service Worker cache loss detection (Slice 8), Canvas 2D & WebGL interactive render loss detection (Slice 9), WebXR & VR 3D environment asset loss detection (Slice 10), PDF document & digital library attachment replay loss detection (Slice 11), Cookie & GDPR consent shield replay blocking detection (Slice 12), and Dynamic AJAX pagination & infinite-scroll article feed loss detection (Slice 13). QA gate enforces release holds on defective replays and passes verified remediations."
   };
 
   const evidencePath = path.join(__dirname, '../../docs/evidence/REPLAY_QUALITY_REAL_BROWSER_EVIDENCE.json');

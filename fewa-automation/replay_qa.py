@@ -31,14 +31,16 @@ PDF_DOC_REGEX = re.compile(r'(?:PDFViewerApplication|PDFJS\.getDocument|loadPDF|
 PDFJS_WORKER_REGEX = re.compile(r'(?:pdf\.worker|pdfjsWorker|PDFJS\.workerSrc|workerSrc)\s*[:=]\s*[\'"]([^\'"]+)[\'"]', re.IGNORECASE)
 # Regular expressions to extract Cookie / GDPR consent shield overlays and blocking CMP scripts
 CONSENT_SHIELD_REGEX = re.compile(r'(?:CookieConsent|Didomi|OneTrust|QuantcastChoice|GDPRBanner|cookieNotice|consentModal|initCMP|loadConsentScript)\(\s*[\'"]([^\'"]+)[\'"]', re.IGNORECASE)
+# Regular expressions to extract dynamic AJAX pagination and infinite scroll feed endpoints
+PAGINATION_REGEX = re.compile(r'(?:fetchPage|loadMoreArticles|getFeedPage|fetchPaginationApi|loadNextFeed|openPage)\(\s*[\'"]([^\'"]+)[\'"]', re.IGNORECASE)
 
 
 @dataclass(frozen=True)
 class BrokenResource:
     url: str
-    resource_type: str  # "image" | "link" | "script" | "style" | "media" | "lazy_image" | "rewrite_mismatch" | "css_image" | "css_font" | "iframe" | "video" | "audio" | "media_stream" | "script_bundle" | "style_sheet" | "shadow_dom" | "custom_element" | "websocket" | "sse_stream" | "web_storage" | "state_hydration" | "service_worker" | "canvas_snapshot" | "webgl_texture" | "webgl_model" | "shader_source" | "webxr_environment" | "webxr_skybox" | "spatial_audio" | "spatial_anchor" | "pdf_document" | "pdfjs_worker" | "pdf_attachment" | "consent_shield" | "cookie_banner" | "modal_overlay"
+    resource_type: str  # "image" | "link" | "script" | "style" | "media" | "lazy_image" | "rewrite_mismatch" | "css_image" | "css_font" | "iframe" | "video" | "audio" | "media_stream" | "script_bundle" | "style_sheet" | "shadow_dom" | "custom_element" | "websocket" | "sse_stream" | "web_storage" | "state_hydration" | "service_worker" | "canvas_snapshot" | "webgl_texture" | "webgl_model" | "shader_source" | "webxr_environment" | "webxr_skybox" | "spatial_audio" | "spatial_anchor" | "pdf_document" | "pdfjs_worker" | "pdf_attachment" | "consent_shield" | "cookie_banner" | "modal_overlay" | "pagination_feed" | "infinite_scroll" | "page_endpoint"
     element_tag: str
-    reason: str  # "missing_in_cdx" | "http_404" | "net_failed" | "replay_bad" | "pywb_rewrite_mismatch" | "dynamic_lazyload_missing" | "css_background_missing" | "css_font_missing" | "iframe_embedded_missing" | "media_resource_missing" | "media_stream_missing" | "script_bundle_missing" | "style_sheet_missing" | "shadow_dom_resource_missing" | "shadow_dom_template_missing" | "websocket_endpoint_missing" | "sse_stream_missing" | "storage_state_missing" | "hydration_data_missing" | "service_worker_missing" | "canvas_snapshot_missing" | "webgl_texture_missing" | "webgl_model_missing" | "shader_source_missing" | "webxr_environment_missing" | "webxr_skybox_missing" | "spatial_audio_missing" | "spatial_anchor_missing" | "pdf_document_missing" | "pdfjs_worker_missing" | "pdf_attachment_missing" | "consent_shield_blocking" | "cookie_banner_blocking" | "modal_overlay_blocking"
+    reason: str  # "missing_in_cdx" | "http_404" | "net_failed" | "replay_bad" | "pywb_rewrite_mismatch" | "dynamic_lazyload_missing" | "css_background_missing" | "css_font_missing" | "iframe_embedded_missing" | "media_resource_missing" | "media_stream_missing" | "script_bundle_missing" | "style_sheet_missing" | "shadow_dom_resource_missing" | "shadow_dom_template_missing" | "websocket_endpoint_missing" | "sse_stream_missing" | "storage_state_missing" | "hydration_data_missing" | "service_worker_missing" | "canvas_snapshot_missing" | "webgl_texture_missing" | "webgl_model_missing" | "shader_source_missing" | "webxr_environment_missing" | "webxr_skybox_missing" | "spatial_audio_missing" | "spatial_anchor_missing" | "pdf_document_missing" | "pdfjs_worker_missing" | "pdf_attachment_missing" | "consent_shield_blocking" | "cookie_banner_blocking" | "modal_overlay_blocking" | "pagination_feed_missing" | "infinite_scroll_missing" | "page_endpoint_missing"
     context: str  # HTML snippet or context description
 
 
@@ -62,6 +64,7 @@ class VisitorReplayQualityResult:
     broken_webxr_count: int = 0
     broken_pdf_count: int = 0
     broken_consent_count: int = 0
+    broken_pagination_count: int = 0
     broken_resources: Tuple[BrokenResource, ...] = ()
     reasons: Tuple[str, ...] = ()
     actionable_evidence: Dict[str, Any] = field(default_factory=dict)
@@ -89,6 +92,7 @@ class _DOMResourceExtractor(HTMLParser):
         self.webxr_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'webxr_environment'|'webxr_skybox'|'spatial_audio'|'spatial_anchor')
         self.pdf_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'pdf_document'|'pdfjs_worker'|'pdf_attachment')
         self.consent_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'consent_shield'|'cookie_banner'|'modal_overlay')
+        self.pagination_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'pagination_feed'|'infinite_scroll'|'page_endpoint')
         self._in_style_tag = False
         self._style_content_chunks: List[str] = []
         self._in_script_tag = False
@@ -245,6 +249,35 @@ class _DOMResourceExtractor(HTMLParser):
                     c_type = "modal_overlay" if "overlay" in cs_attr or "modal" in cs_attr else "consent_shield"
                     if not any(u[0] == resolved for u in self.consent_urls):
                         self.consent_urls.append((resolved, raw_val, c_type))
+
+        # Check dynamic AJAX pagination and infinite scroll feed elements
+        if any(p_kw in element_id.lower() or p_kw in element_class.lower() for p_kw in ("load-more", "infinite-scroll", "pagination-next", "btn-more-articles", "feed-pagination")):
+            p_src = (
+                attr_dict.get("data-page-url")
+                or attr_dict.get("data-infinite-scroll")
+                or attr_dict.get("data-next-page")
+                or attr_dict.get("data-pagination-api")
+                or attr_dict.get("data-feed-url")
+                or attr_dict.get("href")
+                or attr_dict.get("data-src")
+            )
+            if p_src:
+                raw_p = p_src.strip()
+                if raw_p and not raw_p.startswith(("javascript:", "mailto:", "tel:", "#", "data:")):
+                    resolved = resolve_protocol_relative(raw_p, effective_base)
+                    attr_keys_str = " ".join(attr_dict.keys()).lower()
+                    p_type = "infinite_scroll" if "scroll" in (element_id + element_class + attr_keys_str).lower() else "pagination_feed"
+                    if not any(u[0] == resolved for u in self.pagination_urls):
+                        self.pagination_urls.append((resolved, raw_p, p_type))
+
+        for pg_attr in ("data-page-url", "data-infinite-scroll", "data-next-page", "data-pagination-api", "data-feed-url"):
+            if pg_attr in attr_dict:
+                raw_val = attr_dict[pg_attr].strip()
+                if raw_val and not raw_val.startswith("data:"):
+                    resolved = resolve_protocol_relative(raw_val, effective_base)
+                    p_type = "infinite_scroll" if "scroll" in pg_attr else "page_endpoint"
+                    if not any(u[0] == resolved for u in self.pagination_urls):
+                        self.pagination_urls.append((resolved, raw_val, p_type))
 
         if tag_lower == "img":
             if "src" in attr_dict:
@@ -425,6 +458,12 @@ class _DOMResourceExtractor(HTMLParser):
                 if raw_url and not raw_url.startswith("data:"):
                     resolved = resolve_protocol_relative(raw_url, effective_base)
                     self.consent_urls.append((resolved, raw_url, "consent_shield"))
+
+            for match in PAGINATION_REGEX.finditer(script_text):
+                raw_url = match.group(1).strip()
+                if raw_url and not raw_url.startswith("data:"):
+                    resolved = resolve_protocol_relative(raw_url, effective_base)
+                    self.pagination_urls.append((resolved, raw_url, "pagination_feed"))
 
 
 def resolve_protocol_relative(raw_url: str, base_url: str) -> str:
@@ -779,6 +818,28 @@ def inspect_visitor_replay_dom(
                     )
                 )
 
+    # 15. Check Dynamic AJAX Pagination & Infinite Scroll Article Feeds
+    pagination_broken = 0
+    for resolved_url, raw_url, res_type in extractor.pagination_urls:
+        if cdx_index_urls is not None:
+            if not _is_url_in_cdx(resolved_url, cdx_index_urls, canonical_cdx):
+                pagination_broken += 1
+                if res_type == "infinite_scroll":
+                    reason_code = "infinite_scroll_missing"
+                elif res_type == "page_endpoint":
+                    reason_code = "page_endpoint_missing"
+                else:
+                    reason_code = "pagination_feed_missing"
+                broken.append(
+                    BrokenResource(
+                        url=resolved_url,
+                        resource_type=res_type,
+                        element_tag=f'<{res_type} url="{raw_url}">',
+                        reason=reason_code,
+                        context=f"Dynamic AJAX pagination / infinite-scroll article feed ({res_type}) {resolved_url} missing in WACZ archive.",
+                    )
+                )
+
     total_checked = (
         len(extractor.images)
         + len(extractor.lazy_images)
@@ -794,6 +855,7 @@ def inspect_visitor_replay_dom(
         + len(extractor.webxr_urls)
         + len(extractor.pdf_urls)
         + len(extractor.consent_urls)
+        + len(extractor.pagination_urls)
     )
     total_broken = len(broken)
     replay_good = total_checked - total_broken
@@ -839,6 +901,9 @@ def inspect_visitor_replay_dom(
     if consent_broken > max_allowed_broken_canvas:
         reasons.append(f"broken_consent_shields_detected ({consent_broken} > {max_allowed_broken_canvas})")
 
+    if pagination_broken > max_allowed_broken_canvas:
+        reasons.append(f"broken_pagination_feeds_detected ({pagination_broken} > {max_allowed_broken_canvas})")
+
     if any(b.reason == "pywb_rewrite_mismatch" for b in broken):
         reasons.append("pywb_rewrite_mismatch_detected")
 
@@ -878,6 +943,9 @@ def inspect_visitor_replay_dom(
     if any(b.reason in ("consent_shield_blocking", "cookie_banner_blocking", "modal_overlay_blocking") for b in broken):
         reasons.append("consent_shield_replay_blocking_detected")
 
+    if any(b.reason in ("pagination_feed_missing", "infinite_scroll_missing", "page_endpoint_missing") for b in broken):
+        reasons.append("dynamic_pagination_feed_loss_detected")
+
     passed = len(reasons) == 0
 
     remediation = None
@@ -902,6 +970,7 @@ def inspect_visitor_replay_dom(
         "broken_webxr_count": webxr_broken,
         "broken_pdf_count": pdf_broken,
         "broken_consent_count": consent_broken,
+        "broken_pagination_count": pagination_broken,
         "quality_score": quality_score,
         "broken_resources": [
             {
@@ -934,6 +1003,7 @@ def inspect_visitor_replay_dom(
         broken_webxr_count=webxr_broken,
         broken_pdf_count=pdf_broken,
         broken_consent_count=consent_broken,
+        broken_pagination_count=pagination_broken,
         broken_resources=tuple(broken),
         reasons=tuple(reasons),
         actionable_evidence=actionable_evidence,
@@ -1028,6 +1098,11 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
     if not broken_resources:
         return "No remediation needed."
 
+    has_pagination = any(
+        b.reason in ("pagination_feed_missing", "infinite_scroll_missing", "page_endpoint_missing")
+        or b.resource_type in ("pagination_feed", "infinite_scroll", "page_endpoint")
+        for b in broken_resources
+    )
     has_consent = any(
         b.reason in ("consent_shield_blocking", "cookie_banner_blocking", "modal_overlay_blocking")
         or b.resource_type in ("consent_shield", "cookie_banner", "modal_overlay")
@@ -1080,6 +1155,10 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
     has_links = any(b.resource_type == "link" for b in broken_resources)
 
     suggestions = []
+    if has_pagination:
+        suggestions.append(
+            "Re-crawl with dynamic AJAX pagination & infinite-scroll behavior rules enabled '--behaviors autoclick,autofetch,autoscroll,pagination' with page scroll depth --depth 3 and API endpoint capture."
+        )
     if has_consent:
         suggestions.append(
             "Re-crawl with cookie / GDPR consent banner auto-dismissal rules enabled '--behaviors autoclick,autofetch,autoscroll,consent' and WACZ overlay stripping enabled."
