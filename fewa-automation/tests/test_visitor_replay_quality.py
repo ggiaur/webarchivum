@@ -663,6 +663,46 @@ def test_visitor_replay_dom_detects_search_form_defects():
     assert "search form submission & query-parameter behavior rules enabled" in result.remediation_suggestion
 
 
+def test_visitor_replay_dom_detects_multilingual_defects():
+    html = """
+    <!DOCTYPE html>
+    <html lang="hu">
+    <head>
+        <link rel="alternate" hreflang="en" href="https://example.org/en/portal_home.html">
+        <link rel="alternate" hreflang="de" href="https://example.org/de/portal_home.html">
+        <script>
+            const bundle = loadLocale('https://example.org/i18n/locales/de.json');
+            const translation = fetchI18n('/i18n/translations_en.json');
+        </script>
+    </head>
+    <body>
+        <h1>Hungarian Public Library Portal</h1>
+        <div class="lang-switch">
+            <a href="/hu/index.html" hreflang="hu">Magyar</a>
+            <a href="/en/index.html" data-locale-url="https://example.org/en/index.html">English</a>
+        </div>
+        <div data-i18n-bundle="/i18n/bundle_hu.json"></div>
+    </body>
+    </html>
+    """
+    page_url = "https://example.org/hu/portal_home.html"
+    # CDX index contains base page and bundle_hu.json, but misses de/portal_home.html, en/portal_home.html, de.json, translations_en.json, and en/index.html
+    cdx_set = {
+        "https://example.org/hu/portal_home.html",
+        "https://example.org/i18n/bundle_hu.json",
+    }
+
+    result = inspect_visitor_replay_dom(html, page_url, cdx_index_urls=cdx_set)
+
+    assert not result.passed
+    assert result.broken_multilingual_count >= 3
+    assert "multilingual_locale_subpath_loss_detected" in result.reasons
+    reason_codes = [b.reason for b in result.broken_resources]
+    assert "alternate_language_missing" in reason_codes
+    assert "locale_bundle_missing" in reason_codes
+    assert "multi-language locale selector & alternate language subpath capture rules enabled" in result.remediation_suggestion
+
+
 
 
 

@@ -35,14 +35,16 @@ CONSENT_SHIELD_REGEX = re.compile(r'(?:CookieConsent|Didomi|OneTrust|QuantcastCh
 PAGINATION_REGEX = re.compile(r'(?:fetchPage|loadMoreArticles|getFeedPage|fetchPaginationApi|loadNextFeed|openPage)\(\s*[\'"]([^\'"]+)[\'"]', re.IGNORECASE)
 # Regular expressions to extract dynamic search form and query parameter API endpoints
 SEARCH_FORM_REGEX = re.compile(r'(?:fetchSearch|searchApi|executeSearch|loadSearchResults|querySearch|submitSearchForm|searchEndpoint)\(\s*[\'"]([^\'"]+)[\'"]', re.IGNORECASE)
+# Regular expressions to extract multi-language locale selectors and i18n translation bundles
+MULTILINGUAL_LOCALE_REGEX = re.compile(r'(?:loadLocale|switchLanguage|fetchI18n|loadTranslationBundle|setLanguage|localeUrl)\(\s*[\'"]([^\'"]+)[\'"]', re.IGNORECASE)
 
 
 @dataclass(frozen=True)
 class BrokenResource:
     url: str
-    resource_type: str  # "image" | "link" | "script" | "style" | "media" | "lazy_image" | "rewrite_mismatch" | "css_image" | "css_font" | "iframe" | "video" | "audio" | "media_stream" | "script_bundle" | "style_sheet" | "shadow_dom" | "custom_element" | "websocket" | "sse_stream" | "web_storage" | "state_hydration" | "service_worker" | "canvas_snapshot" | "webgl_texture" | "webgl_model" | "shader_source" | "webxr_environment" | "webxr_skybox" | "spatial_audio" | "spatial_anchor" | "pdf_document" | "pdfjs_worker" | "pdf_attachment" | "consent_shield" | "cookie_banner" | "modal_overlay" | "pagination_feed" | "infinite_scroll" | "page_endpoint" | "search_form" | "search_api" | "search_query"
+    resource_type: str  # "image" | "link" | "script" | "style" | "media" | "lazy_image" | "rewrite_mismatch" | "css_image" | "css_font" | "iframe" | "video" | "audio" | "media_stream" | "script_bundle" | "style_sheet" | "shadow_dom" | "custom_element" | "websocket" | "sse_stream" | "web_storage" | "state_hydration" | "service_worker" | "canvas_snapshot" | "webgl_texture" | "webgl_model" | "shader_source" | "webxr_environment" | "webxr_skybox" | "spatial_audio" | "spatial_anchor" | "pdf_document" | "pdfjs_worker" | "pdf_attachment" | "consent_shield" | "cookie_banner" | "modal_overlay" | "pagination_feed" | "infinite_scroll" | "page_endpoint" | "search_form" | "search_api" | "search_query" | "multilingual_locale" | "locale_bundle" | "alternate_language"
     element_tag: str
-    reason: str  # "missing_in_cdx" | "http_404" | "net_failed" | "replay_bad" | "pywb_rewrite_mismatch" | "dynamic_lazyload_missing" | "css_background_missing" | "css_font_missing" | "iframe_embedded_missing" | "media_resource_missing" | "media_stream_missing" | "script_bundle_missing" | "style_sheet_missing" | "shadow_dom_resource_missing" | "shadow_dom_template_missing" | "websocket_endpoint_missing" | "sse_stream_missing" | "storage_state_missing" | "hydration_data_missing" | "service_worker_missing" | "canvas_snapshot_missing" | "webgl_texture_missing" | "webgl_model_missing" | "shader_source_missing" | "webxr_environment_missing" | "webxr_skybox_missing" | "spatial_audio_missing" | "spatial_anchor_missing" | "pdf_document_missing" | "pdfjs_worker_missing" | "pdf_attachment_missing" | "consent_shield_blocking" | "cookie_banner_blocking" | "modal_overlay_blocking" | "pagination_feed_missing" | "infinite_scroll_missing" | "page_endpoint_missing" | "search_form_missing" | "search_api_missing" | "search_query_missing"
+    reason: str  # "missing_in_cdx" | "http_404" | "net_failed" | "replay_bad" | "pywb_rewrite_mismatch" | "dynamic_lazyload_missing" | "css_background_missing" | "css_font_missing" | "iframe_embedded_missing" | "media_resource_missing" | "media_stream_missing" | "script_bundle_missing" | "style_sheet_missing" | "shadow_dom_resource_missing" | "shadow_dom_template_missing" | "websocket_endpoint_missing" | "sse_stream_missing" | "storage_state_missing" | "hydration_data_missing" | "service_worker_missing" | "canvas_snapshot_missing" | "webgl_texture_missing" | "webgl_model_missing" | "shader_source_missing" | "webxr_environment_missing" | "webxr_skybox_missing" | "spatial_audio_missing" | "spatial_anchor_missing" | "pdf_document_missing" | "pdfjs_worker_missing" | "pdf_attachment_missing" | "consent_shield_blocking" | "cookie_banner_blocking" | "modal_overlay_blocking" | "pagination_feed_missing" | "infinite_scroll_missing" | "page_endpoint_missing" | "search_form_missing" | "search_api_missing" | "search_query_missing" | "multilingual_locale_missing" | "locale_bundle_missing" | "alternate_language_missing"
     context: str  # HTML snippet or context description
 
 
@@ -68,6 +70,7 @@ class VisitorReplayQualityResult:
     broken_consent_count: int = 0
     broken_pagination_count: int = 0
     broken_search_count: int = 0
+    broken_multilingual_count: int = 0
     broken_resources: Tuple[BrokenResource, ...] = ()
     reasons: Tuple[str, ...] = ()
     actionable_evidence: Dict[str, Any] = field(default_factory=dict)
@@ -97,6 +100,7 @@ class _DOMResourceExtractor(HTMLParser):
         self.consent_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'consent_shield'|'cookie_banner'|'modal_overlay')
         self.pagination_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'pagination_feed'|'infinite_scroll'|'page_endpoint')
         self.search_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'search_form'|'search_api'|'search_query')
+        self.multilingual_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'multilingual_locale'|'locale_bundle'|'alternate_language')
         self._in_style_tag = False
         self._style_content_chunks: List[str] = []
         self._in_script_tag = False
@@ -303,6 +307,26 @@ class _DOMResourceExtractor(HTMLParser):
                     if not any(u[0] == resolved for u in self.search_urls):
                         self.search_urls.append((resolved, raw_val, s_type))
 
+        # Check Multi-Language / Locale-Specific Subpath attributes and elements
+        if tag_lower in ("link", "a") and ("hreflang" in attr_dict or "lang" in attr_dict or "data-locale-url" in attr_dict or "data-lang-url" in attr_dict):
+            m_src = attr_dict.get("href") or attr_dict.get("data-locale-url") or attr_dict.get("data-lang-url")
+            if m_src:
+                raw_m = m_src.strip()
+                if raw_m and not raw_m.startswith(("javascript:", "mailto:", "tel:", "#", "data:")):
+                    resolved = resolve_protocol_relative(raw_m, effective_base)
+                    m_type = "alternate_language" if "hreflang" in attr_dict else "multilingual_locale"
+                    if not any(u[0] == resolved for u in self.multilingual_urls):
+                        self.multilingual_urls.append((resolved, raw_m, m_type))
+
+        for ml_attr in ("data-locale-url", "data-lang-url", "data-i18n-bundle", "data-translation-src", "data-locale-path"):
+            if ml_attr in attr_dict:
+                raw_val = attr_dict[ml_attr].strip()
+                if raw_val and not raw_val.startswith("data:"):
+                    resolved = resolve_protocol_relative(raw_val, effective_base)
+                    m_type = "locale_bundle" if "bundle" in ml_attr or "translation" in ml_attr or raw_val.endswith(".json") else "multilingual_locale"
+                    if not any(u[0] == resolved for u in self.multilingual_urls):
+                        self.multilingual_urls.append((resolved, raw_val, m_type))
+
         if tag_lower == "img":
             if "src" in attr_dict:
                 raw_src = attr_dict["src"].strip()
@@ -494,6 +518,13 @@ class _DOMResourceExtractor(HTMLParser):
                 if raw_url and not raw_url.startswith("data:"):
                     resolved = resolve_protocol_relative(raw_url, effective_base)
                     self.search_urls.append((resolved, raw_url, "search_api"))
+
+            for match in MULTILINGUAL_LOCALE_REGEX.finditer(script_text):
+                raw_url = match.group(1).strip()
+                if raw_url and not raw_url.startswith("data:"):
+                    resolved = resolve_protocol_relative(raw_url, effective_base)
+                    if not any(u[0] == resolved for u in self.multilingual_urls):
+                        self.multilingual_urls.append((resolved, raw_url, "locale_bundle"))
 
 
 def resolve_protocol_relative(raw_url: str, base_url: str) -> str:
@@ -892,6 +923,28 @@ def inspect_visitor_replay_dom(
                     )
                 )
 
+    # 17. Check Multi-Language / Locale-Specific Subpath Assets & Translation Bundles
+    multilingual_broken = 0
+    for resolved_url, raw_url, res_type in extractor.multilingual_urls:
+        if cdx_index_urls is not None:
+            if not _is_url_in_cdx(resolved_url, cdx_index_urls, canonical_cdx):
+                multilingual_broken += 1
+                if res_type == "locale_bundle":
+                    reason_code = "locale_bundle_missing"
+                elif res_type == "alternate_language":
+                    reason_code = "alternate_language_missing"
+                else:
+                    reason_code = "multilingual_locale_missing"
+                broken.append(
+                    BrokenResource(
+                        url=resolved_url,
+                        resource_type=res_type,
+                        element_tag=f'<{res_type} url="{raw_url}">',
+                        reason=reason_code,
+                        context=f"Multi-language locale subpath / translation bundle ({res_type}) {resolved_url} missing in WACZ archive.",
+                    )
+                )
+
     total_checked = (
         len(extractor.images)
         + len(extractor.lazy_images)
@@ -909,6 +962,7 @@ def inspect_visitor_replay_dom(
         + len(extractor.consent_urls)
         + len(extractor.pagination_urls)
         + len(extractor.search_urls)
+        + len(extractor.multilingual_urls)
     )
     total_broken = len(broken)
     replay_good = total_checked - total_broken
@@ -960,6 +1014,9 @@ def inspect_visitor_replay_dom(
     if search_broken > max_allowed_broken_canvas:
         reasons.append(f"broken_search_forms_detected ({search_broken} > {max_allowed_broken_canvas})")
 
+    if multilingual_broken > max_allowed_broken_canvas:
+        reasons.append(f"broken_multilingual_locales_detected ({multilingual_broken} > {max_allowed_broken_canvas})")
+
     if any(b.reason == "pywb_rewrite_mismatch" for b in broken):
         reasons.append("pywb_rewrite_mismatch_detected")
 
@@ -1005,6 +1062,9 @@ def inspect_visitor_replay_dom(
     if any(b.reason in ("search_form_missing", "search_api_missing", "search_query_missing") for b in broken):
         reasons.append("search_query_form_loss_detected")
 
+    if any(b.reason in ("multilingual_locale_missing", "locale_bundle_missing", "alternate_language_missing") for b in broken):
+        reasons.append("multilingual_locale_subpath_loss_detected")
+
     passed = len(reasons) == 0
 
     remediation = None
@@ -1031,6 +1091,7 @@ def inspect_visitor_replay_dom(
         "broken_consent_count": consent_broken,
         "broken_pagination_count": pagination_broken,
         "broken_search_count": search_broken,
+        "broken_multilingual_count": multilingual_broken,
         "quality_score": quality_score,
         "broken_resources": [
             {
@@ -1065,6 +1126,7 @@ def inspect_visitor_replay_dom(
         broken_consent_count=consent_broken,
         broken_pagination_count=pagination_broken,
         broken_search_count=search_broken,
+        broken_multilingual_count=multilingual_broken,
         broken_resources=tuple(broken),
         reasons=tuple(reasons),
         actionable_evidence=actionable_evidence,
@@ -1159,6 +1221,11 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
     if not broken_resources:
         return "No remediation needed."
 
+    has_multilingual = any(
+        b.reason in ("multilingual_locale_missing", "locale_bundle_missing", "alternate_language_missing")
+        or b.resource_type in ("multilingual_locale", "locale_bundle", "alternate_language")
+        for b in broken_resources
+    )
     has_search = any(
         b.reason in ("search_form_missing", "search_api_missing", "search_query_missing")
         or b.resource_type in ("search_form", "search_api", "search_query")
@@ -1221,6 +1288,10 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
     has_links = any(b.resource_type == "link" for b in broken_resources)
 
     suggestions = []
+    if has_multilingual:
+        suggestions.append(
+            "Re-crawl with multi-language locale selector & alternate language subpath capture rules enabled '--behaviors autoclick,autofetch,autoscroll,multilingual' and i18n translation pre-caching."
+        )
     if has_search:
         suggestions.append(
             "Re-crawl with search form submission & query-parameter behavior rules enabled '--behaviors autoclick,autofetch,autoscroll,search' with search term seeding and API endpoint capture."
