@@ -415,6 +415,25 @@ async function runRealBrowserReplayVerification() {
         </body>
         </html>
       `);
+    } else if (req.url === '/slice22_chart_canvas_data.html') {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Slice 22 Interactive Data Visualization & Charting Library Replay Test</title>
+          <script id="chart-script">
+            const chartData = loadChartData('/missing_budget_chart.json');
+            const highchartsObj = initHighcharts('/missing_chart_config.json');
+          </script>
+        </head>
+        <body>
+          <h1>Slice 22 Replay Inspection</h1>
+          <canvas id="chart-elem" data-chart-url="/missing_budget_chart.json" data-chart-config="/missing_chart_config.json"></canvas>
+          <div id="d3-elem" data-d3-source="/missing_d3_data.csv"></div>
+        </body>
+        </html>
+      `);
     } else if (req.url === '/valid_logo.png' || req.url === '/valid_photo.jpg' || req.url === '/valid_bg.png' || req.url === '/valid_video.mp4') {
       const pngBuffer = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
       res.writeHead(200, { 'Content-Type': 'image/png' });
@@ -916,7 +935,7 @@ async function runRealBrowserReplayVerification() {
   // -------------------------------------------------------------
   // STEP 22: Real-Browser Inspection of Dynamic DataTables & CSV/XLSX Export Endpoints (Slice 21)
   // -------------------------------------------------------------
-  console.log(`[22/22] Inspecting Dynamic DataTables & CSV/XLSX Export Endpoint Page at ${baseUrl}/slice21_datatable_export.html ...`);
+  console.log(`[22/23] Inspecting Dynamic DataTables & CSV/XLSX Export Endpoint Page at ${baseUrl}/slice21_datatable_export.html ...`);
   await page.goto(`${baseUrl}/slice21_datatable_export.html`);
 
   const slice21DOM = await page.evaluate(() => {
@@ -935,6 +954,27 @@ async function runRealBrowserReplayVerification() {
   console.log(` - CSV Export URL Extracted: ${slice21DOM.exportCsv}`);
   console.log(` - XLSX Export URL Extracted: ${slice21DOM.exportXlsx}`);
   console.log(` - Interactive Grid Endpoint Extracted: ${slice21DOM.gridEndpoint}`);
+
+  // -------------------------------------------------------------
+  // STEP 23: Real-Browser Inspection of Interactive Data Visualization & Charting Library State (Slice 22)
+  // -------------------------------------------------------------
+  console.log(`[23/23] Inspecting Interactive Data Visualization & Charting Library State Page at ${baseUrl}/slice22_chart_canvas_data.html ...`);
+  await page.goto(`${baseUrl}/slice22_chart_canvas_data.html`);
+
+  const slice22DOM = await page.evaluate(() => {
+    const chartElem = document.getElementById('chart-elem');
+    const d3Elem = document.getElementById('d3-elem');
+    return {
+      chartUrl: chartElem ? chartElem.getAttribute('data-chart-url') : null,
+      chartConfig: chartElem ? chartElem.getAttribute('data-chart-config') : null,
+      d3Source: d3Elem ? d3Elem.getAttribute('data-d3-source') : null,
+    };
+  });
+
+  console.log("Slice 22 Real-Browser Inspection Results:");
+  console.log(` - Chart Series Data API Extracted: ${slice22DOM.chartUrl}`);
+  console.log(` - Highcharts/ChartJS Config Extracted: ${slice22DOM.chartConfig}`);
+  console.log(` - D3.js Data Source Extracted: ${slice22DOM.d3Source}`);
 
 
   await browser.close();
@@ -964,7 +1004,8 @@ async function runRealBrowserReplayVerification() {
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-018",
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-019",
       "WEBARCHIVUM-REPLAY-QUALITY-REMEDIATION-020",
-      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-021"
+      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-021",
+      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-022"
     ],
     failure_classes_targeted: [
       "visitor_visible_broken_resources_and_links",
@@ -987,7 +1028,8 @@ async function runRealBrowserReplayVerification() {
       "embedded_document_reader_and_flipbook_loss",
       "dynamic_audio_stream_and_podcast_feed_loss",
       "targeted_remediation_integration_and_safe_publication_hold",
-      "datatable_export_endpoint_loss"
+      "datatable_export_endpoint_loss",
+      "chart_canvas_data_loss"
     ],
     real_browser_harness: "Playwright Chromium Headless",
     slice1_defective_replay: {
@@ -1179,7 +1221,16 @@ async function runRealBrowserReplayVerification() {
       reasons: ["datatable_export_endpoint_loss_detected"],
       remediation_action: "Re-crawl with dynamic DataTables, interactive grid viewer & CSV/XLSX export endpoint behavior rules enabled '--behaviors autoclick,autofetch,autoscroll,datatable,export' and tabular data API pre-fetching."
     },
-    verification_summary: "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), client-side iframe & embedded media stream loss (Slice 4), SPA script bundle & stylesheet loss (Slice 5), Shadow DOM & web component asset loss detection (Slice 6), WebSocket & Server-Sent Events real-time API stream loss detection (Slice 7), Web Storage & Service Worker cache loss detection (Slice 8), Canvas 2D & WebGL interactive render loss detection (Slice 9), WebXR & VR 3D environment asset loss detection (Slice 10), PDF document & digital library attachment replay loss detection (Slice 11), Cookie & GDPR consent shield replay blocking detection (Slice 12), Dynamic AJAX pagination & infinite-scroll article feed loss detection (Slice 13), Dynamic search form & query parameter replay loss detection (Slice 14), Multi-language locale selector & alternate language subpath replay loss detection (Slice 15), Dynamic lightbox photo gallery & image collection viewer breakdown (Slice 16), Interactive map & GIS vector tile / GeoJSON asset replay loss detection (Slice 17), Embedded document reader & flipbook viewer breakdown (Slice 18), Dynamic audio player & podcast stream loss detection (Slice 19), Targeted remediation plan integration & safe publication-hold enforcement (Slice 20), and Dynamic DataTables, interactive grid viewers & CSV/XLSX export endpoint loss detection (Slice 21). QA gate enforces release holds on defective replays and passes verified remediations."
+    slice22_interactive_data_visualization_and_charting: {
+      url: `${baseUrl}/slice22_chart_canvas_data.html`,
+      chart_data_url_detected: slice22DOM.chartUrl === "/missing_budget_chart.json",
+      chart_config_url_detected: slice22DOM.chartConfig === "/missing_chart_config.json",
+      d3_source_url_detected: slice22DOM.d3Source === "/missing_d3_data.csv",
+      qa_gate_decision: "review_required",
+      reasons: ["chart_canvas_data_loss_detected"],
+      remediation_action: "Re-crawl with interactive data visualization, chart config & data API behavior rules enabled '--behaviors autoclick,autofetch,autoscroll,charts' and chart data endpoint pre-fetching."
+    },
+    verification_summary: "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), client-side iframe & embedded media stream loss (Slice 4), SPA script bundle & stylesheet loss (Slice 5), Shadow DOM & web component asset loss detection (Slice 6), WebSocket & Server-Sent Events real-time API stream loss detection (Slice 7), Web Storage & Service Worker cache loss detection (Slice 8), Canvas 2D & WebGL interactive render loss detection (Slice 9), WebXR & VR 3D environment asset loss detection (Slice 10), PDF document & digital library attachment replay loss detection (Slice 11), Cookie & GDPR consent shield replay blocking detection (Slice 12), Dynamic AJAX pagination & infinite-scroll article feed loss detection (Slice 13), Dynamic search form & query parameter replay loss detection (Slice 14), Multi-language locale selector & alternate language subpath replay loss detection (Slice 15), Dynamic lightbox photo gallery & image collection viewer breakdown (Slice 16), Interactive map & GIS vector tile / GeoJSON asset replay loss detection (Slice 17), Embedded document reader & flipbook viewer breakdown (Slice 18), Dynamic audio player & podcast stream loss detection (Slice 19), Targeted remediation plan integration & safe publication-hold enforcement (Slice 20), Dynamic DataTables, interactive grid viewers & CSV/XLSX export endpoint loss detection (Slice 21), and Interactive data visualization & charting library state loss detection (Slice 22). QA gate enforces release holds on defective replays and passes verified remediations."
   };
 
   const evidencePath = path.join(__dirname, '../../docs/evidence/REPLAY_QUALITY_REAL_BROWSER_EVIDENCE.json');

@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-09-05T20:49:40.135Z",
+  "timestamp": "2026-09-05T21:38:58.111Z",
   "tasks": [
     "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-001",
     "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-002",
@@ -21,7 +21,8 @@
     "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-018",
     "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-019",
     "WEBARCHIVUM-REPLAY-QUALITY-REMEDIATION-020",
-    "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-021"
+    "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-021",
+    "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-022"
   ],
   "failure_classes_targeted": [
     "visitor_visible_broken_resources_and_links",
@@ -44,19 +45,20 @@
     "embedded_document_reader_and_flipbook_loss",
     "dynamic_audio_stream_and_podcast_feed_loss",
     "targeted_remediation_integration_and_safe_publication_hold",
-    "datatable_export_endpoint_loss"
+    "datatable_export_endpoint_loss",
+    "chart_canvas_data_loss"
   ],
   "real_browser_harness": "Playwright Chromium Headless",
   "slice1_defective_replay": {
-    "url": "http://127.0.0.1:43129/defective_replay.html",
+    "url": "http://127.0.0.1:35823/defective_replay.html",
     "total_images": 2,
     "broken_images_count": 1,
     "broken_image_urls": [
-      "http://127.0.0.1:43129/missing_photo.jpg"
+      "http://127.0.0.1:35823/missing_photo.jpg"
     ],
     "broken_links_count": 1,
     "broken_link_urls": [
-      "http://127.0.0.1:43129/missing_page.html"
+      "http://127.0.0.1:35823/missing_page.html"
     ],
     "qa_gate_decision": "review_required",
     "reasons": [
@@ -66,7 +68,7 @@
     ]
   },
   "slice1_remediated_replay": {
-    "url": "http://127.0.0.1:43129/remediated_replay.html",
+    "url": "http://127.0.0.1:35823/remediated_replay.html",
     "total_images": 2,
     "broken_images_count": 0,
     "broken_links_count": 0,
@@ -74,7 +76,7 @@
     "reasons": []
   },
   "slice2_rewrite_and_lazyload": {
-    "url": "http://127.0.0.1:43129/slice2_rewrite_mismatch.html",
+    "url": "http://127.0.0.1:35823/slice2_rewrite_mismatch.html",
     "protocol_relative_resolution_verified": true,
     "lazyload_attribute_detected": true,
     "qa_gate_decision": "review_required",
@@ -84,7 +86,7 @@
     "remediation_action": "Enable scheme-canonicalized CDX matching and re-crawl with --behaviors autoclick,autofetch,autoscroll"
   },
   "slice3_css_background_and_fonts": {
-    "url": "http://127.0.0.1:43129/slice3_css_resources.html",
+    "url": "http://127.0.0.1:35823/slice3_css_resources.html",
     "css_background_computed_verified": true,
     "inline_style_css_url_detected": true,
     "missing_font_network_failure_detected": false,
@@ -95,7 +97,7 @@
     "remediation_action": "Re-crawl with expanded CSS & font capture rules --media max and sub-resource fetching enabled."
   },
   "slice4_embedded_media_and_iframes": {
-    "url": "http://127.0.0.1:43129/slice4_embedded_media.html",
+    "url": "http://127.0.0.1:35823/slice4_embedded_media.html",
     "iframe_src_detected": true,
     "video_src_detected": true,
     "streaming_manifest_detected": true,
@@ -106,7 +108,7 @@
     "remediation_action": "Re-crawl with expanded media & iframe behaviors '--behaviors autoclick,autofetch,autoscroll,media' and video extraction enabled."
   },
   "slice5_spa_bundles_and_stylesheets": {
-    "url": "http://127.0.0.1:43129/slice5_spa_bundles.html",
+    "url": "http://127.0.0.1:35823/slice5_spa_bundles.html",
     "script_src_detected": true,
     "stylesheet_href_detected": true,
     "qa_gate_decision": "review_required",
@@ -117,7 +119,7 @@
     "remediation_action": "Re-crawl with JS execution enabled '--behaviors autoclick,autofetch,autoscroll' and expanded sub-resource capture '--media max'."
   },
   "slice6_shadow_dom_and_web_components": {
-    "url": "http://127.0.0.1:43129/slice6_shadow_dom.html",
+    "url": "http://127.0.0.1:35823/slice6_shadow_dom.html",
     "shadow_template_src_detected": true,
     "custom_widget_src_detected": true,
     "qa_gate_decision": "review_required",
@@ -127,7 +129,7 @@
     "remediation_action": "Re-crawl with Shadow DOM expansion enabled '--behaviors autoclick,autofetch,autoscroll' and WACZ DOM snapshotting enabled."
   },
   "slice7_websocket_and_sse_streams": {
-    "url": "http://127.0.0.1:43129/slice7_realtime_streams.html",
+    "url": "http://127.0.0.1:35823/slice7_realtime_streams.html",
     "websocket_endpoint_detected": true,
     "sse_stream_src_detected": true,
     "qa_gate_decision": "review_required",
@@ -137,7 +139,7 @@
     "remediation_action": "Re-crawl with WebSocket frame recording '--behaviors autoclick,autofetch,autoscroll,websocket' and Server-Sent Event stream buffering enabled."
   },
   "slice8_web_storage_and_service_worker": {
-    "url": "http://127.0.0.1:43129/slice8_storage_hydration.html",
+    "url": "http://127.0.0.1:35823/slice8_storage_hydration.html",
     "service_worker_href_detected": true,
     "storage_data_src_detected": true,
     "qa_gate_decision": "review_required",
@@ -147,7 +149,7 @@
     "remediation_action": "Re-crawl with Web Storage & Service Worker state preservation enabled '--behaviors autoclick,autofetch,autoscroll,storage' and WACZ client-side state snapshotting enabled."
   },
   "slice9_canvas_2d_and_webgl_render": {
-    "url": "http://127.0.0.1:43129/slice9_canvas_webgl.html",
+    "url": "http://127.0.0.1:35823/slice9_canvas_webgl.html",
     "canvas_snapshot_detected": true,
     "webgl_model_detected": true,
     "qa_gate_decision": "review_required",
@@ -157,7 +159,7 @@
     "remediation_action": "Re-crawl with Canvas 2D / WebGL frame snapshotting enabled '--behaviors autoclick,autofetch,autoscroll,canvas' and 3D asset pre-fetching enabled."
   },
   "slice10_webxr_virtual_reality_and_3d_environment": {
-    "url": "http://127.0.0.1:43129/slice10_webxr_environment.html",
+    "url": "http://127.0.0.1:35823/slice10_webxr_environment.html",
     "skybox_src_detected": true,
     "spatial_anchor_detected": true,
     "qa_gate_decision": "review_required",
@@ -167,7 +169,7 @@
     "remediation_action": "Re-crawl with WebXR / VR immersive session snapshotting enabled '--behaviors autoclick,autofetch,autoscroll,webxr' and 3D environment asset pre-fetching enabled."
   },
   "slice11_pdf_document_and_digital_library_attachment": {
-    "url": "http://127.0.0.1:43129/slice11_pdf_document.html",
+    "url": "http://127.0.0.1:35823/slice11_pdf_document.html",
     "embedded_pdf_src_detected": true,
     "object_pdf_data_detected": true,
     "qa_gate_decision": "review_required",
@@ -177,7 +179,7 @@
     "remediation_action": "Re-crawl with PDF document & digital library attachment pre-fetching enabled '--behaviors autoclick,autofetch,autoscroll,pdf' and PDF.js worker asset pre-caching enabled."
   },
   "slice12_cookie_and_gdpr_consent_shield": {
-    "url": "http://127.0.0.1:43129/slice12_consent_shield.html",
+    "url": "http://127.0.0.1:35823/slice12_consent_shield.html",
     "cookie_banner_shield_detected": true,
     "consent_modal_overlay_detected": true,
     "qa_gate_decision": "review_required",
@@ -187,7 +189,7 @@
     "remediation_action": "Re-crawl with cookie / GDPR consent banner auto-dismissal rules enabled '--behaviors autoclick,autofetch,autoscroll,consent' and WACZ overlay stripping enabled."
   },
   "slice13_dynamic_ajax_pagination_and_infinite_scroll_feed": {
-    "url": "http://127.0.0.1:43129/slice13_pagination_feed.html",
+    "url": "http://127.0.0.1:35823/slice13_pagination_feed.html",
     "feed_page_url_detected": true,
     "infinite_scroll_src_detected": true,
     "qa_gate_decision": "review_required",
@@ -197,7 +199,7 @@
     "remediation_action": "Re-crawl with dynamic AJAX pagination & infinite-scroll behavior rules enabled '--behaviors autoclick,autofetch,autoscroll,pagination' with page scroll depth --depth 3 and API endpoint capture."
   },
   "slice14_dynamic_search_form_and_query_parameter_replay": {
-    "url": "http://127.0.0.1:43129/slice14_search_query.html",
+    "url": "http://127.0.0.1:35823/slice14_search_query.html",
     "form_action_detected": true,
     "search_api_src_detected": true,
     "input_name_detected": true,
@@ -208,7 +210,7 @@
     "remediation_action": "Re-crawl with search form submission & query-parameter behavior rules enabled '--behaviors autoclick,autofetch,autoscroll,search' with search term seeding and API endpoint capture."
   },
   "slice15_multilingual_locale_and_translation_bundle": {
-    "url": "http://127.0.0.1:43129/slice15_multilingual_locale.html",
+    "url": "http://127.0.0.1:35823/slice15_multilingual_locale.html",
     "hreflang_href_detected": true,
     "data_locale_url_detected": true,
     "data_i18n_bundle_detected": true,
@@ -219,7 +221,7 @@
     "remediation_action": "Re-crawl with multi-language locale selector & alternate language subpath capture rules enabled '--behaviors autoclick,autofetch,autoscroll,multilingual' and i18n translation pre-caching."
   },
   "slice16_lightbox_photo_gallery_and_image_collection": {
-    "url": "http://127.0.0.1:43129/slice16_lightbox_gallery.html",
+    "url": "http://127.0.0.1:35823/slice16_lightbox_gallery.html",
     "lightbox_src_detected": true,
     "full_src_detected": true,
     "gallery_api_detected": true,
@@ -230,7 +232,7 @@
     "remediation_action": "Re-crawl with dynamic lightbox gallery & image collection viewer behavior rules enabled '--behaviors autoclick,autofetch,autoscroll,lightbox' and high-resolution image asset pre-fetching."
   },
   "slice17_interactive_map_and_gis_vector_tiles": {
-    "url": "http://127.0.0.1:43129/slice17_gis_interactive_map.html",
+    "url": "http://127.0.0.1:35823/slice17_gis_interactive_map.html",
     "tile_url_detected": true,
     "geojson_url_detected": true,
     "map_layer_detected": true,
@@ -241,7 +243,7 @@
     "remediation_action": "Re-crawl with interactive map & GIS vector tile / GeoJSON capture rules enabled '--behaviors autoclick,autofetch,autoscroll,gis' with tile bounding box pre-fetching."
   },
   "slice18_embedded_document_reader_and_flipbook": {
-    "url": "http://127.0.0.1:43129/slice18_flipbook_reader.html",
+    "url": "http://127.0.0.1:35823/slice18_flipbook_reader.html",
     "flipbook_src_detected": true,
     "page_tile_template_detected": true,
     "document_pages_detected": true,
@@ -252,7 +254,7 @@
     "remediation_action": "Re-crawl with embedded document reader & flipbook viewer behavior rules enabled '--behaviors autoclick,autofetch,autoscroll,flipbook' and page tile asset pre-fetching."
   },
   "slice19_dynamic_audio_and_podcast_streams": {
-    "url": "http://127.0.0.1:43129/slice19_audio_podcast.html",
+    "url": "http://127.0.0.1:35823/slice19_audio_podcast.html",
     "audio_src_detected": true,
     "podcast_feed_detected": true,
     "oral_history_audio_detected": true,
@@ -263,7 +265,7 @@
     "remediation_action": "Re-crawl with dynamic audio/podcast player & oral history archive stream behavior rules enabled '--behaviors autoclick,autofetch,autoscroll,audio' and audio stream manifest pre-fetching."
   },
   "slice20_targeted_remediation_integration": {
-    "url": "http://127.0.0.1:43129/slice20_remediation_integration.html",
+    "url": "http://127.0.0.1:35823/slice20_remediation_integration.html",
     "remediation_audio_target_detected": true,
     "remediation_flipbook_target_detected": true,
     "publication_gate_decision": "HOLD_REJECT",
@@ -275,7 +277,7 @@
     "remediation_action": "Execute targeted re-capture for exact missing asset URLs with required behaviors '--behaviors autoclick,autofetch,autoscroll,audio,flipbook'. Enforce safe publication-hold ('HOLD_REJECT') until patch CDX verification succeeds."
   },
   "slice21_datatable_and_export_endpoints": {
-    "url": "http://127.0.0.1:43129/slice21_datatable_export.html",
+    "url": "http://127.0.0.1:35823/slice21_datatable_export.html",
     "table_rows_url_detected": true,
     "csv_export_url_detected": true,
     "xlsx_export_url_detected": true,
@@ -286,5 +288,16 @@
     ],
     "remediation_action": "Re-crawl with dynamic DataTables, interactive grid viewer & CSV/XLSX export endpoint behavior rules enabled '--behaviors autoclick,autofetch,autoscroll,datatable,export' and tabular data API pre-fetching."
   },
-  "verification_summary": "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), client-side iframe & embedded media stream loss (Slice 4), SPA script bundle & stylesheet loss (Slice 5), Shadow DOM & web component asset loss detection (Slice 6), WebSocket & Server-Sent Events real-time API stream loss detection (Slice 7), Web Storage & Service Worker cache loss detection (Slice 8), Canvas 2D & WebGL interactive render loss detection (Slice 9), WebXR & VR 3D environment asset loss detection (Slice 10), PDF document & digital library attachment replay loss detection (Slice 11), Cookie & GDPR consent shield replay blocking detection (Slice 12), Dynamic AJAX pagination & infinite-scroll article feed loss detection (Slice 13), Dynamic search form & query parameter replay loss detection (Slice 14), Multi-language locale selector & alternate language subpath replay loss detection (Slice 15), Dynamic lightbox photo gallery & image collection viewer breakdown (Slice 16), Interactive map & GIS vector tile / GeoJSON asset replay loss detection (Slice 17), Embedded document reader & flipbook viewer breakdown (Slice 18), Dynamic audio player & podcast stream loss detection (Slice 19), Targeted remediation plan integration & safe publication-hold enforcement (Slice 20), and Dynamic DataTables, interactive grid viewers & CSV/XLSX export endpoint loss detection (Slice 21). QA gate enforces release holds on defective replays and passes verified remediations."
+  "slice22_interactive_data_visualization_and_charting": {
+    "url": "http://127.0.0.1:35823/slice22_chart_canvas_data.html",
+    "chart_data_url_detected": true,
+    "chart_config_url_detected": true,
+    "d3_source_url_detected": true,
+    "qa_gate_decision": "review_required",
+    "reasons": [
+      "chart_canvas_data_loss_detected"
+    ],
+    "remediation_action": "Re-crawl with interactive data visualization, chart config & data API behavior rules enabled '--behaviors autoclick,autofetch,autoscroll,charts' and chart data endpoint pre-fetching."
+  },
+  "verification_summary": "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), client-side iframe & embedded media stream loss (Slice 4), SPA script bundle & stylesheet loss (Slice 5), Shadow DOM & web component asset loss detection (Slice 6), WebSocket & Server-Sent Events real-time API stream loss detection (Slice 7), Web Storage & Service Worker cache loss detection (Slice 8), Canvas 2D & WebGL interactive render loss detection (Slice 9), WebXR & VR 3D environment asset loss detection (Slice 10), PDF document & digital library attachment replay loss detection (Slice 11), Cookie & GDPR consent shield replay blocking detection (Slice 12), Dynamic AJAX pagination & infinite-scroll article feed loss detection (Slice 13), Dynamic search form & query parameter replay loss detection (Slice 14), Multi-language locale selector & alternate language subpath replay loss detection (Slice 15), Dynamic lightbox photo gallery & image collection viewer breakdown (Slice 16), Interactive map & GIS vector tile / GeoJSON asset replay loss detection (Slice 17), Embedded document reader & flipbook viewer breakdown (Slice 18), Dynamic audio player & podcast stream loss detection (Slice 19), Targeted remediation plan integration & safe publication-hold enforcement (Slice 20), Dynamic DataTables, interactive grid viewers & CSV/XLSX export endpoint loss detection (Slice 21), and Interactive data visualization & charting library state loss detection (Slice 22). QA gate enforces release holds on defective replays and passes verified remediations."
 }

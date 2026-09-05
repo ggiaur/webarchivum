@@ -955,6 +955,40 @@ def test_visitor_replay_dom_detects_datatable_and_export_defects():
     assert "dynamic DataTables, interactive grid viewer & CSV/XLSX export behavior rules enabled" in result.remediation_suggestion
 
 
+def test_visitor_replay_dom_detects_chart_and_canvas_data_defects():
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <script>
+            const chartData = loadChartData('https://example.org/api/v1/budget_1924_chart.json');
+            const highchartsObj = initHighcharts('/configs/budget_chart_config.json');
+        </script>
+    </head>
+    <body>
+        <h1>Municipal Budget & Financial Statistics Archive</h1>
+        <canvas id="budget-chart" data-chart-url="https://example.org/api/v1/chart_series_data.json" data-chart-config="/configs/chart_options.json"></canvas>
+        <div id="d3-histogram" data-d3-source="/data/histogram_series.csv"></div>
+    </body>
+    </html>
+    """
+    page_url = "https://example.org/stats/budget"
+    # CDX index contains base page and budget_1924_chart.json, but misses budget_chart_config.json, chart_series_data.json, chart_options.json, and histogram_series.csv
+    cdx_set = {
+        "https://example.org/stats/budget",
+        "https://example.org/api/v1/budget_1924_chart.json",
+    }
+
+    result = inspect_visitor_replay_dom(html, page_url, cdx_index_urls=cdx_set)
+
+    assert not result.passed
+    assert result.broken_chart_count >= 3
+    assert "chart_canvas_data_loss_detected" in result.reasons
+    reason_codes = [b.reason for b in result.broken_resources]
+    assert "chart_config_missing" in reason_codes or "chart_data_missing" in reason_codes
+    assert "interactive data visualization, chart config & data API behavior rules enabled" in result.remediation_suggestion
+
+
 
 
 
