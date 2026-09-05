@@ -349,4 +349,35 @@ def test_visitor_replay_dom_detects_missing_script_bundles_and_stylesheets():
     assert "JS execution enabled" in result.remediation_suggestion
 
 
+def test_visitor_replay_dom_detects_shadow_dom_and_custom_element_defects():
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <body>
+        <h1>Web Components Page</h1>
+        <template shadowrootmode="open" data-shadow-src="/templates/header.html">
+            <img src="/images/shadow_logo.png">
+        </template>
+        <custom-card asset-url="https://example.org/assets/card_bg.png"></custom-card>
+    </body>
+    </html>
+    """
+    page_url = "https://example.org/components"
+    # CDX index contains base page, but misses header.html template and card_bg.png asset
+    cdx_set = {
+        "https://example.org/components",
+    }
+
+    result = inspect_visitor_replay_dom(html, page_url, cdx_index_urls=cdx_set)
+
+    assert not result.passed
+    assert result.broken_shadow_dom_count >= 2
+    assert "shadow_dom_resources_missing_detected" in result.reasons
+    reason_codes = [b.reason for b in result.broken_resources]
+    assert "shadow_dom_template_missing" in reason_codes
+    assert "shadow_dom_resource_missing" in reason_codes
+    assert "Shadow DOM expansion enabled" in result.remediation_suggestion
+
+
+
 

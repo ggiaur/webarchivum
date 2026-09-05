@@ -19,9 +19,9 @@ CSS_URL_REGEX = re.compile(r'url\(\s*[\'"]?([^\'")\s]+)[\'"]?\s*\)', re.IGNORECA
 @dataclass(frozen=True)
 class BrokenResource:
     url: str
-    resource_type: str  # "image" | "link" | "script" | "style" | "media" | "lazy_image" | "rewrite_mismatch" | "css_image" | "css_font" | "iframe" | "video" | "audio" | "media_stream"
+    resource_type: str  # "image" | "link" | "script" | "style" | "media" | "lazy_image" | "rewrite_mismatch" | "css_image" | "css_font" | "iframe" | "video" | "audio" | "media_stream" | "script_bundle" | "style_sheet" | "shadow_dom" | "custom_element"
     element_tag: str
-    reason: str  # "missing_in_cdx" | "http_404" | "net_failed" | "replay_bad" | "pywb_rewrite_mismatch" | "dynamic_lazyload_missing" | "css_background_missing" | "css_font_missing" | "iframe_embedded_missing" | "media_resource_missing" | "media_stream_missing" | "script_bundle_missing" | "style_sheet_missing"
+    reason: str  # "missing_in_cdx" | "http_404" | "net_failed" | "replay_bad" | "pywb_rewrite_mismatch" | "dynamic_lazyload_missing" | "css_background_missing" | "css_font_missing" | "iframe_embedded_missing" | "media_resource_missing" | "media_stream_missing" | "script_bundle_missing" | "style_sheet_missing" | "shadow_dom_resource_missing" | "shadow_dom_template_missing"
     context: str  # HTML snippet or context description
 
 
@@ -38,6 +38,7 @@ class VisitorReplayQualityResult:
     broken_media_count: int
     broken_script_count: int
     broken_style_count: int
+    broken_shadow_dom_count: int
     broken_resources: Tuple[BrokenResource, ...]
     reasons: Tuple[str, ...]
     actionable_evidence: Dict[str, Any]
@@ -46,7 +47,7 @@ class VisitorReplayQualityResult:
 
 
 class _DOMResourceExtractor(HTMLParser):
-    """Extracts img, script, link[rel=stylesheet], a, lazyload, CSS url(...), iframe, and embedded video/audio/stream assets from HTML."""
+    """Extracts img, script, link[rel=stylesheet], a, lazyload, CSS url(...), iframe, video/audio/stream, and Shadow DOM / web component assets from HTML."""
 
     def __init__(self, base_url: str):
         super().__init__()
@@ -58,6 +59,7 @@ class _DOMResourceExtractor(HTMLParser):
         self.scripts: List[Tuple[str, str]] = []        # (resolved_url, raw_src)
         self.css_urls: List[Tuple[str, str, str]] = []  # (resolved_url, raw_url, type: 'css_image'|'css_font')
         self.media_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'iframe'|'video'|'audio'|'media_stream')
+        self.shadow_dom_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'shadow_dom'|'custom_element')
         self._in_style_tag = False
         self._style_content_chunks: List[str] = []
 
@@ -120,6 +122,22 @@ class _DOMResourceExtractor(HTMLParser):
                     resolved = resolve_protocol_relative(raw_src, effective_base)
                     res_type = "media_stream" if _is_media_stream_url(resolved) else (tag_lower if tag_lower in ("video", "audio") else "media")
                     self.media_urls.append((resolved, raw_src, res_type))
+
+        elif tag_lower == "template" and ("shadowrootmode" in attr_dict or "shadowroot" in attr_dict or "data-shadow-src" in attr_dict):
+            shadow_src = attr_dict.get("data-shadow-src") or attr_dict.get("src")
+            if shadow_src:
+                raw_src = shadow_src.strip()
+                if raw_src and not raw_src.startswith("data:"):
+                    resolved = resolve_protocol_relative(raw_src, effective_base)
+                    self.shadow_dom_urls.append((resolved, raw_src, "shadow_dom"))
+
+        elif "-" in tag_lower:  # Custom Elements / Web Components (e.g. <custom-card>, <app-header>)
+            for custom_attr in ("src", "data-src", "shadow-src", "asset-url", "icon-src"):
+                if custom_attr in attr_dict:
+                    raw_src = attr_dict[custom_attr].strip()
+                    if raw_src and not raw_src.startswith("data:"):
+                        resolved = resolve_protocol_relative(raw_src, effective_base)
+                        self.shadow_dom_urls.append((resolved, raw_src, "custom_element"))
 
         elif tag_lower == "a" and "href" in attr_dict:
             raw_href = attr_dict["href"].strip()
@@ -351,6 +369,23 @@ def inspect_visitor_replay_dom(
                     )
                 )
 
+    # 8. Check Shadow DOM & Custom Element Assets
+    shadow_broken = 0
+    for resolved_url, raw_url, res_type in extractor.shadow_dom_urls:
+        if cdx_index_urls is not None:
+            if not _is_url_in_cdx(resolved_url, cdx_index_urls, canonical_cdx):
+                shadow_broken += 1
+                reason_code = "shadow_dom_template_missing" if res_type == "shadow_dom" else "shadow_dom_resource_missing"
+                broken.append(
+                    BrokenResource(
+                        url=resolved_url,
+                        resource_type=res_type,
+                        element_tag=f'<{res_type} src="{raw_url}">',
+                        reason=reason_code,
+                        context=f"Shadow DOM / Custom Element resource ({res_type}) {resolved_url} missing in WACZ archive.",
+                    )
+                )
+
     total_checked = (
         len(extractor.images)
         + len(extractor.lazy_images)
@@ -359,6 +394,7 @@ def inspect_visitor_replay_dom(
         + len(extractor.media_urls)
         + len(extractor.styles)
         + len(extractor.scripts)
+        + len(extractor.shadow_dom_urls)
     )
     total_broken = len(broken)
     replay_good = total_checked - total_broken
@@ -404,6 +440,9 @@ def inspect_visitor_replay_dom(
     if any(b.reason == "style_sheet_missing" for b in broken):
         reasons.append("critical_stylesheet_missing_detected")
 
+    if any(b.reason in ("shadow_dom_resource_missing", "shadow_dom_template_missing") for b in broken):
+        reasons.append("shadow_dom_resources_missing_detected")
+
     passed = len(reasons) == 0
 
     remediation = None
@@ -421,6 +460,7 @@ def inspect_visitor_replay_dom(
         "broken_media_count": media_broken,
         "broken_script_count": script_broken,
         "broken_style_count": style_broken,
+        "broken_shadow_dom_count": shadow_broken,
         "quality_score": quality_score,
         "broken_resources": [
             {
@@ -446,6 +486,7 @@ def inspect_visitor_replay_dom(
         broken_media_count=media_broken,
         broken_script_count=script_broken,
         broken_style_count=style_broken,
+        broken_shadow_dom_count=shadow_broken,
         broken_resources=tuple(broken),
         reasons=tuple(reasons),
         actionable_evidence=actionable_evidence,
@@ -521,6 +562,7 @@ def inspect_visitor_replay_qa_log(
         broken_media_count=0,
         broken_script_count=0,
         broken_style_count=0,
+        broken_shadow_dom_count=0,
         broken_resources=tuple(broken),
         reasons=tuple(reasons),
         actionable_evidence=actionable_evidence,
@@ -534,6 +576,11 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
     if not broken_resources:
         return "No remediation needed."
 
+    has_shadow_dom = any(
+        b.reason in ("shadow_dom_resource_missing", "shadow_dom_template_missing")
+        or b.resource_type in ("shadow_dom", "custom_element")
+        for b in broken_resources
+    )
     has_bundles = any(
         b.reason in ("script_bundle_missing", "style_sheet_missing")
         or b.resource_type in ("script", "style")
@@ -551,6 +598,10 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
     has_links = any(b.resource_type == "link" for b in broken_resources)
 
     suggestions = []
+    if has_shadow_dom:
+        suggestions.append(
+            "Re-crawl with Shadow DOM expansion enabled '--behaviors autoclick,autofetch,autoscroll' and WACZ DOM snapshotting enabled."
+        )
     if has_bundles:
         suggestions.append(
             "Re-crawl with JS execution enabled '--behaviors autoclick,autofetch,autoscroll' and expanded sub-resource capture '--media max'."
@@ -571,7 +622,7 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
         suggestions.append(
             "Enable `--behaviors autoclick,autofetch,autoscroll` with scroll delays to trigger and capture dynamic lazy-loaded images."
         )
-    if has_images and not has_lazyload and not has_rewrite_mismatch and not has_css and not has_media and not has_bundles:
+    if has_images and not has_lazyload and not has_rewrite_mismatch and not has_css and not has_media and not has_bundles and not has_shadow_dom:
         suggestions.append(
             "Re-crawl with expanded behaviors `--behaviors autoclick,autofetch,autoscroll` and `--media max` "
             "to capture lazy-loaded images, responsive srcset images, and dynamic consent-shielded assets."
@@ -584,6 +635,7 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
         suggestions.append("Hold publication for manual curator review due to unverified replay resource failures.")
 
     return " | ".join(suggestions)
+
 
 
 
