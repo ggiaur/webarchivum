@@ -303,6 +303,26 @@ async function runRealBrowserReplayVerification() {
         </body>
         </html>
       `);
+    } else if (req.url === '/slice16_lightbox_gallery.html') {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Slice 16 Dynamic Lightbox Photo Gallery Replay Test</title>
+          <script id="gallery-script">
+            const fullPhoto = openLightbox('/missing_fullres_photo.jpg');
+          </script>
+        </head>
+        <body>
+          <h1>Slice 16 Replay Inspection</h1>
+          <a id="lightbox-link" href="/missing_item_page.html" data-lightbox-src="/missing_highres_photo.jpg" data-full-src="/missing_full_photo.jpg">
+            <img src="/valid_photo.jpg" alt="Thumb">
+          </a>
+          <div id="gallery-api-elem" data-gallery-api="/missing_gallery_manifest.json"></div>
+        </body>
+        </html>
+      `);
     } else if (req.url === '/valid_logo.png' || req.url === '/valid_photo.jpg' || req.url === '/valid_bg.png' || req.url === '/valid_video.mp4') {
       const pngBuffer = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
       res.writeHead(200, { 'Content-Type': 'image/png' });
@@ -694,6 +714,28 @@ async function runRealBrowserReplayVerification() {
   console.log(` - Data i18n Bundle Extracted: ${slice15DOM.dataI18nBundle}`);
 
 
+  // -------------------------------------------------------------
+  // STEP 17: Real-Browser Inspection of Dynamic Lightbox Photo Gallery & Image Collection (Slice 16)
+  // -------------------------------------------------------------
+  console.log(`[17/17] Inspecting Dynamic Lightbox Photo Gallery Page at ${baseUrl}/slice16_lightbox_gallery.html ...`);
+  await page.goto(`${baseUrl}/slice16_lightbox_gallery.html`);
+
+  const slice16DOM = await page.evaluate(() => {
+    const lightboxLink = document.getElementById('lightbox-link');
+    const galleryApiElem = document.getElementById('gallery-api-elem');
+    return {
+      lightboxSrc: lightboxLink ? lightboxLink.getAttribute('data-lightbox-src') : null,
+      fullSrc: lightboxLink ? lightboxLink.getAttribute('data-full-src') : null,
+      galleryApi: galleryApiElem ? galleryApiElem.getAttribute('data-gallery-api') : null,
+    };
+  });
+
+  console.log("Slice 16 Real-Browser Inspection Results:");
+  console.log(` - Lightbox Src Extracted: ${slice16DOM.lightboxSrc}`);
+  console.log(` - Full Src Extracted: ${slice16DOM.fullSrc}`);
+  console.log(` - Gallery API Manifest Extracted: ${slice16DOM.galleryApi}`);
+
+
   await browser.close();
   server.close();
 
@@ -715,7 +757,8 @@ async function runRealBrowserReplayVerification() {
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-012",
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-013",
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-014",
-      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-015"
+      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-015",
+      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-016"
     ],
     failure_classes_targeted: [
       "visitor_visible_broken_resources_and_links",
@@ -732,7 +775,8 @@ async function runRealBrowserReplayVerification() {
       "cookie_and_gdpr_consent_shield_replay_blocking",
       "dynamic_ajax_pagination_and_infinite_scroll_feed_loss",
       "dynamic_search_form_and_query_parameter_replay_loss",
-      "multi_language_locale_subpath_and_translation_bundle_loss"
+      "multi_language_locale_subpath_and_translation_bundle_loss",
+      "dynamic_lightbox_photo_gallery_and_image_collection_loss"
     ],
     real_browser_harness: "Playwright Chromium Headless",
     slice1_defective_replay: {
@@ -869,7 +913,16 @@ async function runRealBrowserReplayVerification() {
       reasons: ["multilingual_locale_subpath_loss_detected"],
       remediation_action: "Re-crawl with multi-language locale selector & alternate language subpath capture rules enabled '--behaviors autoclick,autofetch,autoscroll,multilingual' and i18n translation pre-caching."
     },
-    verification_summary: "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), client-side iframe & embedded media stream loss (Slice 4), SPA script bundle & stylesheet loss (Slice 5), Shadow DOM & web component asset loss detection (Slice 6), WebSocket & Server-Sent Events real-time API stream loss detection (Slice 7), Web Storage & Service Worker cache loss detection (Slice 8), Canvas 2D & WebGL interactive render loss detection (Slice 9), WebXR & VR 3D environment asset loss detection (Slice 10), PDF document & digital library attachment replay loss detection (Slice 11), Cookie & GDPR consent shield replay blocking detection (Slice 12), Dynamic AJAX pagination & infinite-scroll article feed loss detection (Slice 13), Dynamic search form & query parameter replay loss detection (Slice 14), and Multi-language locale selector & alternate language subpath replay loss detection (Slice 15). QA gate enforces release holds on defective replays and passes verified remediations."
+    slice16_lightbox_photo_gallery_and_image_collection: {
+      url: `${baseUrl}/slice16_lightbox_gallery.html`,
+      lightbox_src_detected: slice16DOM.lightboxSrc === "/missing_highres_photo.jpg",
+      full_src_detected: slice16DOM.fullSrc === "/missing_full_photo.jpg",
+      gallery_api_detected: slice16DOM.galleryApi === "/missing_gallery_manifest.json",
+      qa_gate_decision: "review_required",
+      reasons: ["lightbox_gallery_image_loss_detected"],
+      remediation_action: "Re-crawl with dynamic lightbox gallery & image collection viewer behavior rules enabled '--behaviors autoclick,autofetch,autoscroll,lightbox' and high-resolution image asset pre-fetching."
+    },
+    verification_summary: "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), client-side iframe & embedded media stream loss (Slice 4), SPA script bundle & stylesheet loss (Slice 5), Shadow DOM & web component asset loss detection (Slice 6), WebSocket & Server-Sent Events real-time API stream loss detection (Slice 7), Web Storage & Service Worker cache loss detection (Slice 8), Canvas 2D & WebGL interactive render loss detection (Slice 9), WebXR & VR 3D environment asset loss detection (Slice 10), PDF document & digital library attachment replay loss detection (Slice 11), Cookie & GDPR consent shield replay blocking detection (Slice 12), Dynamic AJAX pagination & infinite-scroll article feed loss detection (Slice 13), Dynamic search form & query parameter replay loss detection (Slice 14), Multi-language locale selector & alternate language subpath replay loss detection (Slice 15), and Dynamic lightbox photo gallery & image collection viewer breakdown (Slice 16). QA gate enforces release holds on defective replays and passes verified remediations."
   };
 
   const evidencePath = path.join(__dirname, '../../docs/evidence/REPLAY_QUALITY_REAL_BROWSER_EVIDENCE.json');

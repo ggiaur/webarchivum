@@ -703,6 +703,45 @@ def test_visitor_replay_dom_detects_multilingual_defects():
     assert "multi-language locale selector & alternate language subpath capture rules enabled" in result.remediation_suggestion
 
 
+def test_visitor_replay_dom_detects_lightbox_defects():
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <script>
+            const fullPhoto = openLightbox('https://example.org/gallery/fullres_01.jpg');
+            const galleryMetadata = fetchGalleryData('/gallery/metadata_exhibition.json');
+        </script>
+    </head>
+    <body>
+        <h1>Local History Museum Exhibition Photo Gallery</h1>
+        <div class="gallery-grid">
+            <a href="/gallery/item1.html" data-lightbox-src="https://example.org/gallery/highres_museum_01.jpg" data-full-src="/gallery/full_museum_01.jpg">
+                <img src="/gallery/thumb_museum_01.jpg" alt="Exhibition Item 1">
+            </a>
+            <div data-gallery-api="/api/v1/gallery_manifest.json"></div>
+        </div>
+    </body>
+    </html>
+    """
+    page_url = "https://example.org/gallery/exhibition"
+    # CDX index contains base page and thumb_museum_01.jpg, but misses fullres_01.jpg, metadata_exhibition.json, highres_museum_01.jpg, full_museum_01.jpg, and gallery_manifest.json
+    cdx_set = {
+        "https://example.org/gallery/exhibition",
+        "https://example.org/gallery/thumb_museum_01.jpg",
+    }
+
+    result = inspect_visitor_replay_dom(html, page_url, cdx_index_urls=cdx_set)
+
+    assert not result.passed
+    assert result.broken_lightbox_count >= 3
+    assert "lightbox_gallery_image_loss_detected" in result.reasons
+    reason_codes = [b.reason for b in result.broken_resources]
+    assert "lightbox_image_missing" in reason_codes
+    assert "gallery_metadata_missing" in reason_codes
+    assert "dynamic lightbox gallery & image collection viewer behavior rules enabled" in result.remediation_suggestion
+
+
 
 
 

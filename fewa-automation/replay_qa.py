@@ -37,14 +37,16 @@ PAGINATION_REGEX = re.compile(r'(?:fetchPage|loadMoreArticles|getFeedPage|fetchP
 SEARCH_FORM_REGEX = re.compile(r'(?:fetchSearch|searchApi|executeSearch|loadSearchResults|querySearch|submitSearchForm|searchEndpoint)\(\s*[\'"]([^\'"]+)[\'"]', re.IGNORECASE)
 # Regular expressions to extract multi-language locale selectors and i18n translation bundles
 MULTILINGUAL_LOCALE_REGEX = re.compile(r'(?:loadLocale|switchLanguage|fetchI18n|loadTranslationBundle|setLanguage|localeUrl)\(\s*[\'"]([^\'"]+)[\'"]', re.IGNORECASE)
+# Regular expressions to extract dynamic lightbox photo gallery and high-resolution image collection assets
+LIGHTBOX_GALLERY_REGEX = re.compile(r'(?:openLightbox|loadGalleryImage|fetchGalleryData|showPhotoSwipe|viewGalleryPhoto|loadHighRes)\(\s*[\'"]([^\'"]+)[\'"]', re.IGNORECASE)
 
 
 @dataclass(frozen=True)
 class BrokenResource:
     url: str
-    resource_type: str  # "image" | "link" | "script" | "style" | "media" | "lazy_image" | "rewrite_mismatch" | "css_image" | "css_font" | "iframe" | "video" | "audio" | "media_stream" | "script_bundle" | "style_sheet" | "shadow_dom" | "custom_element" | "websocket" | "sse_stream" | "web_storage" | "state_hydration" | "service_worker" | "canvas_snapshot" | "webgl_texture" | "webgl_model" | "shader_source" | "webxr_environment" | "webxr_skybox" | "spatial_audio" | "spatial_anchor" | "pdf_document" | "pdfjs_worker" | "pdf_attachment" | "consent_shield" | "cookie_banner" | "modal_overlay" | "pagination_feed" | "infinite_scroll" | "page_endpoint" | "search_form" | "search_api" | "search_query" | "multilingual_locale" | "locale_bundle" | "alternate_language"
+    resource_type: str  # "image" | "link" | "script" | "style" | "media" | "lazy_image" | "rewrite_mismatch" | "css_image" | "css_font" | "iframe" | "video" | "audio" | "media_stream" | "script_bundle" | "style_sheet" | "shadow_dom" | "custom_element" | "websocket" | "sse_stream" | "web_storage" | "state_hydration" | "service_worker" | "canvas_snapshot" | "webgl_texture" | "webgl_model" | "shader_source" | "webxr_environment" | "webxr_skybox" | "spatial_audio" | "spatial_anchor" | "pdf_document" | "pdfjs_worker" | "pdf_attachment" | "consent_shield" | "cookie_banner" | "modal_overlay" | "pagination_feed" | "infinite_scroll" | "page_endpoint" | "search_form" | "search_api" | "search_query" | "multilingual_locale" | "locale_bundle" | "alternate_language" | "lightbox_image" | "gallery_metadata" | "highres_photo"
     element_tag: str
-    reason: str  # "missing_in_cdx" | "http_404" | "net_failed" | "replay_bad" | "pywb_rewrite_mismatch" | "dynamic_lazyload_missing" | "css_background_missing" | "css_font_missing" | "iframe_embedded_missing" | "media_resource_missing" | "media_stream_missing" | "script_bundle_missing" | "style_sheet_missing" | "shadow_dom_resource_missing" | "shadow_dom_template_missing" | "websocket_endpoint_missing" | "sse_stream_missing" | "storage_state_missing" | "hydration_data_missing" | "service_worker_missing" | "canvas_snapshot_missing" | "webgl_texture_missing" | "webgl_model_missing" | "shader_source_missing" | "webxr_environment_missing" | "webxr_skybox_missing" | "spatial_audio_missing" | "spatial_anchor_missing" | "pdf_document_missing" | "pdfjs_worker_missing" | "pdf_attachment_missing" | "consent_shield_blocking" | "cookie_banner_blocking" | "modal_overlay_blocking" | "pagination_feed_missing" | "infinite_scroll_missing" | "page_endpoint_missing" | "search_form_missing" | "search_api_missing" | "search_query_missing" | "multilingual_locale_missing" | "locale_bundle_missing" | "alternate_language_missing"
+    reason: str  # "missing_in_cdx" | "http_404" | "net_failed" | "replay_bad" | "pywb_rewrite_mismatch" | "dynamic_lazyload_missing" | "css_background_missing" | "css_font_missing" | "iframe_embedded_missing" | "media_resource_missing" | "media_stream_missing" | "script_bundle_missing" | "style_sheet_missing" | "shadow_dom_resource_missing" | "shadow_dom_template_missing" | "websocket_endpoint_missing" | "sse_stream_missing" | "storage_state_missing" | "hydration_data_missing" | "service_worker_missing" | "canvas_snapshot_missing" | "webgl_texture_missing" | "webgl_model_missing" | "shader_source_missing" | "webxr_environment_missing" | "webxr_skybox_missing" | "spatial_audio_missing" | "spatial_anchor_missing" | "pdf_document_missing" | "pdfjs_worker_missing" | "pdf_attachment_missing" | "consent_shield_blocking" | "cookie_banner_blocking" | "modal_overlay_blocking" | "pagination_feed_missing" | "infinite_scroll_missing" | "page_endpoint_missing" | "search_form_missing" | "search_api_missing" | "search_query_missing" | "multilingual_locale_missing" | "locale_bundle_missing" | "alternate_language_missing" | "lightbox_image_missing" | "gallery_metadata_missing" | "highres_photo_missing"
     context: str  # HTML snippet or context description
 
 
@@ -71,6 +73,7 @@ class VisitorReplayQualityResult:
     broken_pagination_count: int = 0
     broken_search_count: int = 0
     broken_multilingual_count: int = 0
+    broken_lightbox_count: int = 0
     broken_resources: Tuple[BrokenResource, ...] = ()
     reasons: Tuple[str, ...] = ()
     actionable_evidence: Dict[str, Any] = field(default_factory=dict)
@@ -101,6 +104,7 @@ class _DOMResourceExtractor(HTMLParser):
         self.pagination_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'pagination_feed'|'infinite_scroll'|'page_endpoint')
         self.search_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'search_form'|'search_api'|'search_query')
         self.multilingual_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'multilingual_locale'|'locale_bundle'|'alternate_language')
+        self.lightbox_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'lightbox_image'|'gallery_metadata'|'highres_photo')
         self._in_style_tag = False
         self._style_content_chunks: List[str] = []
         self._in_script_tag = False
@@ -327,6 +331,35 @@ class _DOMResourceExtractor(HTMLParser):
                     if not any(u[0] == resolved for u in self.multilingual_urls):
                         self.multilingual_urls.append((resolved, raw_val, m_type))
 
+        # Check Dynamic Lightbox Photo Gallery & Image Collection attributes and elements
+        if tag_lower in ("a", "img", "div", "figure") and any(lb_attr in attr_dict for lb_attr in ("data-lightbox-src", "data-full-src", "data-highres", "data-fancybox-src", "data-photoswipe-src", "data-zoom-src", "data-large-img", "data-gallery-src")):
+            lb_src = (
+                attr_dict.get("data-lightbox-src")
+                or attr_dict.get("data-full-src")
+                or attr_dict.get("data-highres")
+                or attr_dict.get("data-fancybox-src")
+                or attr_dict.get("data-photoswipe-src")
+                or attr_dict.get("data-zoom-src")
+                or attr_dict.get("data-large-img")
+                or attr_dict.get("data-gallery-src")
+            )
+            if lb_src:
+                raw_lb = lb_src.strip()
+                if raw_lb and not raw_lb.startswith(("javascript:", "mailto:", "tel:", "#", "data:")):
+                    resolved = resolve_protocol_relative(raw_lb, effective_base)
+                    lb_type = "gallery_metadata" if raw_lb.endswith(".json") else ("highres_photo" if "highres" in " ".join(attr_dict.keys()) or "full" in " ".join(attr_dict.keys()) else "lightbox_image")
+                    if not any(u[0] == resolved for u in self.lightbox_urls):
+                        self.lightbox_urls.append((resolved, raw_lb, lb_type))
+
+        for lb_attr in ("data-lightbox-src", "data-full-src", "data-highres", "data-gallery-api", "data-photoswipe-src", "data-fancybox-src", "data-zoom-src", "data-large-img", "data-gallery-src"):
+            if lb_attr in attr_dict:
+                raw_val = attr_dict[lb_attr].strip()
+                if raw_val and not raw_val.startswith("data:"):
+                    resolved = resolve_protocol_relative(raw_val, effective_base)
+                    lb_type = "gallery_metadata" if "api" in lb_attr or raw_val.endswith(".json") else ("highres_photo" if "highres" in lb_attr or "full" in lb_attr or "zoom" in lb_attr or "large" in lb_attr else "lightbox_image")
+                    if not any(u[0] == resolved for u in self.lightbox_urls):
+                        self.lightbox_urls.append((resolved, raw_val, lb_type))
+
         if tag_lower == "img":
             if "src" in attr_dict:
                 raw_src = attr_dict["src"].strip()
@@ -525,6 +558,14 @@ class _DOMResourceExtractor(HTMLParser):
                     resolved = resolve_protocol_relative(raw_url, effective_base)
                     if not any(u[0] == resolved for u in self.multilingual_urls):
                         self.multilingual_urls.append((resolved, raw_url, "locale_bundle"))
+
+            for match in LIGHTBOX_GALLERY_REGEX.finditer(script_text):
+                raw_url = match.group(1).strip()
+                if raw_url and not raw_url.startswith("data:"):
+                    resolved = resolve_protocol_relative(raw_url, effective_base)
+                    lb_type = "gallery_metadata" if raw_url.endswith(".json") else "lightbox_image"
+                    if not any(u[0] == resolved for u in self.lightbox_urls):
+                        self.lightbox_urls.append((resolved, raw_url, lb_type))
 
 
 def resolve_protocol_relative(raw_url: str, base_url: str) -> str:
@@ -945,6 +986,28 @@ def inspect_visitor_replay_dom(
                     )
                 )
 
+    # 18. Check Dynamic Lightbox Photo Gallery & Image Collection Assets
+    lightbox_broken = 0
+    for resolved_url, raw_url, res_type in extractor.lightbox_urls:
+        if cdx_index_urls is not None:
+            if not _is_url_in_cdx(resolved_url, cdx_index_urls, canonical_cdx):
+                lightbox_broken += 1
+                if res_type == "gallery_metadata":
+                    reason_code = "gallery_metadata_missing"
+                elif res_type == "highres_photo":
+                    reason_code = "highres_photo_missing"
+                else:
+                    reason_code = "lightbox_image_missing"
+                broken.append(
+                    BrokenResource(
+                        url=resolved_url,
+                        resource_type=res_type,
+                        element_tag=f'<{res_type} url="{raw_url}">',
+                        reason=reason_code,
+                        context=f"Dynamic lightbox photo gallery asset ({res_type}) {resolved_url} missing in WACZ archive.",
+                    )
+                )
+
     total_checked = (
         len(extractor.images)
         + len(extractor.lazy_images)
@@ -963,6 +1026,7 @@ def inspect_visitor_replay_dom(
         + len(extractor.pagination_urls)
         + len(extractor.search_urls)
         + len(extractor.multilingual_urls)
+        + len(extractor.lightbox_urls)
     )
     total_broken = len(broken)
     replay_good = total_checked - total_broken
@@ -1017,6 +1081,9 @@ def inspect_visitor_replay_dom(
     if multilingual_broken > max_allowed_broken_canvas:
         reasons.append(f"broken_multilingual_locales_detected ({multilingual_broken} > {max_allowed_broken_canvas})")
 
+    if lightbox_broken > max_allowed_broken_canvas:
+        reasons.append(f"broken_lightbox_galleries_detected ({lightbox_broken} > {max_allowed_broken_canvas})")
+
     if any(b.reason == "pywb_rewrite_mismatch" for b in broken):
         reasons.append("pywb_rewrite_mismatch_detected")
 
@@ -1065,6 +1132,9 @@ def inspect_visitor_replay_dom(
     if any(b.reason in ("multilingual_locale_missing", "locale_bundle_missing", "alternate_language_missing") for b in broken):
         reasons.append("multilingual_locale_subpath_loss_detected")
 
+    if any(b.reason in ("lightbox_image_missing", "gallery_metadata_missing", "highres_photo_missing") for b in broken):
+        reasons.append("lightbox_gallery_image_loss_detected")
+
     passed = len(reasons) == 0
 
     remediation = None
@@ -1092,6 +1162,7 @@ def inspect_visitor_replay_dom(
         "broken_pagination_count": pagination_broken,
         "broken_search_count": search_broken,
         "broken_multilingual_count": multilingual_broken,
+        "broken_lightbox_count": lightbox_broken,
         "quality_score": quality_score,
         "broken_resources": [
             {
@@ -1127,6 +1198,7 @@ def inspect_visitor_replay_dom(
         broken_pagination_count=pagination_broken,
         broken_search_count=search_broken,
         broken_multilingual_count=multilingual_broken,
+        broken_lightbox_count=lightbox_broken,
         broken_resources=tuple(broken),
         reasons=tuple(reasons),
         actionable_evidence=actionable_evidence,
@@ -1221,6 +1293,11 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
     if not broken_resources:
         return "No remediation needed."
 
+    has_lightbox = any(
+        b.reason in ("lightbox_image_missing", "gallery_metadata_missing", "highres_photo_missing")
+        or b.resource_type in ("lightbox_image", "gallery_metadata", "highres_photo")
+        for b in broken_resources
+    )
     has_multilingual = any(
         b.reason in ("multilingual_locale_missing", "locale_bundle_missing", "alternate_language_missing")
         or b.resource_type in ("multilingual_locale", "locale_bundle", "alternate_language")
@@ -1288,6 +1365,10 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
     has_links = any(b.resource_type == "link" for b in broken_resources)
 
     suggestions = []
+    if has_lightbox:
+        suggestions.append(
+            "Re-crawl with dynamic lightbox gallery & image collection viewer behavior rules enabled '--behaviors autoclick,autofetch,autoscroll,lightbox' and high-resolution image asset pre-fetching."
+        )
     if has_multilingual:
         suggestions.append(
             "Re-crawl with multi-language locale selector & alternate language subpath capture rules enabled '--behaviors autoclick,autofetch,autoscroll,multilingual' and i18n translation pre-caching."
