@@ -521,6 +521,42 @@ def test_visitor_replay_dom_detects_webxr_defects():
     assert "WebXR / VR immersive session snapshotting" in result.remediation_suggestion
 
 
+def test_visitor_replay_dom_detects_pdf_and_pdfjs_defects():
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <script>
+            window.PDFViewerApplication = { file: '/documents/fejer_gazette_1924.pdf' };
+            PDFJS.workerSrc = '/pdfjs/pdf.worker.js';
+        </script>
+    </head>
+    <body>
+        <h1>Digital Library Gazette Archive</h1>
+        <embed type="application/pdf" src="/documents/historical_map.pdf">
+        <object type="application/pdf" data="/documents/charter_1688.pdf"></object>
+    </body>
+    </html>
+    """
+    page_url = "https://example.org/library/gazette"
+    # CDX index contains base page and historical_map.pdf, but misses fejer_gazette_1924.pdf, pdf.worker.js, and charter_1688.pdf
+    cdx_set = {
+        "https://example.org/library/gazette",
+        "https://example.org/documents/historical_map.pdf",
+    }
+
+    result = inspect_visitor_replay_dom(html, page_url, cdx_index_urls=cdx_set)
+
+    assert not result.passed
+    assert result.broken_pdf_count >= 3
+    assert "pdf_document_viewer_missing_detected" in result.reasons
+    reason_codes = [b.reason for b in result.broken_resources]
+    assert "pdf_document_missing" in reason_codes
+    assert "pdfjs_worker_missing" in reason_codes
+    assert "PDF document & digital library attachment" in result.remediation_suggestion
+
+
+
 
 
 

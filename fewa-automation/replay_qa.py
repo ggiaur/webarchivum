@@ -26,14 +26,17 @@ SHADER_TEXTURE_REGEX = re.compile(r'(?:loadShader|fetchShader|loadTexture|create
 # Regular expressions to extract WebXR / VR 3D environment assets (skyboxes, environment maps, spatial audio/anchors)
 WEBXR_REGEX = re.compile(r'(?:navigator\.xr\.requestSession|XRSession|loadXREnvironment|loadSpatialAudio|loadSkybox)\(\s*[\'"]([^\'"]+)[\'"]', re.IGNORECASE)
 WEBXR_ASSET_REGEX = re.compile(r'[\'"]([^\'"]*\.(?:hdr|exr|env|spatial\.wav|spatial\.json|spatial\.bin|amb)[^\'"]*)[\'"]', re.IGNORECASE)
+# Regular expressions to extract PDF document / digital library attachment and PDF.js worker assets
+PDF_DOC_REGEX = re.compile(r'(?:PDFViewerApplication|PDFJS\.getDocument|loadPDF|openDocument|file)\s*[:=]\s*[\'"]([^\'"]*\.pdf[^\'"]*)[\'"]', re.IGNORECASE)
+PDFJS_WORKER_REGEX = re.compile(r'(?:pdf\.worker|pdfjsWorker|PDFJS\.workerSrc|workerSrc)\s*[:=]\s*[\'"]([^\'"]+)[\'"]', re.IGNORECASE)
 
 
 @dataclass(frozen=True)
 class BrokenResource:
     url: str
-    resource_type: str  # "image" | "link" | "script" | "style" | "media" | "lazy_image" | "rewrite_mismatch" | "css_image" | "css_font" | "iframe" | "video" | "audio" | "media_stream" | "script_bundle" | "style_sheet" | "shadow_dom" | "custom_element" | "websocket" | "sse_stream" | "web_storage" | "state_hydration" | "service_worker" | "canvas_snapshot" | "webgl_texture" | "webgl_model" | "shader_source" | "webxr_environment" | "webxr_skybox" | "spatial_audio" | "spatial_anchor"
+    resource_type: str  # "image" | "link" | "script" | "style" | "media" | "lazy_image" | "rewrite_mismatch" | "css_image" | "css_font" | "iframe" | "video" | "audio" | "media_stream" | "script_bundle" | "style_sheet" | "shadow_dom" | "custom_element" | "websocket" | "sse_stream" | "web_storage" | "state_hydration" | "service_worker" | "canvas_snapshot" | "webgl_texture" | "webgl_model" | "shader_source" | "webxr_environment" | "webxr_skybox" | "spatial_audio" | "spatial_anchor" | "pdf_document" | "pdfjs_worker" | "pdf_attachment"
     element_tag: str
-    reason: str  # "missing_in_cdx" | "http_404" | "net_failed" | "replay_bad" | "pywb_rewrite_mismatch" | "dynamic_lazyload_missing" | "css_background_missing" | "css_font_missing" | "iframe_embedded_missing" | "media_resource_missing" | "media_stream_missing" | "script_bundle_missing" | "style_sheet_missing" | "shadow_dom_resource_missing" | "shadow_dom_template_missing" | "websocket_endpoint_missing" | "sse_stream_missing" | "storage_state_missing" | "hydration_data_missing" | "service_worker_missing" | "canvas_snapshot_missing" | "webgl_texture_missing" | "webgl_model_missing" | "shader_source_missing" | "webxr_environment_missing" | "webxr_skybox_missing" | "spatial_audio_missing" | "spatial_anchor_missing"
+    reason: str  # "missing_in_cdx" | "http_404" | "net_failed" | "replay_bad" | "pywb_rewrite_mismatch" | "dynamic_lazyload_missing" | "css_background_missing" | "css_font_missing" | "iframe_embedded_missing" | "media_resource_missing" | "media_stream_missing" | "script_bundle_missing" | "style_sheet_missing" | "shadow_dom_resource_missing" | "shadow_dom_template_missing" | "websocket_endpoint_missing" | "sse_stream_missing" | "storage_state_missing" | "hydration_data_missing" | "service_worker_missing" | "canvas_snapshot_missing" | "webgl_texture_missing" | "webgl_model_missing" | "shader_source_missing" | "webxr_environment_missing" | "webxr_skybox_missing" | "spatial_audio_missing" | "spatial_anchor_missing" | "pdf_document_missing" | "pdfjs_worker_missing" | "pdf_attachment_missing"
     context: str  # HTML snippet or context description
 
 
@@ -55,6 +58,7 @@ class VisitorReplayQualityResult:
     broken_storage_count: int = 0
     broken_canvas_count: int = 0
     broken_webxr_count: int = 0
+    broken_pdf_count: int = 0
     broken_resources: Tuple[BrokenResource, ...] = ()
     reasons: Tuple[str, ...] = ()
     actionable_evidence: Dict[str, Any] = field(default_factory=dict)
@@ -80,6 +84,7 @@ class _DOMResourceExtractor(HTMLParser):
         self.storage_state_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'web_storage'|'state_hydration'|'service_worker')
         self.canvas_webgl_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'canvas_snapshot'|'webgl_texture'|'webgl_model'|'shader_source')
         self.webxr_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'webxr_environment'|'webxr_skybox'|'spatial_audio'|'spatial_anchor')
+        self.pdf_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'pdf_document'|'pdfjs_worker'|'pdf_attachment')
         self._in_style_tag = False
         self._style_content_chunks: List[str] = []
         self._in_script_tag = False
@@ -190,6 +195,23 @@ class _DOMResourceExtractor(HTMLParser):
                     else:
                         x_type = "webxr_environment"
                     self.webxr_urls.append((resolved, raw_val, x_type))
+
+        # Check PDF document & digital library attachment attributes and elements
+        if tag_lower in ("embed", "object", "iframe"):
+            pdf_src = attr_dict.get("src") or attr_dict.get("data") or attr_dict.get("data-src")
+            if pdf_src:
+                raw_pdf = pdf_src.strip()
+                if raw_pdf and not raw_pdf.startswith("data:") and (attr_dict.get("type") == "application/pdf" or raw_pdf.lower().endswith(".pdf") or ".pdf?" in raw_pdf.lower()):
+                    resolved = resolve_protocol_relative(raw_pdf, effective_base)
+                    self.pdf_urls.append((resolved, raw_pdf, "pdf_document"))
+
+        for pdf_attr in ("data-pdf-src", "data-pdf-url", "pdf-src", "data-pdf-worker", "data-attachment-url"):
+            if pdf_attr in attr_dict:
+                raw_val = attr_dict[pdf_attr].strip()
+                if raw_val and not raw_val.startswith("data:"):
+                    resolved = resolve_protocol_relative(raw_val, effective_base)
+                    p_type = "pdfjs_worker" if "worker" in pdf_attr or raw_val.endswith((".worker.js", "worker.js")) else ("pdf_attachment" if "attachment" in pdf_attr else "pdf_document")
+                    self.pdf_urls.append((resolved, raw_val, p_type))
 
         if tag_lower == "img":
             if "src" in attr_dict:
@@ -352,6 +374,18 @@ class _DOMResourceExtractor(HTMLParser):
                     else:
                         x_type = "webxr_skybox"
                     self.webxr_urls.append((resolved, raw_url, x_type))
+
+            for match in PDF_DOC_REGEX.finditer(script_text):
+                raw_url = match.group(1).strip()
+                if raw_url and not raw_url.startswith("data:"):
+                    resolved = resolve_protocol_relative(raw_url, effective_base)
+                    self.pdf_urls.append((resolved, raw_url, "pdf_document"))
+
+            for match in PDFJS_WORKER_REGEX.finditer(script_text):
+                raw_url = match.group(1).strip()
+                if raw_url and not raw_url.startswith("data:"):
+                    resolved = resolve_protocol_relative(raw_url, effective_base)
+                    self.pdf_urls.append((resolved, raw_url, "pdfjs_worker"))
 
 
 def resolve_protocol_relative(raw_url: str, base_url: str) -> str:
@@ -662,6 +696,28 @@ def inspect_visitor_replay_dom(
                     )
                 )
 
+    # 13. Check PDF Documents & Digital Library Attachments
+    pdf_broken = 0
+    for resolved_url, raw_url, res_type in extractor.pdf_urls:
+        if cdx_index_urls is not None:
+            if not _is_url_in_cdx(resolved_url, cdx_index_urls, canonical_cdx):
+                pdf_broken += 1
+                if res_type == "pdfjs_worker":
+                    reason_code = "pdfjs_worker_missing"
+                elif res_type == "pdf_attachment":
+                    reason_code = "pdf_attachment_missing"
+                else:
+                    reason_code = "pdf_document_missing"
+                broken.append(
+                    BrokenResource(
+                        url=resolved_url,
+                        resource_type=res_type,
+                        element_tag=f'<{res_type} url="{raw_url}">',
+                        reason=reason_code,
+                        context=f"PDF document / digital library attachment ({res_type}) {resolved_url} missing in WACZ archive.",
+                    )
+                )
+
     total_checked = (
         len(extractor.images)
         + len(extractor.lazy_images)
@@ -675,6 +731,7 @@ def inspect_visitor_replay_dom(
         + len(extractor.storage_state_urls)
         + len(extractor.canvas_webgl_urls)
         + len(extractor.webxr_urls)
+        + len(extractor.pdf_urls)
     )
     total_broken = len(broken)
     replay_good = total_checked - total_broken
@@ -714,6 +771,9 @@ def inspect_visitor_replay_dom(
     if webxr_broken > max_allowed_broken_canvas:  # reuse threshold default
         reasons.append(f"broken_webxr_environment_detected ({webxr_broken} > {max_allowed_broken_canvas})")
 
+    if pdf_broken > max_allowed_broken_canvas:
+        reasons.append(f"broken_pdf_documents_detected ({pdf_broken} > {max_allowed_broken_canvas})")
+
     if any(b.reason == "pywb_rewrite_mismatch" for b in broken):
         reasons.append("pywb_rewrite_mismatch_detected")
 
@@ -747,6 +807,9 @@ def inspect_visitor_replay_dom(
     if any(b.reason in ("webxr_environment_missing", "webxr_skybox_missing", "spatial_audio_missing", "spatial_anchor_missing") for b in broken):
         reasons.append("webxr_environment_missing_detected")
 
+    if any(b.reason in ("pdf_document_missing", "pdfjs_worker_missing", "pdf_attachment_missing") for b in broken):
+        reasons.append("pdf_document_viewer_missing_detected")
+
     passed = len(reasons) == 0
 
     remediation = None
@@ -769,6 +832,7 @@ def inspect_visitor_replay_dom(
         "broken_storage_count": storage_broken,
         "broken_canvas_count": canvas_broken,
         "broken_webxr_count": webxr_broken,
+        "broken_pdf_count": pdf_broken,
         "quality_score": quality_score,
         "broken_resources": [
             {
@@ -799,6 +863,7 @@ def inspect_visitor_replay_dom(
         broken_storage_count=storage_broken,
         broken_canvas_count=canvas_broken,
         broken_webxr_count=webxr_broken,
+        broken_pdf_count=pdf_broken,
         broken_resources=tuple(broken),
         reasons=tuple(reasons),
         actionable_evidence=actionable_evidence,
@@ -879,6 +944,7 @@ def inspect_visitor_replay_qa_log(
         broken_storage_count=0,
         broken_canvas_count=0,
         broken_webxr_count=0,
+        broken_pdf_count=0,
         broken_resources=tuple(broken),
         reasons=tuple(reasons),
         actionable_evidence=actionable_evidence,
@@ -892,6 +958,11 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
     if not broken_resources:
         return "No remediation needed."
 
+    has_pdf = any(
+        b.reason in ("pdf_document_missing", "pdfjs_worker_missing", "pdf_attachment_missing")
+        or b.resource_type in ("pdf_document", "pdfjs_worker", "pdf_attachment")
+        for b in broken_resources
+    )
     has_webxr = any(
         b.reason in ("webxr_environment_missing", "webxr_skybox_missing", "spatial_audio_missing", "spatial_anchor_missing")
         or b.resource_type in ("webxr_environment", "webxr_skybox", "spatial_audio", "spatial_anchor")
@@ -934,6 +1005,10 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
     has_links = any(b.resource_type == "link" for b in broken_resources)
 
     suggestions = []
+    if has_pdf:
+        suggestions.append(
+            "Re-crawl with PDF document & digital library attachment pre-fetching enabled '--behaviors autoclick,autofetch,autoscroll,pdf' and PDF.js worker asset pre-caching enabled."
+        )
     if has_webxr:
         suggestions.append(
             "Re-crawl with WebXR / VR immersive session snapshotting enabled '--behaviors autoclick,autofetch,autoscroll,webxr' and 3D environment asset pre-fetching enabled."

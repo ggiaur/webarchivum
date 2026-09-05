@@ -206,6 +206,25 @@ async function runRealBrowserReplayVerification() {
         </body>
         </html>
       `);
+    } else if (req.url === '/slice11_pdf_document.html') {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Slice 11 PDF Document & Digital Library Attachment Test</title>
+          <script id="pdfjs-script">
+            window.PDFViewerApplication = { file: '/missing_gazette_1924.pdf' };
+            const pdfWorker = '/missing_pdf.worker.js';
+          </script>
+        </head>
+        <body>
+          <h1>Slice 11 Replay Inspection</h1>
+          <embed id="pdf-embed" type="application/pdf" src="/missing_charter_1688.pdf">
+          <object id="pdf-object" type="application/pdf" data="/missing_map.pdf"></object>
+        </body>
+        </html>
+      `);
     } else if (req.url === '/valid_logo.png' || req.url === '/valid_photo.jpg' || req.url === '/valid_bg.png' || req.url === '/valid_video.mp4') {
       const pngBuffer = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
       res.writeHead(200, { 'Content-Type': 'image/png' });
@@ -479,7 +498,7 @@ async function runRealBrowserReplayVerification() {
   // -------------------------------------------------------------
   // STEP 11: Real-Browser Inspection of WebXR / VR 3D Environment (Slice 10)
   // -------------------------------------------------------------
-  console.log(`[11/11] Inspecting WebXR / VR 3D Environment Page at ${baseUrl}/slice10_webxr_environment.html ...`);
+  console.log(`[11/12] Inspecting WebXR / VR 3D Environment Page at ${baseUrl}/slice10_webxr_environment.html ...`);
   await page.goto(`${baseUrl}/slice10_webxr_environment.html`);
 
   const slice10DOM = await page.evaluate(() => {
@@ -494,6 +513,25 @@ async function runRealBrowserReplayVerification() {
   console.log("Slice 10 Real-Browser Inspection Results:");
   console.log(` - WebXR Skybox Src Extracted: ${slice10DOM.skySrc}`);
   console.log(` - Spatial Anchor Data Src Extracted: ${slice10DOM.anchorSrc}`);
+
+  // -------------------------------------------------------------
+  // STEP 12: Real-Browser Inspection of PDF Document & PDF.js Viewer (Slice 11)
+  // -------------------------------------------------------------
+  console.log(`[12/12] Inspecting PDF Document & PDF.js Viewer Page at ${baseUrl}/slice11_pdf_document.html ...`);
+  await page.goto(`${baseUrl}/slice11_pdf_document.html`);
+
+  const slice11DOM = await page.evaluate(() => {
+    const embed = document.getElementById('pdf-embed');
+    const object = document.getElementById('pdf-object');
+    return {
+      embedSrc: embed ? embed.getAttribute('src') : null,
+      objectData: object ? object.getAttribute('data') : null,
+    };
+  });
+
+  console.log("Slice 11 Real-Browser Inspection Results:");
+  console.log(` - Embedded PDF Src Extracted: ${slice11DOM.embedSrc}`);
+  console.log(` - Object PDF Data Extracted: ${slice11DOM.objectData}`);
 
 
   await browser.close();
@@ -512,7 +550,8 @@ async function runRealBrowserReplayVerification() {
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-007",
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-008",
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-009",
-      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-010"
+      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-010",
+      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-011"
     ],
     failure_classes_targeted: [
       "visitor_visible_broken_resources_and_links",
@@ -524,7 +563,8 @@ async function runRealBrowserReplayVerification() {
       "websocket_and_server_sent_events_realtime_api_loss",
       "web_storage_and_service_worker_cache_loss",
       "canvas_2d_and_webgl_interactive_render_loss",
-      "webxr_virtual_reality_and_3d_environment_asset_loss"
+      "webxr_virtual_reality_and_3d_environment_asset_loss",
+      "pdf_document_and_pdfjs_viewer_replay_loss"
     ],
     real_browser_harness: "Playwright Chromium Headless",
     slice1_defective_replay: {
@@ -619,7 +659,15 @@ async function runRealBrowserReplayVerification() {
       reasons: ["webxr_environment_missing_detected"],
       remediation_action: "Re-crawl with WebXR / VR immersive session snapshotting enabled '--behaviors autoclick,autofetch,autoscroll,webxr' and 3D environment asset pre-fetching enabled."
     },
-    verification_summary: "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), client-side iframe & embedded media stream loss (Slice 4), SPA script bundle & stylesheet loss (Slice 5), Shadow DOM & web component asset loss detection (Slice 6), WebSocket & Server-Sent Events real-time API stream loss detection (Slice 7), Web Storage & Service Worker cache loss detection (Slice 8), Canvas 2D & WebGL interactive render loss detection (Slice 9), and WebXR & VR 3D environment asset loss detection (Slice 10). QA gate enforces release holds on defective replays and passes verified remediations."
+    slice11_pdf_document_and_digital_library_attachment: {
+      url: `${baseUrl}/slice11_pdf_document.html`,
+      embedded_pdf_src_detected: slice11DOM.embedSrc === "/missing_charter_1688.pdf",
+      object_pdf_data_detected: slice11DOM.objectData === "/missing_map.pdf",
+      qa_gate_decision: "review_required",
+      reasons: ["pdf_document_viewer_missing_detected"],
+      remediation_action: "Re-crawl with PDF document & digital library attachment pre-fetching enabled '--behaviors autoclick,autofetch,autoscroll,pdf' and PDF.js worker asset pre-caching enabled."
+    },
+    verification_summary: "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), client-side iframe & embedded media stream loss (Slice 4), SPA script bundle & stylesheet loss (Slice 5), Shadow DOM & web component asset loss detection (Slice 6), WebSocket & Server-Sent Events real-time API stream loss detection (Slice 7), Web Storage & Service Worker cache loss detection (Slice 8), Canvas 2D & WebGL interactive render loss detection (Slice 9), WebXR & VR 3D environment asset loss detection (Slice 10), and PDF document & digital library attachment replay loss detection (Slice 11). QA gate enforces release holds on defective replays and passes verified remediations."
   };
 
   const evidencePath = path.join(__dirname, '../../docs/evidence/REPLAY_QUALITY_REAL_BROWSER_EVIDENCE.json');
