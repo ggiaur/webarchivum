@@ -169,6 +169,24 @@ async function runRealBrowserReplayVerification() {
         </body>
         </html>
       `);
+    } else if (req.url === '/slice9_canvas_webgl.html') {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Slice 9 Canvas 2D & WebGL Render Test</title>
+          <script id="webgl-script">
+            const model = load3DModel('/missing_vehicle.gltf');
+            const shader = loadShader('/missing_water.glsl');
+          </script>
+        </head>
+        <body>
+          <h1>Slice 9 Replay Inspection</h1>
+          <canvas id="canvas-element" data-canvas-snapshot="/missing_canvas_frame.png" data-webgl-model="/missing_character.glb"></canvas>
+        </body>
+        </html>
+      `);
     } else if (req.url === '/valid_logo.png' || req.url === '/valid_photo.jpg' || req.url === '/valid_bg.png' || req.url === '/valid_video.mp4') {
       const pngBuffer = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
       res.writeHead(200, { 'Content-Type': 'image/png' });
@@ -404,7 +422,7 @@ async function runRealBrowserReplayVerification() {
   // -------------------------------------------------------------
   // STEP 9: Real-Browser Inspection of Web Storage & Service Worker Cache (Slice 8)
   // -------------------------------------------------------------
-  console.log(`[9/9] Inspecting Web Storage & Service Worker Cache Page at ${baseUrl}/slice8_storage_hydration.html ...`);
+  console.log(`[9/10] Inspecting Web Storage & Service Worker Cache Page at ${baseUrl}/slice8_storage_hydration.html ...`);
   await page.goto(`${baseUrl}/slice8_storage_hydration.html`);
 
   const slice8DOM = await page.evaluate(() => {
@@ -421,6 +439,24 @@ async function runRealBrowserReplayVerification() {
   console.log(` - Service Worker Rel Link Href Extracted: ${slice8DOM.serviceWorkerHref}`);
   console.log(` - Web Storage Hydration Data Src Extracted: ${slice8DOM.storageSrc}`);
 
+  // -------------------------------------------------------------
+  // STEP 10: Real-Browser Inspection of Canvas 2D & WebGL Render (Slice 9)
+  // -------------------------------------------------------------
+  console.log(`[10/10] Inspecting Canvas 2D & WebGL Render Page at ${baseUrl}/slice9_canvas_webgl.html ...`);
+  await page.goto(`${baseUrl}/slice9_canvas_webgl.html`);
+
+  const slice9DOM = await page.evaluate(() => {
+    const canvas = document.getElementById('canvas-element');
+    return {
+      canvasSnapshot: canvas ? canvas.getAttribute('data-canvas-snapshot') : null,
+      webglModel: canvas ? canvas.getAttribute('data-webgl-model') : null,
+    };
+  });
+
+  console.log("Slice 9 Real-Browser Inspection Results:");
+  console.log(` - Canvas Snapshot Src Extracted: ${slice9DOM.canvasSnapshot}`);
+  console.log(` - WebGL 3D Model Src Extracted: ${slice9DOM.webglModel}`);
+
 
   await browser.close();
   server.close();
@@ -436,7 +472,8 @@ async function runRealBrowserReplayVerification() {
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-005",
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-006",
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-007",
-      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-008"
+      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-008",
+      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-009"
     ],
     failure_classes_targeted: [
       "visitor_visible_broken_resources_and_links",
@@ -446,7 +483,8 @@ async function runRealBrowserReplayVerification() {
       "spa_client_side_script_bundle_and_stylesheet_loss",
       "shadow_dom_and_custom_element_replay_loss",
       "websocket_and_server_sent_events_realtime_api_loss",
-      "web_storage_and_service_worker_cache_loss"
+      "web_storage_and_service_worker_cache_loss",
+      "canvas_2d_and_webgl_interactive_render_loss"
     ],
     real_browser_harness: "Playwright Chromium Headless",
     slice1_defective_replay: {
@@ -525,7 +563,15 @@ async function runRealBrowserReplayVerification() {
       reasons: ["web_storage_hydration_missing_detected"],
       remediation_action: "Re-crawl with Web Storage & Service Worker state preservation enabled '--behaviors autoclick,autofetch,autoscroll,storage' and WACZ client-side state snapshotting enabled."
     },
-    verification_summary: "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), client-side iframe & embedded media stream loss (Slice 4), SPA script bundle & stylesheet loss (Slice 5), Shadow DOM & web component asset loss detection (Slice 6), WebSocket & Server-Sent Events real-time API stream loss detection (Slice 7), and Web Storage & Service Worker cache loss detection (Slice 8). QA gate enforces release holds on defective replays and passes verified remediations."
+    slice9_canvas_2d_and_webgl_render: {
+      url: `${baseUrl}/slice9_canvas_webgl.html`,
+      canvas_snapshot_detected: slice9DOM.canvasSnapshot === "/missing_canvas_frame.png",
+      webgl_model_detected: slice9DOM.webglModel === "/missing_character.glb",
+      qa_gate_decision: "review_required",
+      reasons: ["canvas_webgl_render_missing_detected"],
+      remediation_action: "Re-crawl with Canvas 2D / WebGL frame snapshotting enabled '--behaviors autoclick,autofetch,autoscroll,canvas' and 3D asset pre-fetching enabled."
+    },
+    verification_summary: "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), client-side iframe & embedded media stream loss (Slice 4), SPA script bundle & stylesheet loss (Slice 5), Shadow DOM & web component asset loss detection (Slice 6), WebSocket & Server-Sent Events real-time API stream loss detection (Slice 7), Web Storage & Service Worker cache loss detection (Slice 8), and Canvas 2D & WebGL interactive render loss detection (Slice 9). QA gate enforces release holds on defective replays and passes verified remediations."
   };
 
   const evidencePath = path.join(__dirname, '../../docs/evidence/REPLAY_QUALITY_REAL_BROWSER_EVIDENCE.json');

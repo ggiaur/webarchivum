@@ -448,6 +448,43 @@ def test_visitor_replay_dom_detects_web_storage_and_service_worker_defects():
     assert "Web Storage & Service Worker state preservation" in result.remediation_suggestion
 
 
+def test_visitor_replay_dom_detects_canvas_and_webgl_defects():
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <script>
+            const texture = loadTexture('https://example.org/textures/metal.png');
+            const model = load3DModel('/models/vehicle.gltf');
+            const shader = loadShader('/shaders/water.glsl');
+        </script>
+    </head>
+    <body>
+        <h1>3D Interactive Replay Page</h1>
+        <canvas id="renderCanvas" data-canvas-snapshot="/snapshots/canvas_frame01.png" data-webgl-model="https://example.org/models/character.glb"></canvas>
+    </body>
+    </html>
+    """
+    page_url = "https://example.org/interactive3d"
+    # CDX index contains base page and metal.png, but misses canvas snapshot, character.glb, vehicle.gltf, and water.glsl
+    cdx_set = {
+        "https://example.org/interactive3d",
+        "https://example.org/textures/metal.png",
+    }
+
+    result = inspect_visitor_replay_dom(html, page_url, cdx_index_urls=cdx_set)
+
+    assert not result.passed
+    assert result.broken_canvas_count >= 3
+    assert "canvas_webgl_render_missing_detected" in result.reasons
+    reason_codes = [b.reason for b in result.broken_resources]
+    assert "canvas_snapshot_missing" in reason_codes
+    assert "webgl_model_missing" in reason_codes
+    assert "shader_source_missing" in reason_codes
+    assert "Canvas 2D / WebGL frame snapshotting" in result.remediation_suggestion
+
+
+
 
 
 
