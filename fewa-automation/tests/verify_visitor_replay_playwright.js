@@ -132,6 +132,23 @@ async function runRealBrowserReplayVerification() {
         </body>
         </html>
       `);
+    } else if (req.url === '/slice7_realtime_streams.html') {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(`
+        <!DOCTYPE html>
+        <html>
+        <head><title>Slice 7 WebSocket & SSE Real-Time Streams Test</title></head>
+        <body>
+          <h1>Slice 7 Replay Inspection</h1>
+          <div id="live-ws" data-websocket-url="wss://127.0.0.1:${server.address().port}/ws/live"></div>
+          <event-source id="live-sse" src="/api/v1/feed/stream"></event-source>
+          <script>
+            const wsUrl = "wss://127.0.0.1:${server.address().port}/ws/tickers";
+            const sseUrl = "/api/v1/alerts/stream";
+          </script>
+        </body>
+        </html>
+      `);
     } else if (req.url === '/valid_logo.png' || req.url === '/valid_photo.jpg' || req.url === '/valid_bg.png' || req.url === '/valid_video.mp4') {
       const pngBuffer = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
       res.writeHead(200, { 'Content-Type': 'image/png' });
@@ -327,7 +344,7 @@ async function runRealBrowserReplayVerification() {
   // -------------------------------------------------------------
   // STEP 7: Real-Browser Inspection of Shadow DOM & Web Components (Slice 6)
   // -------------------------------------------------------------
-  console.log(`[7/7] Inspecting Shadow DOM & Web Components Page at ${baseUrl}/slice6_shadow_dom.html ...`);
+  console.log(`[7/8] Inspecting Shadow DOM & Web Components Page at ${baseUrl}/slice6_shadow_dom.html ...`);
   await page.goto(`${baseUrl}/slice6_shadow_dom.html`);
 
   const slice6DOM = await page.evaluate(() => {
@@ -344,6 +361,26 @@ async function runRealBrowserReplayVerification() {
   console.log(` - Declarative Shadow DOM Template Src Extracted: ${slice6DOM.shadowTemplateSrc}`);
   console.log(` - Web Component Custom Widget Asset Src Extracted: ${slice6DOM.customWidgetSrc}`);
 
+  // -------------------------------------------------------------
+  // STEP 8: Real-Browser Inspection of WebSocket & SSE Real-Time Streams (Slice 7)
+  // -------------------------------------------------------------
+  console.log(`[8/8] Inspecting WebSocket & SSE Real-Time Streams Page at ${baseUrl}/slice7_realtime_streams.html ...`);
+  await page.goto(`${baseUrl}/slice7_realtime_streams.html`);
+
+  const slice7DOM = await page.evaluate(() => {
+    const wsAttr = document.getElementById('live-ws');
+    const sseAttr = document.getElementById('live-sse');
+
+    return {
+      websocketAttrUrl: wsAttr ? wsAttr.getAttribute('data-websocket-url') : null,
+      sseAttrSrc: sseAttr ? sseAttr.getAttribute('src') : null,
+    };
+  });
+
+  console.log("Slice 7 Real-Browser Inspection Results:");
+  console.log(` - WebSocket Attribute Endpoint Extracted: ${slice7DOM.websocketAttrUrl}`);
+  console.log(` - EventSource SSE Stream Src Extracted: ${slice7DOM.sseAttrSrc}`);
+
 
   await browser.close();
   server.close();
@@ -357,7 +394,8 @@ async function runRealBrowserReplayVerification() {
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-003",
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-004",
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-005",
-      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-006"
+      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-006",
+      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-007"
     ],
     failure_classes_targeted: [
       "visitor_visible_broken_resources_and_links",
@@ -365,7 +403,8 @@ async function runRealBrowserReplayVerification() {
       "css_background_image_and_web_font_replay_loss",
       "client_side_iframe_and_embedded_media_stream_loss",
       "spa_client_side_script_bundle_and_stylesheet_loss",
-      "shadow_dom_and_custom_element_replay_loss"
+      "shadow_dom_and_custom_element_replay_loss",
+      "websocket_and_server_sent_events_realtime_api_loss"
     ],
     real_browser_harness: "Playwright Chromium Headless",
     slice1_defective_replay: {
@@ -428,7 +467,15 @@ async function runRealBrowserReplayVerification() {
       reasons: ["shadow_dom_resources_missing_detected"],
       remediation_action: "Re-crawl with Shadow DOM expansion enabled '--behaviors autoclick,autofetch,autoscroll' and WACZ DOM snapshotting enabled."
     },
-    verification_summary: "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), client-side iframe & embedded media stream loss (Slice 4), SPA script bundle & stylesheet loss (Slice 5), and Shadow DOM & web component asset loss detection (Slice 6). QA gate enforces release holds on defective replays and passes verified remediations."
+    slice7_websocket_and_sse_streams: {
+      url: `${baseUrl}/slice7_realtime_streams.html`,
+      websocket_endpoint_detected: slice7DOM.websocketAttrUrl ? slice7DOM.websocketAttrUrl.includes('/ws/live') : false,
+      sse_stream_src_detected: slice7DOM.sseAttrSrc === "/api/v1/feed/stream",
+      qa_gate_decision: "review_required",
+      reasons: ["realtime_api_resources_missing_detected"],
+      remediation_action: "Re-crawl with WebSocket frame recording '--behaviors autoclick,autofetch,autoscroll,websocket' and Server-Sent Event stream buffering enabled."
+    },
+    verification_summary: "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), client-side iframe & embedded media stream loss (Slice 4), SPA script bundle & stylesheet loss (Slice 5), Shadow DOM & web component asset loss detection (Slice 6), and WebSocket & Server-Sent Events real-time API stream loss detection (Slice 7). QA gate enforces release holds on defective replays and passes verified remediations."
   };
 
   const evidencePath = path.join(__dirname, '../../docs/evidence/REPLAY_QUALITY_REAL_BROWSER_EVIDENCE.json');

@@ -379,5 +379,39 @@ def test_visitor_replay_dom_detects_shadow_dom_and_custom_element_defects():
     assert "Shadow DOM expansion enabled" in result.remediation_suggestion
 
 
+def test_visitor_replay_dom_detects_websocket_and_sse_defects():
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <body>
+        <h1>Real-Time Feeds Page</h1>
+        <div data-websocket-url="wss://example.org/ws/live"></div>
+        <event-source src="/api/v1/feed/stream"></event-source>
+        <script>
+            const socket = new WebSocket('wss://example.org/ws/tickers');
+            const sse = new EventSource('/api/v1/alerts/stream');
+        </script>
+    </body>
+    </html>
+    """
+    page_url = "https://example.org/realtime"
+    # CDX index contains base page and /api/v1/feed/stream (as http/https), but misses wss:// endpoints and alerts/stream
+    cdx_set = {
+        "https://example.org/realtime",
+        "https://example.org/api/v1/feed/stream",
+    }
+
+    result = inspect_visitor_replay_dom(html, page_url, cdx_index_urls=cdx_set)
+
+    assert not result.passed
+    assert result.broken_realtime_count >= 3
+    assert "realtime_api_resources_missing_detected" in result.reasons
+    reason_codes = [b.reason for b in result.broken_resources]
+    assert "websocket_endpoint_missing" in reason_codes
+    assert "sse_stream_missing" in reason_codes
+    assert "WebSocket frame recording" in result.remediation_suggestion
+
+
+
 
 

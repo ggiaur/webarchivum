@@ -14,14 +14,17 @@ from urllib.parse import urljoin, urlparse
 
 # Regular expression to extract url(...) references from inline CSS styles or <style> tags
 CSS_URL_REGEX = re.compile(r'url\(\s*[\'"]?([^\'")\s]+)[\'"]?\s*\)', re.IGNORECASE)
+# Regular expressions to extract WebSocket (ws://, wss://) and Server-Sent Events (EventSource) real-time streams
+WS_REGEX = re.compile(r'wss?://[^\s\'"<>)]+', re.IGNORECASE)
+SSE_REGEX = re.compile(r'(?:new\s+EventSource|EventSource)\(\s*[\'"]([^\'"]+)[\'"]', re.IGNORECASE)
 
 
 @dataclass(frozen=True)
 class BrokenResource:
     url: str
-    resource_type: str  # "image" | "link" | "script" | "style" | "media" | "lazy_image" | "rewrite_mismatch" | "css_image" | "css_font" | "iframe" | "video" | "audio" | "media_stream" | "script_bundle" | "style_sheet" | "shadow_dom" | "custom_element"
+    resource_type: str  # "image" | "link" | "script" | "style" | "media" | "lazy_image" | "rewrite_mismatch" | "css_image" | "css_font" | "iframe" | "video" | "audio" | "media_stream" | "script_bundle" | "style_sheet" | "shadow_dom" | "custom_element" | "websocket" | "sse_stream"
     element_tag: str
-    reason: str  # "missing_in_cdx" | "http_404" | "net_failed" | "replay_bad" | "pywb_rewrite_mismatch" | "dynamic_lazyload_missing" | "css_background_missing" | "css_font_missing" | "iframe_embedded_missing" | "media_resource_missing" | "media_stream_missing" | "script_bundle_missing" | "style_sheet_missing" | "shadow_dom_resource_missing" | "shadow_dom_template_missing"
+    reason: str  # "missing_in_cdx" | "http_404" | "net_failed" | "replay_bad" | "pywb_rewrite_mismatch" | "dynamic_lazyload_missing" | "css_background_missing" | "css_font_missing" | "iframe_embedded_missing" | "media_resource_missing" | "media_stream_missing" | "script_bundle_missing" | "style_sheet_missing" | "shadow_dom_resource_missing" | "shadow_dom_template_missing" | "websocket_endpoint_missing" | "sse_stream_missing"
     context: str  # HTML snippet or context description
 
 
@@ -39,15 +42,16 @@ class VisitorReplayQualityResult:
     broken_script_count: int
     broken_style_count: int
     broken_shadow_dom_count: int
-    broken_resources: Tuple[BrokenResource, ...]
-    reasons: Tuple[str, ...]
-    actionable_evidence: Dict[str, Any]
+    broken_realtime_count: int = 0
+    broken_resources: Tuple[BrokenResource, ...] = ()
+    reasons: Tuple[str, ...] = ()
+    actionable_evidence: Dict[str, Any] = field(default_factory=dict)
     remediation_suggestion: Optional[str] = None
 
 
 
 class _DOMResourceExtractor(HTMLParser):
-    """Extracts img, script, link[rel=stylesheet], a, lazyload, CSS url(...), iframe, video/audio/stream, and Shadow DOM / web component assets from HTML."""
+    """Extracts img, script, link[rel=stylesheet], a, lazyload, CSS url(...), iframe, video/audio/stream, Shadow DOM / web component, and WebSocket/SSE real-time API assets from HTML."""
 
     def __init__(self, base_url: str):
         super().__init__()
@@ -60,8 +64,11 @@ class _DOMResourceExtractor(HTMLParser):
         self.css_urls: List[Tuple[str, str, str]] = []  # (resolved_url, raw_url, type: 'css_image'|'css_font')
         self.media_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'iframe'|'video'|'audio'|'media_stream')
         self.shadow_dom_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'shadow_dom'|'custom_element')
+        self.realtime_urls: List[Tuple[str, str, str]] = []  # (resolved_url, raw_url, type: 'websocket'|'sse_stream')
         self._in_style_tag = False
         self._style_content_chunks: List[str] = []
+        self._in_script_tag = False
+        self._script_content_chunks: List[str] = []
 
     def handle_starttag(self, tag: str, attrs: List[Tuple[str, Optional[str]]]):
         attr_dict = {k.lower(): v for k, v in attrs if v is not None}
@@ -73,6 +80,8 @@ class _DOMResourceExtractor(HTMLParser):
 
         if tag_lower == "style":
             self._in_style_tag = True
+        elif tag_lower == "script":
+            self._in_script_tag = True
 
         # Check inline style="background: url(...)" attributes on any element
         if "style" in attr_dict:
@@ -83,6 +92,29 @@ class _DOMResourceExtractor(HTMLParser):
                     resolved = resolve_protocol_relative(raw_url, effective_base)
                     res_type = "css_font" if _is_font_url(resolved) else "css_image"
                     self.css_urls.append((resolved, raw_url, res_type))
+
+        # Check explicit WebSocket & SSE attributes or tags
+        if tag_lower in ("event-source", "eventsource"):
+            for s_attr in ("src", "data-src", "href"):
+                if s_attr in attr_dict:
+                    raw_val = attr_dict[s_attr].strip()
+                    if raw_val:
+                        resolved = resolve_protocol_relative(raw_val, effective_base)
+                        self.realtime_urls.append((resolved, raw_val, "sse_stream"))
+
+        for rt_attr in ("data-websocket-url", "data-ws-src", "websocket-src", "data-sse-src", "data-sse-endpoint", "data-eventsource-src", "sse-src"):
+            if rt_attr in attr_dict:
+                raw_val = attr_dict[rt_attr].strip()
+                if raw_val:
+                    resolved = resolve_protocol_relative(raw_val, effective_base)
+                    r_type = "websocket" if ("ws" in rt_attr or raw_val.startswith(("ws://", "wss://"))) else "sse_stream"
+                    self.realtime_urls.append((resolved, raw_val, r_type))
+
+        for check_attr in ("src", "href"):
+            if check_attr in attr_dict:
+                val = attr_dict[check_attr].strip()
+                if val.startswith(("ws://", "wss://")):
+                    self.realtime_urls.append((val, val, "websocket"))
 
         if tag_lower == "img":
             if "src" in attr_dict:
@@ -161,9 +193,12 @@ class _DOMResourceExtractor(HTMLParser):
     def handle_data(self, data: str):
         if self._in_style_tag:
             self._style_content_chunks.append(data)
+        if self._in_script_tag:
+            self._script_content_chunks.append(data)
 
     def handle_endtag(self, tag: str):
-        if tag.lower() == "style":
+        tag_lower = tag.lower()
+        if tag_lower == "style":
             self._in_style_tag = False
             style_text = "".join(self._style_content_chunks)
             self._style_content_chunks.clear()
@@ -178,6 +213,25 @@ class _DOMResourceExtractor(HTMLParser):
                     resolved = resolve_protocol_relative(raw_url, effective_base)
                     res_type = "css_font" if _is_font_url(resolved) else "css_image"
                     self.css_urls.append((resolved, raw_url, res_type))
+
+        elif tag_lower == "script":
+            self._in_script_tag = False
+            script_text = "".join(self._script_content_chunks)
+            self._script_content_chunks.clear()
+
+            effective_base = self.base_url
+            if effective_base.startswith("//"):
+                effective_base = "https:" + effective_base
+
+            for match in WS_REGEX.finditer(script_text):
+                raw_url = match.group(0).strip()
+                self.realtime_urls.append((raw_url, raw_url, "websocket"))
+
+            for match in SSE_REGEX.finditer(script_text):
+                raw_url = match.group(1).strip()
+                if raw_url and not raw_url.startswith("data:"):
+                    resolved = resolve_protocol_relative(raw_url, effective_base)
+                    self.realtime_urls.append((resolved, raw_url, "sse_stream"))
 
 
 def resolve_protocol_relative(raw_url: str, base_url: str) -> str:
@@ -199,7 +253,7 @@ def extract_dom_resources(html_content: str, base_url: str) -> _DOMResourceExtra
 def canonicalize_cdx_index_for_pywb(cdx_urls: Set[str]) -> Set[str]:
     """Build scheme-agnostic & query-stripping lookup set to resolve pywb rewrite mismatches.
 
-    Adds both http://, https://, and query-stripped variants of every CDX URL.
+    Adds http://, https://, ws://, wss://, and query-stripped variants of every CDX URL.
     """
     canonical_set = set(cdx_urls)
     for url in list(cdx_urls):
@@ -208,9 +262,21 @@ def canonicalize_cdx_index_for_pywb(cdx_urls: Set[str]) -> Set[str]:
         if url.startswith("https://"):
             canonical_set.add("http://" + url[8:])
             canonical_set.add("http://" + norm[8:])
+            canonical_set.add("wss://" + url[8:])
+            canonical_set.add("ws://" + url[8:])
         elif url.startswith("http://"):
             canonical_set.add("https://" + url[7:])
             canonical_set.add("https://" + norm[7:])
+            canonical_set.add("ws://" + url[7:])
+            canonical_set.add("wss://" + url[7:])
+        elif url.startswith("wss://"):
+            canonical_set.add("https://" + url[6:])
+            canonical_set.add("http://" + url[6:])
+            canonical_set.add("ws://" + url[6:])
+        elif url.startswith("ws://"):
+            canonical_set.add("http://" + url[5:])
+            canonical_set.add("https://" + url[5:])
+            canonical_set.add("wss://" + url[5:])
         query_stripped = _strip_query_params(url)
         canonical_set.add(query_stripped)
     return canonical_set
@@ -226,11 +292,12 @@ def inspect_visitor_replay_dom(
     max_allowed_broken_media: int = 0,
     max_allowed_broken_scripts: int = 0,
     max_allowed_broken_styles: int = 0,
+    max_allowed_broken_realtime: int = 0,
     canonicalize_cdx: bool = True,
 ) -> VisitorReplayQualityResult:
-    """Inspect visitor-visible DOM for broken images, missing links, pywb rewrite mismatches, lazy-load, CSS embedded assets, iframe/media streams, and critical script/style bundles.
+    """Inspect visitor-visible DOM for broken images, missing links, pywb rewrite mismatches, lazy-load, CSS embedded assets, iframe/media streams, critical script/style bundles, and WebSocket/SSE real-time streams.
 
-    Checks rendered DOM elements (img, lazyload, a, link, script, CSS url(...), iframe, video/audio/streams) against CDX.
+    Checks rendered DOM elements (img, lazyload, a, link, script, CSS url(...), iframe, video/audio/streams, Shadow DOM, WebSocket/SSE) against CDX.
     Returns structured VisitorReplayQualityResult with actionable evidence.
     """
     extractor = extract_dom_resources(html_content, page_url)
@@ -386,6 +453,23 @@ def inspect_visitor_replay_dom(
                     )
                 )
 
+    # 9. Check WebSocket & Server-Sent Events (SSE) Real-Time API Streams
+    realtime_broken = 0
+    for resolved_url, raw_url, res_type in extractor.realtime_urls:
+        if cdx_index_urls is not None:
+            if not _is_url_in_cdx(resolved_url, cdx_index_urls, canonical_cdx):
+                realtime_broken += 1
+                reason_code = "websocket_endpoint_missing" if res_type == "websocket" else "sse_stream_missing"
+                broken.append(
+                    BrokenResource(
+                        url=resolved_url,
+                        resource_type=res_type,
+                        element_tag=f'<{res_type} url="{raw_url}">',
+                        reason=reason_code,
+                        context=f"Real-time {res_type} API stream endpoint {resolved_url} missing in WACZ archive.",
+                    )
+                )
+
     total_checked = (
         len(extractor.images)
         + len(extractor.lazy_images)
@@ -395,6 +479,7 @@ def inspect_visitor_replay_dom(
         + len(extractor.styles)
         + len(extractor.scripts)
         + len(extractor.shadow_dom_urls)
+        + len(extractor.realtime_urls)
     )
     total_broken = len(broken)
     replay_good = total_checked - total_broken
@@ -422,6 +507,9 @@ def inspect_visitor_replay_dom(
     if style_broken > max_allowed_broken_styles:
         reasons.append(f"broken_stylesheets_detected ({style_broken} > {max_allowed_broken_styles})")
 
+    if realtime_broken > max_allowed_broken_realtime:
+        reasons.append(f"broken_realtime_api_detected ({realtime_broken} > {max_allowed_broken_realtime})")
+
     if any(b.reason == "pywb_rewrite_mismatch" for b in broken):
         reasons.append("pywb_rewrite_mismatch_detected")
 
@@ -443,6 +531,9 @@ def inspect_visitor_replay_dom(
     if any(b.reason in ("shadow_dom_resource_missing", "shadow_dom_template_missing") for b in broken):
         reasons.append("shadow_dom_resources_missing_detected")
 
+    if any(b.reason in ("websocket_endpoint_missing", "sse_stream_missing") for b in broken):
+        reasons.append("realtime_api_resources_missing_detected")
+
     passed = len(reasons) == 0
 
     remediation = None
@@ -461,6 +552,7 @@ def inspect_visitor_replay_dom(
         "broken_script_count": script_broken,
         "broken_style_count": style_broken,
         "broken_shadow_dom_count": shadow_broken,
+        "broken_realtime_count": realtime_broken,
         "quality_score": quality_score,
         "broken_resources": [
             {
@@ -487,6 +579,7 @@ def inspect_visitor_replay_dom(
         broken_script_count=script_broken,
         broken_style_count=style_broken,
         broken_shadow_dom_count=shadow_broken,
+        broken_realtime_count=realtime_broken,
         broken_resources=tuple(broken),
         reasons=tuple(reasons),
         actionable_evidence=actionable_evidence,
@@ -576,6 +669,11 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
     if not broken_resources:
         return "No remediation needed."
 
+    has_realtime = any(
+        b.reason in ("websocket_endpoint_missing", "sse_stream_missing")
+        or b.resource_type in ("websocket", "sse_stream")
+        for b in broken_resources
+    )
     has_shadow_dom = any(
         b.reason in ("shadow_dom_resource_missing", "shadow_dom_template_missing")
         or b.resource_type in ("shadow_dom", "custom_element")
@@ -598,6 +696,10 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
     has_links = any(b.resource_type == "link" for b in broken_resources)
 
     suggestions = []
+    if has_realtime:
+        suggestions.append(
+            "Re-crawl with WebSocket frame recording '--behaviors autoclick,autofetch,autoscroll,websocket' and Server-Sent Event stream buffering enabled."
+        )
     if has_shadow_dom:
         suggestions.append(
             "Re-crawl with Shadow DOM expansion enabled '--behaviors autoclick,autofetch,autoscroll' and WACZ DOM snapshotting enabled."
@@ -622,7 +724,7 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
         suggestions.append(
             "Enable `--behaviors autoclick,autofetch,autoscroll` with scroll delays to trigger and capture dynamic lazy-loaded images."
         )
-    if has_images and not has_lazyload and not has_rewrite_mismatch and not has_css and not has_media and not has_bundles and not has_shadow_dom:
+    if has_images and not has_lazyload and not has_rewrite_mismatch and not has_css and not has_media and not has_bundles and not has_shadow_dom and not has_realtime:
         suggestions.append(
             "Re-crawl with expanded behaviors `--behaviors autoclick,autofetch,autoscroll` and `--media max` "
             "to capture lazy-loaded images, responsive srcset images, and dynamic consent-shielded assets."
@@ -660,6 +762,14 @@ def _is_url_in_cdx(url: str, raw_cdx: Set[str], canonical_cdx: Optional[Set[str]
         return True
     if canonical_cdx and (url in canonical_cdx or norm in canonical_cdx or _strip_query_params(url) in canonical_cdx):
         return True
+    if url.startswith("ws://"):
+        http_url = "http://" + url[5:]
+        if http_url in raw_cdx or (canonical_cdx and http_url in canonical_cdx):
+            return True
+    elif url.startswith("wss://"):
+        https_url = "https://" + url[6:]
+        if https_url in raw_cdx or (canonical_cdx and https_url in canonical_cdx):
+            return True
     return False
 
 
