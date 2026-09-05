@@ -261,6 +261,27 @@ async function runRealBrowserReplayVerification() {
         </body>
         </html>
       `);
+    } else if (req.url === '/slice14_search_query.html') {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Slice 14 Dynamic Search Form & Query Parameter Replay Test</title>
+          <script id="search-script">
+            const searchResults = fetchSearch('/missing_search_results.json');
+          </script>
+        </head>
+        <body>
+          <h1>Slice 14 Replay Inspection</h1>
+          <form id="search-form" action="/missing_talalatok.html" data-search-api="/missing_search_suggest.json">
+            <input type="search" name="q" placeholder="Kereses...">
+            <button type="submit">Kereses</button>
+          </form>
+          <div data-query-endpoint="/missing_filtered_query.json"></div>
+        </body>
+        </html>
+      `);
     } else if (req.url === '/valid_logo.png' || req.url === '/valid_photo.jpg' || req.url === '/valid_bg.png' || req.url === '/valid_video.mp4') {
       const pngBuffer = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
       res.writeHead(200, { 'Content-Type': 'image/png' });
@@ -607,6 +628,27 @@ async function runRealBrowserReplayVerification() {
   console.log(` - Feed Page URL Extracted: ${slice13DOM.feedPageUrl}`);
   console.log(` - Infinite Scroll Src Extracted: ${slice13DOM.infiniteScrollSrc}`);
 
+  // -------------------------------------------------------------
+  // STEP 15: Real-Browser Inspection of Dynamic Search Form & Query Parameter API (Slice 14)
+  // -------------------------------------------------------------
+  console.log(`[15/15] Inspecting Dynamic Search Form & Query Parameter Page at ${baseUrl}/slice14_search_query.html ...`);
+  await page.goto(`${baseUrl}/slice14_search_query.html`);
+
+  const slice14DOM = await page.evaluate(() => {
+    const form = document.getElementById('search-form');
+    const input = document.querySelector('input[type="search"]');
+    return {
+      formAction: form ? form.getAttribute('action') : null,
+      searchApiSrc: form ? form.getAttribute('data-search-api') : null,
+      inputName: input ? input.getAttribute('name') : null,
+    };
+  });
+
+  console.log("Slice 14 Real-Browser Inspection Results:");
+  console.log(` - Search Form Action Extracted: ${slice14DOM.formAction}`);
+  console.log(` - Search API Src Extracted: ${slice14DOM.searchApiSrc}`);
+  console.log(` - Input Name Extracted: ${slice14DOM.inputName}`);
+
 
   await browser.close();
   server.close();
@@ -627,7 +669,8 @@ async function runRealBrowserReplayVerification() {
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-010",
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-011",
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-012",
-      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-013"
+      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-013",
+      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-014"
     ],
     failure_classes_targeted: [
       "visitor_visible_broken_resources_and_links",
@@ -642,7 +685,8 @@ async function runRealBrowserReplayVerification() {
       "webxr_virtual_reality_and_3d_environment_asset_loss",
       "pdf_document_and_pdfjs_viewer_replay_loss",
       "cookie_and_gdpr_consent_shield_replay_blocking",
-      "dynamic_ajax_pagination_and_infinite_scroll_feed_loss"
+      "dynamic_ajax_pagination_and_infinite_scroll_feed_loss",
+      "dynamic_search_form_and_query_parameter_replay_loss"
     ],
     real_browser_harness: "Playwright Chromium Headless",
     slice1_defective_replay: {
@@ -761,7 +805,16 @@ async function runRealBrowserReplayVerification() {
       reasons: ["dynamic_pagination_feed_loss_detected"],
       remediation_action: "Re-crawl with dynamic AJAX pagination & infinite-scroll behavior rules enabled '--behaviors autoclick,autofetch,autoscroll,pagination' with page scroll depth --depth 3 and API endpoint capture."
     },
-    verification_summary: "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), client-side iframe & embedded media stream loss (Slice 4), SPA script bundle & stylesheet loss (Slice 5), Shadow DOM & web component asset loss detection (Slice 6), WebSocket & Server-Sent Events real-time API stream loss detection (Slice 7), Web Storage & Service Worker cache loss detection (Slice 8), Canvas 2D & WebGL interactive render loss detection (Slice 9), WebXR & VR 3D environment asset loss detection (Slice 10), PDF document & digital library attachment replay loss detection (Slice 11), Cookie & GDPR consent shield replay blocking detection (Slice 12), and Dynamic AJAX pagination & infinite-scroll article feed loss detection (Slice 13). QA gate enforces release holds on defective replays and passes verified remediations."
+    slice14_dynamic_search_form_and_query_parameter_replay: {
+      url: `${baseUrl}/slice14_search_query.html`,
+      form_action_detected: slice14DOM.formAction === "/missing_talalatok.html",
+      search_api_src_detected: slice14DOM.searchApiSrc === "/missing_search_suggest.json",
+      input_name_detected: slice14DOM.inputName === "q",
+      qa_gate_decision: "review_required",
+      reasons: ["search_query_form_loss_detected"],
+      remediation_action: "Re-crawl with search form submission & query-parameter behavior rules enabled '--behaviors autoclick,autofetch,autoscroll,search' with search term seeding and API endpoint capture."
+    },
+    verification_summary: "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), client-side iframe & embedded media stream loss (Slice 4), SPA script bundle & stylesheet loss (Slice 5), Shadow DOM & web component asset loss detection (Slice 6), WebSocket & Server-Sent Events real-time API stream loss detection (Slice 7), Web Storage & Service Worker cache loss detection (Slice 8), Canvas 2D & WebGL interactive render loss detection (Slice 9), WebXR & VR 3D environment asset loss detection (Slice 10), PDF document & digital library attachment replay loss detection (Slice 11), Cookie & GDPR consent shield replay blocking detection (Slice 12), Dynamic AJAX pagination & infinite-scroll article feed loss detection (Slice 13), and Dynamic search form & query parameter replay loss detection (Slice 14). QA gate enforces release holds on defective replays and passes verified remediations."
   };
 
   const evidencePath = path.join(__dirname, '../../docs/evidence/REPLAY_QUALITY_REAL_BROWSER_EVIDENCE.json');

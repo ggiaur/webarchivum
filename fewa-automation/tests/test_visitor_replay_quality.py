@@ -626,6 +626,44 @@ def test_visitor_replay_dom_detects_pagination_defects():
     assert "dynamic AJAX pagination & infinite-scroll behavior rules enabled" in result.remediation_suggestion
 
 
+def test_visitor_replay_dom_detects_search_form_defects():
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <script>
+            const results = fetchSearch('https://example.org/api/v1/search?q=helytortenet');
+        </script>
+    </head>
+    <body>
+        <h1>Digital Library Search Page</h1>
+        <form id="search-form" action="/kereses/talalatok.html" data-search-api="https://example.org/api/v1/search_suggest.json">
+            <input type="search" name="q" placeholder="Keresés...">
+            <button type="submit">Keresés</button>
+        </form>
+        <div data-query-endpoint="/api/v1/filtered_query.json"></div>
+    </body>
+    </html>
+    """
+    page_url = "https://example.org/kereses"
+    # CDX index contains base page and search_suggest.json, but misses talalatok.html, search?q=helytortenet, and filtered_query.json
+    cdx_set = {
+        "https://example.org/kereses",
+        "https://example.org/api/v1/search_suggest.json",
+    }
+
+    result = inspect_visitor_replay_dom(html, page_url, cdx_index_urls=cdx_set)
+
+    assert not result.passed
+    assert result.broken_search_count >= 3
+    assert "search_query_form_loss_detected" in result.reasons
+    reason_codes = [b.reason for b in result.broken_resources]
+    assert "search_form_missing" in reason_codes
+    assert "search_api_missing" in reason_codes
+    assert "search form submission & query-parameter behavior rules enabled" in result.remediation_suggestion
+
+
+
 
 
 

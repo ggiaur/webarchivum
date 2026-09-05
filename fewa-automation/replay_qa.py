@@ -33,14 +33,16 @@ PDFJS_WORKER_REGEX = re.compile(r'(?:pdf\.worker|pdfjsWorker|PDFJS\.workerSrc|wo
 CONSENT_SHIELD_REGEX = re.compile(r'(?:CookieConsent|Didomi|OneTrust|QuantcastChoice|GDPRBanner|cookieNotice|consentModal|initCMP|loadConsentScript)\(\s*[\'"]([^\'"]+)[\'"]', re.IGNORECASE)
 # Regular expressions to extract dynamic AJAX pagination and infinite scroll feed endpoints
 PAGINATION_REGEX = re.compile(r'(?:fetchPage|loadMoreArticles|getFeedPage|fetchPaginationApi|loadNextFeed|openPage)\(\s*[\'"]([^\'"]+)[\'"]', re.IGNORECASE)
+# Regular expressions to extract dynamic search form and query parameter API endpoints
+SEARCH_FORM_REGEX = re.compile(r'(?:fetchSearch|searchApi|executeSearch|loadSearchResults|querySearch|submitSearchForm|searchEndpoint)\(\s*[\'"]([^\'"]+)[\'"]', re.IGNORECASE)
 
 
 @dataclass(frozen=True)
 class BrokenResource:
     url: str
-    resource_type: str  # "image" | "link" | "script" | "style" | "media" | "lazy_image" | "rewrite_mismatch" | "css_image" | "css_font" | "iframe" | "video" | "audio" | "media_stream" | "script_bundle" | "style_sheet" | "shadow_dom" | "custom_element" | "websocket" | "sse_stream" | "web_storage" | "state_hydration" | "service_worker" | "canvas_snapshot" | "webgl_texture" | "webgl_model" | "shader_source" | "webxr_environment" | "webxr_skybox" | "spatial_audio" | "spatial_anchor" | "pdf_document" | "pdfjs_worker" | "pdf_attachment" | "consent_shield" | "cookie_banner" | "modal_overlay" | "pagination_feed" | "infinite_scroll" | "page_endpoint"
+    resource_type: str  # "image" | "link" | "script" | "style" | "media" | "lazy_image" | "rewrite_mismatch" | "css_image" | "css_font" | "iframe" | "video" | "audio" | "media_stream" | "script_bundle" | "style_sheet" | "shadow_dom" | "custom_element" | "websocket" | "sse_stream" | "web_storage" | "state_hydration" | "service_worker" | "canvas_snapshot" | "webgl_texture" | "webgl_model" | "shader_source" | "webxr_environment" | "webxr_skybox" | "spatial_audio" | "spatial_anchor" | "pdf_document" | "pdfjs_worker" | "pdf_attachment" | "consent_shield" | "cookie_banner" | "modal_overlay" | "pagination_feed" | "infinite_scroll" | "page_endpoint" | "search_form" | "search_api" | "search_query"
     element_tag: str
-    reason: str  # "missing_in_cdx" | "http_404" | "net_failed" | "replay_bad" | "pywb_rewrite_mismatch" | "dynamic_lazyload_missing" | "css_background_missing" | "css_font_missing" | "iframe_embedded_missing" | "media_resource_missing" | "media_stream_missing" | "script_bundle_missing" | "style_sheet_missing" | "shadow_dom_resource_missing" | "shadow_dom_template_missing" | "websocket_endpoint_missing" | "sse_stream_missing" | "storage_state_missing" | "hydration_data_missing" | "service_worker_missing" | "canvas_snapshot_missing" | "webgl_texture_missing" | "webgl_model_missing" | "shader_source_missing" | "webxr_environment_missing" | "webxr_skybox_missing" | "spatial_audio_missing" | "spatial_anchor_missing" | "pdf_document_missing" | "pdfjs_worker_missing" | "pdf_attachment_missing" | "consent_shield_blocking" | "cookie_banner_blocking" | "modal_overlay_blocking" | "pagination_feed_missing" | "infinite_scroll_missing" | "page_endpoint_missing"
+    reason: str  # "missing_in_cdx" | "http_404" | "net_failed" | "replay_bad" | "pywb_rewrite_mismatch" | "dynamic_lazyload_missing" | "css_background_missing" | "css_font_missing" | "iframe_embedded_missing" | "media_resource_missing" | "media_stream_missing" | "script_bundle_missing" | "style_sheet_missing" | "shadow_dom_resource_missing" | "shadow_dom_template_missing" | "websocket_endpoint_missing" | "sse_stream_missing" | "storage_state_missing" | "hydration_data_missing" | "service_worker_missing" | "canvas_snapshot_missing" | "webgl_texture_missing" | "webgl_model_missing" | "shader_source_missing" | "webxr_environment_missing" | "webxr_skybox_missing" | "spatial_audio_missing" | "spatial_anchor_missing" | "pdf_document_missing" | "pdfjs_worker_missing" | "pdf_attachment_missing" | "consent_shield_blocking" | "cookie_banner_blocking" | "modal_overlay_blocking" | "pagination_feed_missing" | "infinite_scroll_missing" | "page_endpoint_missing" | "search_form_missing" | "search_api_missing" | "search_query_missing"
     context: str  # HTML snippet or context description
 
 
@@ -65,6 +67,7 @@ class VisitorReplayQualityResult:
     broken_pdf_count: int = 0
     broken_consent_count: int = 0
     broken_pagination_count: int = 0
+    broken_search_count: int = 0
     broken_resources: Tuple[BrokenResource, ...] = ()
     reasons: Tuple[str, ...] = ()
     actionable_evidence: Dict[str, Any] = field(default_factory=dict)
@@ -93,6 +96,7 @@ class _DOMResourceExtractor(HTMLParser):
         self.pdf_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'pdf_document'|'pdfjs_worker'|'pdf_attachment')
         self.consent_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'consent_shield'|'cookie_banner'|'modal_overlay')
         self.pagination_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'pagination_feed'|'infinite_scroll'|'page_endpoint')
+        self.search_urls: List[Tuple[str, str, str]] = [] # (resolved_url, raw_url, type: 'search_form'|'search_api'|'search_query')
         self._in_style_tag = False
         self._style_content_chunks: List[str] = []
         self._in_script_tag = False
@@ -279,6 +283,26 @@ class _DOMResourceExtractor(HTMLParser):
                     if not any(u[0] == resolved for u in self.pagination_urls):
                         self.pagination_urls.append((resolved, raw_val, p_type))
 
+        # Check dynamic search forms and REST search API endpoints
+        if tag_lower == "form":
+            f_action = attr_dict.get("action") or attr_dict.get("data-search-url") or attr_dict.get("data-search-api")
+            if f_action:
+                raw_f = f_action.strip()
+                if raw_f and not raw_f.startswith(("javascript:", "mailto:", "tel:", "#", "data:")):
+                    resolved = resolve_protocol_relative(raw_f, effective_base)
+                    if any(s_kw in (element_id + element_class + raw_f).lower() for s_kw in ("search", "kereses", "kereso", "query", "find")):
+                        if not any(u[0] == resolved for u in self.search_urls):
+                            self.search_urls.append((resolved, raw_f, "search_form"))
+
+        for s_attr in ("data-search-url", "data-search-api", "data-search-endpoint", "data-query-endpoint", "data-search-action"):
+            if s_attr in attr_dict:
+                raw_val = attr_dict[s_attr].strip()
+                if raw_val and not raw_val.startswith("data:"):
+                    resolved = resolve_protocol_relative(raw_val, effective_base)
+                    s_type = "search_api" if "api" in s_attr or "endpoint" in s_attr else "search_form"
+                    if not any(u[0] == resolved for u in self.search_urls):
+                        self.search_urls.append((resolved, raw_val, s_type))
+
         if tag_lower == "img":
             if "src" in attr_dict:
                 raw_src = attr_dict["src"].strip()
@@ -464,6 +488,12 @@ class _DOMResourceExtractor(HTMLParser):
                 if raw_url and not raw_url.startswith("data:"):
                     resolved = resolve_protocol_relative(raw_url, effective_base)
                     self.pagination_urls.append((resolved, raw_url, "pagination_feed"))
+
+            for match in SEARCH_FORM_REGEX.finditer(script_text):
+                raw_url = match.group(1).strip()
+                if raw_url and not raw_url.startswith("data:"):
+                    resolved = resolve_protocol_relative(raw_url, effective_base)
+                    self.search_urls.append((resolved, raw_url, "search_api"))
 
 
 def resolve_protocol_relative(raw_url: str, base_url: str) -> str:
@@ -840,6 +870,28 @@ def inspect_visitor_replay_dom(
                     )
                 )
 
+    # 16. Check Dynamic Search Forms & Query Parameter API Endpoints
+    search_broken = 0
+    for resolved_url, raw_url, res_type in extractor.search_urls:
+        if cdx_index_urls is not None:
+            if not _is_url_in_cdx(resolved_url, cdx_index_urls, canonical_cdx):
+                search_broken += 1
+                if res_type == "search_api":
+                    reason_code = "search_api_missing"
+                elif res_type == "search_query":
+                    reason_code = "search_query_missing"
+                else:
+                    reason_code = "search_form_missing"
+                broken.append(
+                    BrokenResource(
+                        url=resolved_url,
+                        resource_type=res_type,
+                        element_tag=f'<{res_type} url="{raw_url}">',
+                        reason=reason_code,
+                        context=f"Dynamic search form / query-parameter API endpoint ({res_type}) {resolved_url} missing in WACZ archive.",
+                    )
+                )
+
     total_checked = (
         len(extractor.images)
         + len(extractor.lazy_images)
@@ -856,6 +908,7 @@ def inspect_visitor_replay_dom(
         + len(extractor.pdf_urls)
         + len(extractor.consent_urls)
         + len(extractor.pagination_urls)
+        + len(extractor.search_urls)
     )
     total_broken = len(broken)
     replay_good = total_checked - total_broken
@@ -904,6 +957,9 @@ def inspect_visitor_replay_dom(
     if pagination_broken > max_allowed_broken_canvas:
         reasons.append(f"broken_pagination_feeds_detected ({pagination_broken} > {max_allowed_broken_canvas})")
 
+    if search_broken > max_allowed_broken_canvas:
+        reasons.append(f"broken_search_forms_detected ({search_broken} > {max_allowed_broken_canvas})")
+
     if any(b.reason == "pywb_rewrite_mismatch" for b in broken):
         reasons.append("pywb_rewrite_mismatch_detected")
 
@@ -946,6 +1002,9 @@ def inspect_visitor_replay_dom(
     if any(b.reason in ("pagination_feed_missing", "infinite_scroll_missing", "page_endpoint_missing") for b in broken):
         reasons.append("dynamic_pagination_feed_loss_detected")
 
+    if any(b.reason in ("search_form_missing", "search_api_missing", "search_query_missing") for b in broken):
+        reasons.append("search_query_form_loss_detected")
+
     passed = len(reasons) == 0
 
     remediation = None
@@ -971,6 +1030,7 @@ def inspect_visitor_replay_dom(
         "broken_pdf_count": pdf_broken,
         "broken_consent_count": consent_broken,
         "broken_pagination_count": pagination_broken,
+        "broken_search_count": search_broken,
         "quality_score": quality_score,
         "broken_resources": [
             {
@@ -1004,6 +1064,7 @@ def inspect_visitor_replay_dom(
         broken_pdf_count=pdf_broken,
         broken_consent_count=consent_broken,
         broken_pagination_count=pagination_broken,
+        broken_search_count=search_broken,
         broken_resources=tuple(broken),
         reasons=tuple(reasons),
         actionable_evidence=actionable_evidence,
@@ -1098,6 +1159,11 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
     if not broken_resources:
         return "No remediation needed."
 
+    has_search = any(
+        b.reason in ("search_form_missing", "search_api_missing", "search_query_missing")
+        or b.resource_type in ("search_form", "search_api", "search_query")
+        for b in broken_resources
+    )
     has_pagination = any(
         b.reason in ("pagination_feed_missing", "infinite_scroll_missing", "page_endpoint_missing")
         or b.resource_type in ("pagination_feed", "infinite_scroll", "page_endpoint")
@@ -1155,6 +1221,10 @@ def suggest_remediation(broken_resources: List[BrokenResource]) -> str:
     has_links = any(b.resource_type == "link" for b in broken_resources)
 
     suggestions = []
+    if has_search:
+        suggestions.append(
+            "Re-crawl with search form submission & query-parameter behavior rules enabled '--behaviors autoclick,autofetch,autoscroll,search' with search term seeding and API endpoint capture."
+        )
     if has_pagination:
         suggestions.append(
             "Re-crawl with dynamic AJAX pagination & infinite-scroll behavior rules enabled '--behaviors autoclick,autofetch,autoscroll,pagination' with page scroll depth --depth 3 and API endpoint capture."
