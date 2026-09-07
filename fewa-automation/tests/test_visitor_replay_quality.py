@@ -1046,6 +1046,40 @@ def test_capture_remediation_workflow_lifecycle():
     assert "https://example.org/docs/charter.pdf" in wf_held.final_remediation_plan.target_urls
 
 
+def test_operator_replay_boundary_status_exposure():
+    """Verify operator/user-visible replay boundary status fields for RELEASE and HOLD captures."""
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <body>
+        <img src="/images/banner.png">
+        <a href="/missing_doc.html">Missing Doc</a>
+    </body>
+    </html>
+    """
+    page_url = "https://example.org/fejer_county_portal"
+    defective_cdx = {"https://example.org/fejer_county_portal"}
+    repaired_patch = {"https://example.org/images/banner.png", "https://example.org/missing_doc.html"}
+
+    # 1. Released Flow
+    res_released = execute_capture_remediation_workflow(html, page_url, defective_cdx, patch_cdx_attempts=[repaired_patch])
+    res_dict = res_released.to_dict()
+    assert res_dict["overall_status"] == "RELEASED_REMEDIATED"
+    assert res_dict["final_publication_decision"] == "PASS_RELEASE"
+    assert res_dict["total_attempts"] == 2
+    assert "Released for publication ('PASS_RELEASE')" in res_dict["audit_summary"]
+
+    # 2. Held Flow
+    res_held = execute_capture_remediation_workflow(html, page_url, defective_cdx, patch_cdx_attempts=[], max_attempts=1)
+    held_dict = res_held.to_dict()
+    assert held_dict["overall_status"] == "HELD_UNRECOVERABLE"
+    assert held_dict["final_publication_decision"] == "HOLD_REJECT"
+    assert held_dict["total_attempts"] == 1
+    assert "Publication held as 'HELD_UNRECOVERABLE' ('HOLD_REJECT')" in held_dict["audit_summary"]
+    assert held_dict["final_remediation_plan"]["publication_gate_decision"] == "HOLD_REJECT"
+
+
+
 
 
 

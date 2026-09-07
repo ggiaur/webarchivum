@@ -32,6 +32,12 @@ interface DocumentDetail {
   wacz_filesize_bytes?: number;
   wacz_page_count?: number;
   wacz_url?: string | null;
+  publication_decision?: 'PASS_RELEASE' | 'HOLD_REJECT';
+  remediation_status?: 'RELEASED_CLEAN' | 'RELEASED_REMEDIATED' | 'HELD_UNRECOVERABLE';
+  remediation_reason?: string;
+  remediation_attempts?: number;
+  unresolved_resources?: string[];
+  replay_url?: string | null;
   site?: {
     domain: string;
     display_name: string;
@@ -40,12 +46,6 @@ interface DocumentDetail {
 
 type LoadState = { status: 'loading' } | { status: 'error' } | { status: 'ready'; doc: DocumentDetail };
 
-// Admin-scoped counterpart of (public)/documents/[id] — that page only
-// ever shows 'published' snapshots (by design, for public search), so the
-// quality-review queue's replay link pointed nowhere useful: every item
-// in that queue is pre-publication. This fetches from /api/admin/documents
-// (curator-authenticated, no publish gate) so a curator can actually
-// inspect content before deciding accept/reject.
 export default function AdminDocumentPreviewPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const [activeTab, setActiveTab] = useState<'replay' | 'metadata'>('replay');
@@ -85,16 +85,6 @@ export default function AdminDocumentPreviewPage({ params }: { params: Promise<{
     }
   };
 
-  // See (public)/documents/[id]/page.tsx for the full history and the
-  // instrumented proof of the root cause: mounting <replay-web-page> is
-  // what triggers ui.js's Service Worker registration, so gating mount on
-  // "SW already active" is a deadlock. Mount unconditionally, then POLL
-  // (not a single delayed check — that variant could look too early, see
-  // early observed content, wrongly conclude success, and never look
-  // again) the embedded iframe for landing on a real 404 (the SW genuinely
-  // wasn't active yet for THIS mount's navigation) and force a remount via
-  // the `key` prop, giving the registration — already running in the
-  // background since the very first mount — another chance.
   const MAX_REPLAY_RETRIES = 4;
   useEffect(() => {
     if (!rwpReady || retryCount >= MAX_REPLAY_RETRIES) return;
@@ -105,15 +95,12 @@ export default function AdminDocumentPreviewPage({ params }: { params: Promise<{
     const iv = setInterval(() => {
       if (settled) return;
       elapsed += pollMs;
-      // <replay-web-page> renders its iframe inside its OWN shadow root —
-      // a plain querySelector from outside never pierces that boundary.
       const rwpEl = replayContainerRef.current?.querySelector('replay-web-page');
       const iframe = rwpEl?.shadowRoot?.querySelector('iframe') as HTMLIFrameElement | null;
       let text = '';
       try {
         text = iframe?.contentDocument?.body?.textContent || '';
       } catch {
-        // Cross-origin or not-yet-accessible — treat as "can't tell yet", keep polling.
       }
       const failed = text.includes('could not be found');
       const loaded = text.trim().length > 0 && !failed;
@@ -166,12 +153,12 @@ export default function AdminDocumentPreviewPage({ params }: { params: Promise<{
   }
 
   const doc = state.doc;
+  const isHeld = doc.publication_decision === 'HOLD_REJECT' || doc.remediation_status === 'HELD_UNRECOVERABLE';
+  const isReleased = !isHeld && (doc.publication_decision === 'PASS_RELEASE' || doc.remediation_status === 'RELEASED_CLEAN' || doc.remediation_status === 'RELEASED_REMEDIATED' || !!doc.wacz_url);
+  const directReplayTarget = doc.replay_url || (doc.wacz_url ? `/replay-loading?target=${encodeURIComponent(`/replay/?source=${encodeURIComponent(`${typeof window !== 'undefined' ? window.location.origin : ''}${doc.wacz_url}`)}&url=${encodeURIComponent(doc.seed_url)}`)}` : null);
 
   return (
     <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', padding: '1.5rem' }}>
-      {/* See (public)/documents/[id]/page.tsx for why this synthetic 'load'
-          dispatch is needed — ReplayWeb.page's SW registration waits on a
-          load event that (via afterInteractive) has always already fired. */}
       <Script
         src="/ui.js"
         strategy="afterInteractive"
@@ -193,6 +180,25 @@ export default function AdminDocumentPreviewPage({ params }: { params: Promise<{
             </span>
             {doc.qc_score != null && <span className="badge badge-blue">QC: {doc.qc_score}%</span>}
             {doc.qc_score == null && <span className="badge badge-rose">Nincs QC eredmény</span>}
+            {isHeld ? (
+              <span className="badge badge-rose" id="admin-status-badge-hold" style={{ background: 'rgba(244, 63, 94, 0.2)', color: '#f43f5e', border: '1px solid #f43f5e', fontWeight: 700 }}>
+                ⛔ KIADVÁNY-TARTÁS (HOLD_REJECT)
+              </span>
+            ) : (
+              <span className="badge badge-emerald" id="admin-status-badge-release" style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#10b981', border: '1px solid #10b981', fontWeight: 700 }}>
+                🟢 KIADVA (PASS_RELEASE)
+              </span>
+            )}
+            {doc.remediation_status && (
+              <span className="badge badge-blue" id="admin-status-badge-remediation">
+                {doc.remediation_status}
+              </span>
+            )}
+            {doc.remediation_attempts != null && (
+              <span className="badge badge-amber" id="admin-status-badge-attempts">
+                {doc.remediation_attempts} kísérlet
+              </span>
+            )}
           </div>
           {doc.lifecycle_status === 'published' && (
             <button
@@ -212,6 +218,35 @@ export default function AdminDocumentPreviewPage({ params }: { params: Promise<{
           <h1 style={{ fontSize: '1.8rem', fontWeight: 800, marginBottom: '0.4rem', color: 'var(--text-primary)' }}>
             {doc.dc_title}
           </h1>
+        </div>
+
+        <div id="admin-remediation-summary-panel" style={{
+          padding: '0.85rem 1.1rem',
+          borderRadius: 'var(--radius-md)',
+          fontSize: '0.88rem',
+          background: isHeld ? 'rgba(225, 29, 72, 0.12)' : 'rgba(16, 185, 129, 0.12)',
+          border: `1px solid ${isHeld ? '#f43f5e' : '#10b981'}`,
+          color: 'var(--text-primary)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '0.4rem'
+        }}>
+          <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem', color: isHeld ? '#f87171' : '#34d399' }}>
+            {isHeld ? '⛔ Kiadvány-tartás indoka (HOLD_REJECT):' : '🟢 Kiadási állapot & minőségigazolás (PASS_RELEASE):'}
+          </div>
+          <div id="admin-remediation-reason-text" style={{ lineHeight: '1.5' }}>
+            {doc.remediation_reason || (isHeld ? 'A kiadvány letiltva (HOLD_REJECT): az archivált oldal nem rögzített erőforrásokat vagy sérült elemeket tartalmaz. A lejátszás zárolva van.' : 'Az archivált oldal WACZ lejátszása igazoltan működőképes és közzétételre engedélyezett (PASS_RELEASE).')}
+          </div>
+          {isHeld && doc.unresolved_resources && doc.unresolved_resources.length > 0 && (
+            <div id="admin-unresolved-resources-list" style={{ marginTop: '0.4rem', fontSize: '0.8rem', color: '#fda4af', background: 'rgba(0,0,0,0.3)', padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', fontFamily: 'var(--font-mono)' }}>
+              <strong>Zárolást kiváltó nem rögzített erőforrások ({doc.unresolved_resources.length}):</strong>
+              <ul style={{ margin: '0.25rem 0 0 1.25rem', padding: 0 }}>
+                {doc.unresolved_resources.map((resUrl, idx) => (
+                  <li key={idx}>{resUrl}</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
 
         <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', fontSize: '0.85rem', color: 'var(--text-muted)', borderTop: '1px solid var(--border-subtle)', paddingTop: '0.75rem' }}>
@@ -245,16 +280,17 @@ export default function AdminDocumentPreviewPage({ params }: { params: Promise<{
           </div>
 
           <div style={{ display: 'flex', gap: '0.5rem' }}>
-            {doc.wacz_url && (
+            {isReleased && directReplayTarget && (
               <a
-                href={`/replay-loading?target=${encodeURIComponent(`/replay/?source=${encodeURIComponent(`${window.location.origin}${doc.wacz_url}`)}&url=${encodeURIComponent(doc.seed_url)}`)}`}
+                id="admin-direct-usable-replay-link"
+                href={directReplayTarget}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="btn-secondary"
-                style={{ fontSize: '0.8rem', padding: '0.35rem 0.8rem' }}
-                title="Megnyitás a ReplayWeb.page saját, teljes oldalas nézetében, külön fülön."
+                style={{ fontSize: '0.8rem', padding: '0.35rem 0.8rem', background: 'var(--accent-emerald)', color: '#000', fontWeight: 700 }}
+                title="Megnyitás közvetlenül a ReplayWeb.page saját, teljes oldalas nézetében."
               >
-                ⤢ Teljes oldal (új fül)
+                ⤢ Teljes oldal replay (közvetlen hivatkozás) ↗
               </a>
             )}
             <a href={doc.seed_url} target="_blank" rel="noopener noreferrer" className="btn-secondary" style={{ fontSize: '0.8rem', padding: '0.35rem 0.8rem' }}>
@@ -265,7 +301,45 @@ export default function AdminDocumentPreviewPage({ params }: { params: Promise<{
 
         {activeTab === 'replay' && (
           <div className="animate-fade-in" style={{ background: 'var(--bg-surface-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-active)', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {!doc.wacz_url ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', background: 'rgba(0,0,0,0.3)', padding: '0.6rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
+              <span style={{ fontSize: '0.75rem', color: isHeld ? '#f43f5e' : 'var(--accent-emerald)', fontWeight: 600 }}>
+                {isHeld ? '⛔ KIADVÁNY-TARTÁS (HOLD_REJECT)' : '🔒 WACZ REPLAY (ReplayWeb.page)'}
+              </span>
+              <div style={{ flex: 1, background: 'var(--bg-primary)', padding: '0.3rem 0.75rem', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {doc.seed_url}
+              </div>
+              {isReleased && directReplayTarget && (
+                <a
+                  href={directReplayTarget}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-secondary"
+                  style={{ fontSize: '0.75rem', padding: '0.35rem 0.8rem', whiteSpace: 'nowrap' }}
+                  title="Megnyitás a ReplayWeb.page saját, teljes oldalas nézetében."
+                >
+                  ⤢ Teljes oldal (új fül)
+                </a>
+              )}
+            </div>
+
+            {isHeld ? (
+              <div id="admin-hold-rejection-notice" style={{ padding: '3rem 1.5rem', textAlign: 'center', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid #f43f5e', borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center' }}>
+                <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#f87171' }}>
+                  ⛔ Replay Lejátszás Letiltva (HOLD_REJECT)
+                </div>
+                <p style={{ color: 'var(--text-secondary)', maxWidth: '600px', fontSize: '0.95rem', lineHeight: '1.6', margin: 0 }}>
+                  {doc.remediation_reason || 'Ennek a dokumentumnak a közzététele fel van függesztve. Hiányos erőforrások miatt a lejátszás le van tiltva a téves megjelenítés elkerülésére.'}
+                </p>
+                {doc.unresolved_resources && doc.unresolved_resources.length > 0 && (
+                  <div style={{ background: 'var(--bg-primary)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', fontSize: '0.82rem', fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)', textAlign: 'left', maxWidth: '600px', width: '100%', border: '1px solid var(--border-subtle)' }}>
+                    <strong style={{ color: '#fda4af' }}>Hiányzó erőforrások:</strong>
+                    <ul style={{ margin: '0.3rem 0 0 1.2rem', padding: 0 }}>
+                      {doc.unresolved_resources.map((u, i) => <li key={i}>{u}</li>)}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            ) : !doc.wacz_url ? (
               <div style={{ padding: '3rem 1rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
                 Ehhez a dokumentumhoz még nincs archivált WACZ állomány.
               </div>

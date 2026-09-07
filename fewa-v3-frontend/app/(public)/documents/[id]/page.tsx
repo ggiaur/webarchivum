@@ -154,6 +154,9 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
   }
 
   const doc = state.doc;
+  const isHeld = doc.publication_decision === 'HOLD_REJECT' || doc.remediation_status === 'HELD_UNRECOVERABLE';
+  const isReleased = !isHeld && (doc.publication_decision === 'PASS_RELEASE' || doc.remediation_status === 'RELEASED_CLEAN' || doc.remediation_status === 'RELEASED_REMEDIATED' || !!doc.wacz_url);
+  const directReplayTarget = doc.replay_url || (doc.wacz_url ? `/replay-loading?target=${encodeURIComponent(`/replay/?source=${encodeURIComponent(`${typeof window !== 'undefined' ? window.location.origin : ''}${doc.wacz_url}`)}&url=${encodeURIComponent(doc.seed_url)}`)}` : null);
 
   return (
     <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -187,6 +190,25 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
           {doc.pid && <span className="badge badge-green">{doc.pid}</span>}
           {doc.qc_score != null && <span className="badge badge-blue">QC Hitelesség: {doc.qc_score}/100</span>}
           <span className="badge badge-amber">WACZ</span>
+          {isHeld ? (
+            <span className="badge badge-rose" id="status-badge-hold" style={{ background: 'rgba(244, 63, 94, 0.2)', color: '#f43f5e', border: '1px solid #f43f5e', fontWeight: 700 }}>
+              ⛔ KIADVÁNY-TARTÁS (HOLD_REJECT)
+            </span>
+          ) : (
+            <span className="badge badge-emerald" id="status-badge-release" style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#10b981', border: '1px solid #10b981', fontWeight: 700 }}>
+              🟢 KIADVA (PASS_RELEASE)
+            </span>
+          )}
+          {doc.remediation_status && (
+            <span className="badge badge-blue" id="status-badge-remediation">
+              {doc.remediation_status}
+            </span>
+          )}
+          {doc.remediation_attempts != null && (
+            <span className="badge badge-amber" id="status-badge-attempts">
+              {doc.remediation_attempts} kísérlet
+            </span>
+          )}
         </div>
 
         <div>
@@ -197,6 +219,36 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
             <p style={{ color: 'var(--text-secondary)', fontSize: '1rem', lineHeight: '1.6' }}>
               {doc.dc_description}
             </p>
+          )}
+        </div>
+
+        {/* Human-readable release/hold reason & remediation summary */}
+        <div id="remediation-summary-panel" style={{
+          padding: '0.85rem 1.1rem',
+          borderRadius: 'var(--radius-md)',
+          fontSize: '0.88rem',
+          background: isHeld ? 'rgba(225, 29, 72, 0.12)' : 'rgba(16, 185, 129, 0.12)',
+          border: `1px solid ${isHeld ? '#f43f5e' : '#10b981'}`,
+          color: 'var(--text-primary)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '0.4rem'
+        }}>
+          <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem', color: isHeld ? '#f87171' : '#34d399' }}>
+            {isHeld ? '⛔ Kiadvány-tartás indoka (HOLD_REJECT):' : '🟢 Kiadási állapot & minőségigazolás (PASS_RELEASE):'}
+          </div>
+          <div id="remediation-reason-text" style={{ lineHeight: '1.5' }}>
+            {doc.remediation_reason || (isHeld ? 'A kiadvány letiltva (HOLD_REJECT): az archivált oldal nem rögzített erőforrásokat vagy sérült elemeket tartalmaz. A lejátszás zárolva van.' : 'Az archivált oldal WACZ lejátszása igazoltan működőképes és közzétételre engedélyezett (PASS_RELEASE).')}
+          </div>
+          {isHeld && doc.unresolved_resources && doc.unresolved_resources.length > 0 && (
+            <div id="unresolved-resources-list" style={{ marginTop: '0.4rem', fontSize: '0.8rem', color: '#fda4af', background: 'rgba(0,0,0,0.3)', padding: '0.5rem 0.75rem', borderRadius: 'var(--radius-sm)', fontFamily: 'var(--font-mono)' }}>
+              <strong>Zárolást kiváltó nem rögzített erőforrások ({doc.unresolved_resources.length}):</strong>
+              <ul style={{ margin: '0.25rem 0 0 1.25rem', padding: 0 }}>
+                {doc.unresolved_resources.map((resUrl, idx) => (
+                  <li key={idx}>{resUrl}</li>
+                ))}
+              </ul>
+            </div>
           )}
         </div>
 
@@ -242,34 +294,68 @@ export default function DocumentDetailPage({ params }: { params: Promise<{ id: s
             </button>
           </div>
 
-          <a href={doc.seed_url} target="_blank" rel="noopener noreferrer" className="btn-secondary" style={{ fontSize: '0.8rem', padding: '0.35rem 0.8rem' }}>
-            Eredeti élő webhely ↗
-          </a>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            {isReleased && directReplayTarget && (
+              <a
+                id="direct-usable-replay-link"
+                href={directReplayTarget}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-secondary"
+                style={{ fontSize: '0.8rem', padding: '0.35rem 0.8rem', background: 'var(--accent-emerald)', color: '#000', fontWeight: 700 }}
+                title="Megnyitás közvetlenül a ReplayWeb.page saját, teljes oldalas nézetében."
+              >
+                ⤢ Teljes oldal replay (közvetlen hivatkozás) ↗
+              </a>
+            )}
+            <a href={doc.seed_url} target="_blank" rel="noopener noreferrer" className="btn-secondary" style={{ fontSize: '0.8rem', padding: '0.35rem 0.8rem' }}>
+              Eredeti élő webhely ↗
+            </a>
+          </div>
         </div>
 
         {/* Tab 1: Real ReplayWeb.page WACZ replay */}
         {activeTab === 'replay' && (
           <div className="animate-fade-in" style={{ background: 'var(--bg-surface-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-active)', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', background: 'rgba(0,0,0,0.3)', padding: '0.6rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
-              <span style={{ fontSize: '0.75rem', color: 'var(--accent-emerald)', fontWeight: 600 }}>🔒 WACZ REPLAY (ReplayWeb.page)</span>
+              <span style={{ fontSize: '0.75rem', color: isHeld ? '#f43f5e' : 'var(--accent-emerald)', fontWeight: 600 }}>
+                {isHeld ? '⛔ KIADVÁNY-TARTÁS (HOLD_REJECT)' : '🔒 WACZ REPLAY (ReplayWeb.page)'}
+              </span>
               <div style={{ flex: 1, background: 'var(--bg-primary)', padding: '0.3rem 0.75rem', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {doc.seed_url}
               </div>
-              {doc.wacz_url && (
+              {isReleased && directReplayTarget && (
                 <a
-                  href={`/replay-loading?target=${encodeURIComponent(`/replay/?source=${encodeURIComponent(`${window.location.origin}${doc.wacz_url}`)}&url=${encodeURIComponent(doc.seed_url)}`)}`}
+                  href={directReplayTarget}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="btn-secondary"
                   style={{ fontSize: '0.75rem', padding: '0.35rem 0.8rem', whiteSpace: 'nowrap' }}
-                  title="Megnyitás a ReplayWeb.page saját, teljes oldalas nézetében — ez a beágyazott dobozon kívül, külön fülön/ablakban jeleníti meg az archivált oldalt."
+                  title="Megnyitás a ReplayWeb.page saját, teljes oldalas nézetében."
                 >
                   ⤢ Teljes oldal (új fül)
                 </a>
               )}
             </div>
 
-            {!doc.wacz_url ? (
+            {isHeld ? (
+              <div id="hold-rejection-notice" style={{ padding: '3rem 1.5rem', textAlign: 'center', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid #f43f5e', borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center' }}>
+                <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#f87171' }}>
+                  ⛔ Replay Lejátszás Letiltva (HOLD_REJECT)
+                </div>
+                <p style={{ color: 'var(--text-secondary)', maxWidth: '600px', fontSize: '0.95rem', lineHeight: '1.6', margin: 0 }}>
+                  {doc.remediation_reason || 'Ennek a dokumentumnak a közzététele fel van függesztve. Hiányos erőforrások miatt a lejátszás le van tiltva a téves megjelenítés elkerülésére.'}
+                </p>
+                {doc.unresolved_resources && doc.unresolved_resources.length > 0 && (
+                  <div style={{ background: 'var(--bg-primary)', padding: '0.75rem 1rem', borderRadius: 'var(--radius-sm)', fontSize: '0.82rem', fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)', textAlign: 'left', maxWidth: '600px', width: '100%', border: '1px solid var(--border-subtle)' }}>
+                    <strong style={{ color: '#fda4af' }}>Hiányzó erőforrások:</strong>
+                    <ul style={{ margin: '0.3rem 0 0 1.2rem', padding: 0 }}>
+                      {doc.unresolved_resources.map((u, i) => <li key={i}>{u}</li>)}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            ) : !doc.wacz_url ? (
               <div style={{ padding: '3rem 1rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
                 Ehhez a dokumentumhoz még nincs archivált WACZ állomány.
               </div>

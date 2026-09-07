@@ -125,8 +125,8 @@ async def execute_hybrid_search(
 _DOCUMENT_COLUMNS = """
     s.id, s.pid, s.dc_title, s.dc_description, s.dc_creator, s.dc_publisher,
     s.dc_subject, s.dc_language, s.dc_coverage, s.dc_rights, s.dc_type,
-    s.seed_url, s.crawl_timestamp, s.crawl_duration_s, s.qc_score,
-    s.ai_summary, s.ai_keywords, s.wacz_minio_path, s.wacz_sha256,
+    s.seed_url, s.crawl_timestamp, s.crawl_duration_s, s.qc_score, s.qc_detail,
+    s.lifecycle_reason, s.ai_summary, s.ai_keywords, s.wacz_minio_path, s.wacz_sha256,
     s.wacz_filesize_bytes, s.wacz_page_count, s.lifecycle_status,
     si.domain, si.display_name AS site_display_name,
     m.name AS municipality_name, m.slug AS municipality_slug
@@ -198,10 +198,50 @@ def _document_row_to_dict(row, minio_client) -> Dict[str, Any]:
     municipality_slug = doc.pop("municipality_slug", None)
     doc["municipality"] = {"name": municipality_name, "slug": municipality_slug} if municipality_name else None
 
+    qc_detail = doc.get("qc_detail")
+    if isinstance(qc_detail, str):
+        try:
+            qc_detail = json.loads(qc_detail)
+        except Exception:
+            qc_detail = {}
+    elif not isinstance(qc_detail, dict):
+        qc_detail = {}
+
+    is_published = doc.get("lifecycle_status") == "published"
+    doc["publication_decision"] = (
+        qc_detail.get("publication_decision")
+        or qc_detail.get("final_publication_decision")
+        or qc_detail.get("publication_gate_decision")
+        or ("PASS_RELEASE" if is_published else "HOLD_REJECT")
+    )
+    doc["remediation_status"] = (
+        qc_detail.get("remediation_status")
+        or qc_detail.get("overall_status")
+        or qc_detail.get("workflow_status")
+        or ("RELEASED_CLEAN" if is_published else "HELD_UNRECOVERABLE")
+    )
+    doc["remediation_reason"] = (
+        qc_detail.get("remediation_reason")
+        or qc_detail.get("audit_summary")
+        or doc.get("lifecycle_reason")
+        or qc_detail.get("remediation_summary")
+        or (
+            "QC & Replay QA igazolva: az archivált oldal beágyazott erőforrásai és hivatkozásai működőképesek."
+            if is_published
+            else "Kiadvány-tartás érvényben (HOLD_REJECT): a WACZ ellenőrzés még nem igazolta a teljes helyreállítást."
+        )
+    )
+    doc["remediation_attempts"] = qc_detail.get("total_attempts", 1)
+    doc["unresolved_resources"] = qc_detail.get("unresolved_resources", []) or qc_detail.get("target_urls", [])
+
     # A same-origin path, NOT a presigned MinIO URL: presigned URLs pointed
     # at MINIO_ENDPOINT (localhost:9002), which a real user's browser can't
     # reach and which is mixed content on an https:// page — replay died
     # with "TypeError: Failed to fetch" (2026-08-02). Served by
     # app/api/v1/search.py::get_wacz (public) and jobs.py's curator route.
     doc["wacz_url"] = f"/api/wacz/{doc['id']}" if doc.get("wacz_minio_path") else None
+    if doc.get("wacz_url") and doc["publication_decision"] == "PASS_RELEASE":
+        doc["replay_url"] = f"/replay-loading?target=/replay/?source={doc['wacz_url']}&url={doc['seed_url']}"
+    else:
+        doc["replay_url"] = None
     return doc

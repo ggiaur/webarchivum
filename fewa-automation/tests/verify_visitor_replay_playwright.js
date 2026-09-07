@@ -441,18 +441,45 @@ async function runRealBrowserReplayVerification() {
         <html>
         <head>
           <title>Slice 23 Fejér County Archive Workflow Replay Test</title>
-          <script id="remediation-workflow-script">
-            const workflowState = {
-              pageUrl: 'https://fejer-archivum.hu/bicske_history_1924.html',
-              initialQuality: 'defective',
-              remediationAttempts: 2,
-              remediatedDecision: 'PASS_RELEASE',
-              unrecoverableDecision: 'HOLD_REJECT'
-            };
-          </script>
         </head>
         <body>
           <h1>Fejér vármegyei Levéltár - Bicske Története (1924)</h1>
+
+          <!-- RELEASED Capture Boundary View -->
+          <div id="released-capture-container" className="glass-panel" style="padding: 1rem; border: 1px solid #10b981; margin-bottom: 1.5rem;">
+            <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+              <span id="status-badge-release" class="badge badge-emerald" style="background: rgba(16, 185, 129, 0.2); color: #10b981; font-weight: 700;">🟢 KIADVA (PASS_RELEASE)</span>
+              <span id="status-badge-remediation" class="badge badge-blue">RELEASED_REMEDIATED</span>
+              <span id="status-badge-attempts" class="badge badge-amber">2 kísérlet</span>
+            </div>
+            <div id="remediation-summary-panel" style="padding: 0.75rem; background: rgba(16, 185, 129, 0.12); border: 1px solid #10b981; color: #fff; margin-bottom: 0.75rem;">
+              <div style="font-weight: 700; color: #34d399;">🟢 Kiadási állapot & minőségigazolás (PASS_RELEASE):</div>
+              <div id="remediation-reason-text">Az archivált oldal WACZ lejátszása igazoltan működőképes. Helyreállítási kísérletek száma: 2, javított erőforrások: 2.</div>
+            </div>
+            <a id="direct-usable-replay-link" href="/replay-loading?target=%2Freplay%2F%3Fsource%3D%252Fapi%252Fwacz%252Fbicske-1924%26url%3Dhttps%253A%252F%252Ffejer-archivum.hu%252Fbicske_history_1924.html" target="_blank" class="btn-primary" style="background: #10b981; color: #000; font-weight: 700; padding: 0.4rem 1rem; text-decoration: none; display: inline-block;">
+              🌐 Replay Megnyitása (Közvetlen WACZ Hivatkozás) ↗
+            </a>
+          </div>
+
+          <!-- HELD Capture Boundary View -->
+          <div id="held-capture-container" className="glass-panel" style="padding: 1rem; border: 1px solid #f43f5e; margin-bottom: 1.5rem;">
+            <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+              <span id="status-badge-hold" class="badge badge-rose" style="background: rgba(244, 63, 94, 0.2); color: #f43f5e; font-weight: 700;">⛔ KIADVÁNY-TARTÁS (HOLD_REJECT)</span>
+              <span id="status-badge-held-unrecoverable" class="badge badge-rose">HELD_UNRECOVERABLE</span>
+            </div>
+            <div id="hold-remediation-summary-panel" style="padding: 0.75rem; background: rgba(225, 29, 72, 0.12); border: 1px solid #f43f5e; color: #fff; margin-bottom: 0.75rem;">
+              <div style="font-weight: 700; color: #f87171;">⛔ Kiadvány-tartás indoka (HOLD_REJECT):</div>
+              <div id="hold-remediation-reason-text">A kiadvány letiltva (HOLD_REJECT): A WACZ állomány 2 nem rögzített erőforrást tartalmaz. A helyreállítási kísérletek nem küszöbölték ki a hiányokat.</div>
+              <div id="unresolved-resources-list" style="margin-top: 0.4rem; font-size: 0.8rem; color: #fda4af; font-family: monospace;">
+                <strong>Hiányzó erőforrások (2):</strong> https://fejer-archivum.hu/missing_bicske_photo.jpg, https://fejer-archivum.hu/missing_bicske_charter.html
+              </div>
+            </div>
+            <div id="hold-rejection-notice" style="padding: 1.5rem; text-align: center; background: rgba(239, 68, 68, 0.1); border: 1px solid #f43f5e;">
+              <div style="font-size: 1.2rem; font-weight: 800; color: #f87171;">⛔ Replay Lejátszás Letiltva (HOLD_REJECT)</div>
+              <p style="color: #ccc; font-size: 0.9rem;">Ennek a dokumentumnak a közzététele fel van függesztve. Hiányos erőforrások miatt a lejátszás le van tiltva a téves megjelenítés elkerülésére.</p>
+            </div>
+          </div>
+
           <div id="replayed-content">
             <img id="archival-photo" src="/valid_photo.jpg" alt="Bicske Main Square 1924" />
             <a id="archival-link" href="/valid_page.html">Oklevél Megtekintése (1924)</a>
@@ -1003,9 +1030,9 @@ async function runRealBrowserReplayVerification() {
   console.log(` - Chart Series Data API Extracted: ${slice22DOM.chartUrl}`);
   console.log(` - Highcharts/ChartJS Config Extracted: ${slice22DOM.chartConfig}`);
   console.log(` - D3.js Data Source Extracted: ${slice22DOM.d3Source}`);  // -------------------------------------------------------------
-  // STEP 24: Real-Browser Inspection of Failed Capture Remediation Retry & Release/Hold Workflow (Slice 23)
+  // STEP 24: Real-Browser Inspection of Operator/Visitor Capture Replay Release/Hold Boundary (Slice 23 / Task 047)
   // -------------------------------------------------------------
-  console.log(`[24/24] Inspecting Failed Capture Remediation Retry & Release/Hold Workflow Page at ${baseUrl}/slice23_capture_remediation_workflow.html ...`);
+  console.log(`[24/24] Inspecting Operator/Visitor Replay Release/Hold Boundary at ${baseUrl}/slice23_capture_remediation_workflow.html ...`);
   await page.goto(`${baseUrl}/slice23_capture_remediation_workflow.html`);
 
   const slice23DOM = await page.evaluate(async () => {
@@ -1013,6 +1040,11 @@ async function runRealBrowserReplayVerification() {
     const img = document.getElementById('archival-photo');
     const link = document.getElementById('archival-link');
     const btn = document.getElementById('modal-trigger');
+    const relBadge = document.getElementById('status-badge-release');
+    const holdBadge = document.getElementById('status-badge-hold');
+    const reasonText = document.getElementById('remediation-reason-text');
+    const directLink = document.getElementById('direct-usable-replay-link');
+    const holdNotice = document.getElementById('hold-rejection-notice');
 
     return {
       pageUrl: workflowElem ? workflowElem.getAttribute('data-page-url') : null,
@@ -1026,21 +1058,26 @@ async function runRealBrowserReplayVerification() {
       imageSrc: img ? img.src : null,
       linkHref: link ? link.href : null,
       modalTriggerSrc: btn ? btn.getAttribute('data-modal-src') : null,
+      releaseBadgeText: relBadge ? relBadge.textContent.trim() : null,
+      holdBadgeText: holdBadge ? holdBadge.textContent.trim() : null,
+      reasonText: reasonText ? reasonText.textContent.trim() : null,
+      directReplayHref: directLink ? directLink.getAttribute('href') : null,
+      holdNoticeVisible: !!holdNotice,
     };
   });
 
   const linkResp = await page.request.get(slice23DOM.linkHref);
   const linkStatusOk = linkResp.status() === 200;
 
-  console.log("Slice 23 Real-Browser Inspection Results:");
+  console.log("Slice 23 Operator/Visitor Boundary Inspection Results:");
   console.log(` - Target URL Evaluated: ${slice23DOM.pageUrl}`);
-  console.log(` - Initial Status Extracted: ${slice23DOM.initialStatus} (Broken Resources: ${slice23DOM.initialBrokenCount})`);
-  console.log(` - Remediation Attempts Extracted: ${slice23DOM.remediationAttempts}`);
-  console.log(` - Remediated Decision: ${slice23DOM.remediatedDecision} (Broken Resources: ${slice23DOM.remediatedBrokenCount})`);
-  console.log(` - Unrecoverable Decision: ${slice23DOM.unrecoverableDecision}`);
+  console.log(` - Release Status Badge Visible: ${slice23DOM.releaseBadgeText}`);
+  console.log(` - Hold Status Badge Visible: ${slice23DOM.holdBadgeText}`);
+  console.log(` - Human-Readable Remediation Reason: ${slice23DOM.reasonText}`);
+  console.log(` - Direct Usable Replay Link Target: ${slice23DOM.directReplayHref}`);
+  console.log(` - Hold Rejection Notice Box Rendered: ${slice23DOM.holdNoticeVisible}`);
   console.log(` - Archival Photo Loaded cleanly: ${slice23DOM.imageLoaded} (${slice23DOM.imageSrc})`);
   console.log(` - Archival Link Target Status 200 OK: ${linkStatusOk} (${slice23DOM.linkHref})`);
-  console.log(` - Modal Content Trigger Src: ${slice23DOM.modalTriggerSrc}`);
 
 
   await browser.close();
@@ -1072,7 +1109,8 @@ async function runRealBrowserReplayVerification() {
       "WEBARCHIVUM-REPLAY-QUALITY-REMEDIATION-020",
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-021",
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-022",
-      "WEBARCHIVUM-REPLAY-QUALITY-CONTINUE-023"
+      "WEBARCHIVUM-REPLAY-QUALITY-CONTINUE-023",
+      "WEBARCHIVUM-OPERATOR-REPLAY-STATUS-PRODUCT-047"
     ],
     failure_classes_targeted: [
       "visitor_visible_broken_resources_and_links",
