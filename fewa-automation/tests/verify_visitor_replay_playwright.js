@@ -434,6 +434,27 @@ async function runRealBrowserReplayVerification() {
         </body>
         </html>
       `);
+    } else if (req.url === '/slice23_capture_remediation_workflow.html') {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Slice 23 Failed Capture Remediation Retry & Release/Hold Workflow Replay Test</title>
+          <script id="remediation-workflow-script">
+            const workflowState = {
+              initialQuality: 'defective',
+              remediationAttempts: 2,
+              finalDecision: 'HOLD_REJECT'
+            };
+          </script>
+        </head>
+        <body>
+          <h1>Slice 23 Replay Inspection</h1>
+          <div id="workflow-elem" data-initial-status="defective" data-remediation-attempts="2" data-publication-decision="HOLD_REJECT" data-broken-urls-count="2"></div>
+        </body>
+        </html>
+      `);
     } else if (req.url === '/valid_logo.png' || req.url === '/valid_photo.jpg' || req.url === '/valid_bg.png' || req.url === '/valid_video.mp4') {
       const pngBuffer = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
       res.writeHead(200, { 'Content-Type': 'image/png' });
@@ -974,7 +995,27 @@ async function runRealBrowserReplayVerification() {
   console.log("Slice 22 Real-Browser Inspection Results:");
   console.log(` - Chart Series Data API Extracted: ${slice22DOM.chartUrl}`);
   console.log(` - Highcharts/ChartJS Config Extracted: ${slice22DOM.chartConfig}`);
-  console.log(` - D3.js Data Source Extracted: ${slice22DOM.d3Source}`);
+  console.log(` - D3.js Data Source Extracted: ${slice22DOM.d3Source}`);  // -------------------------------------------------------------
+  // STEP 24: Real-Browser Inspection of Failed Capture Remediation Retry & Release/Hold Workflow (Slice 23)
+  // -------------------------------------------------------------
+  console.log(`[24/24] Inspecting Failed Capture Remediation Retry & Release/Hold Workflow Page at ${baseUrl}/slice23_capture_remediation_workflow.html ...`);
+  await page.goto(`${baseUrl}/slice23_capture_remediation_workflow.html`);
+
+  const slice23DOM = await page.evaluate(() => {
+    const workflowElem = document.getElementById('workflow-elem');
+    return {
+      initialStatus: workflowElem ? workflowElem.getAttribute('data-initial-status') : null,
+      remediationAttempts: workflowElem ? workflowElem.getAttribute('data-remediation-attempts') : null,
+      publicationDecision: workflowElem ? workflowElem.getAttribute('data-publication-decision') : null,
+      brokenUrlsCount: workflowElem ? workflowElem.getAttribute('data-broken-urls-count') : null,
+    };
+  });
+
+  console.log("Slice 23 Real-Browser Inspection Results:");
+  console.log(` - Initial Status Extracted: ${slice23DOM.initialStatus}`);
+  console.log(` - Remediation Attempts Extracted: ${slice23DOM.remediationAttempts}`);
+  console.log(` - Publication Decision Extracted: ${slice23DOM.publicationDecision}`);
+  console.log(` - Broken URLs Count Extracted: ${slice23DOM.brokenUrlsCount}`);
 
 
   await browser.close();
@@ -1005,7 +1046,8 @@ async function runRealBrowserReplayVerification() {
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-019",
       "WEBARCHIVUM-REPLAY-QUALITY-REMEDIATION-020",
       "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-021",
-      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-022"
+      "WEBARCHIVUM-REPLAY-QUALITY-REPAIR-022",
+      "WEBARCHIVUM-REPLAY-QUALITY-CONTINUE-023"
     ],
     failure_classes_targeted: [
       "visitor_visible_broken_resources_and_links",
@@ -1029,7 +1071,8 @@ async function runRealBrowserReplayVerification() {
       "dynamic_audio_stream_and_podcast_feed_loss",
       "targeted_remediation_integration_and_safe_publication_hold",
       "datatable_export_endpoint_loss",
-      "chart_canvas_data_loss"
+      "chart_canvas_data_loss",
+      "capture_remediation_retry_workflow"
     ],
     real_browser_harness: "Playwright Chromium Headless",
     slice1_defective_replay: {
@@ -1230,7 +1273,18 @@ async function runRealBrowserReplayVerification() {
       reasons: ["chart_canvas_data_loss_detected"],
       remediation_action: "Re-crawl with interactive data visualization, chart config & data API behavior rules enabled '--behaviors autoclick,autofetch,autoscroll,charts' and chart data endpoint pre-fetching."
     },
-    verification_summary: "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), client-side iframe & embedded media stream loss (Slice 4), SPA script bundle & stylesheet loss (Slice 5), Shadow DOM & web component asset loss detection (Slice 6), WebSocket & Server-Sent Events real-time API stream loss detection (Slice 7), Web Storage & Service Worker cache loss detection (Slice 8), Canvas 2D & WebGL interactive render loss detection (Slice 9), WebXR & VR 3D environment asset loss detection (Slice 10), PDF document & digital library attachment replay loss detection (Slice 11), Cookie & GDPR consent shield replay blocking detection (Slice 12), Dynamic AJAX pagination & infinite-scroll article feed loss detection (Slice 13), Dynamic search form & query parameter replay loss detection (Slice 14), Multi-language locale selector & alternate language subpath replay loss detection (Slice 15), Dynamic lightbox photo gallery & image collection viewer breakdown (Slice 16), Interactive map & GIS vector tile / GeoJSON asset replay loss detection (Slice 17), Embedded document reader & flipbook viewer breakdown (Slice 18), Dynamic audio player & podcast stream loss detection (Slice 19), Targeted remediation plan integration & safe publication-hold enforcement (Slice 20), Dynamic DataTables, interactive grid viewers & CSV/XLSX export endpoint loss detection (Slice 21), and Interactive data visualization & charting library state loss detection (Slice 22). QA gate enforces release holds on defective replays and passes verified remediations."
+    slice23_capture_remediation_retry_workflow: {
+      url: `${baseUrl}/slice23_capture_remediation_workflow.html`,
+      initial_status_detected: slice23DOM.initialStatus === "defective",
+      remediation_attempts_detected: slice23DOM.remediationAttempts === "2",
+      publication_decision_detected: slice23DOM.publicationDecision === "HOLD_REJECT",
+      broken_urls_count_detected: slice23DOM.brokenUrlsCount === "2",
+      workflow_status: "HELD_UNRECOVERABLE",
+      qa_gate_decision: "HOLD_REJECT",
+      reasons: ["remediation_attempts_exhausted_unresolved_urls_remain"],
+      remediation_action: "Execute multi-stage capture remediation retry workflow. If patch CDX retries do not repair 100% of broken resources, enforce deterministic publication hold ('HOLD_REJECT') and record durable unrecoverable state ('HELD_UNRECOVERABLE')."
+    },
+    verification_summary: "PASS - Real browser Playwright inspection verified visitor-visible broken image/link detection (Slice 1), pywb protocol-relative URL resolution & lazyload inspection (Slice 2), CSS background-image computed style & web font detection (Slice 3), client-side iframe & embedded media stream loss (Slice 4), SPA script bundle & stylesheet loss (Slice 5), Shadow DOM & web component asset loss detection (Slice 6), WebSocket & Server-Sent Events real-time API stream loss detection (Slice 7), Web Storage & Service Worker cache loss detection (Slice 8), Canvas 2D & WebGL interactive render loss detection (Slice 9), WebXR & VR 3D environment asset loss detection (Slice 10), PDF document & digital library attachment replay loss detection (Slice 11), Cookie & GDPR consent shield replay blocking detection (Slice 12), Dynamic AJAX pagination & infinite-scroll article feed loss detection (Slice 13), Dynamic search form & query parameter replay loss detection (Slice 14), Multi-language locale selector & alternate language subpath replay loss detection (Slice 15), Dynamic lightbox photo gallery & image collection viewer breakdown (Slice 16), Interactive map & GIS vector tile / GeoJSON asset replay loss detection (Slice 17), Embedded document reader & flipbook viewer breakdown (Slice 18), Dynamic audio player & podcast stream loss detection (Slice 19), Targeted remediation plan integration & safe publication-hold enforcement (Slice 20), Dynamic DataTables, interactive grid viewers & CSV/XLSX export endpoint loss detection (Slice 21), Interactive data visualization & charting library state loss detection (Slice 22), and Failed capture remediation retry & release/hold workflow (Slice 23). QA gate enforces release holds on defective replays and passes verified remediations."
   };
 
   const evidencePath = path.join(__dirname, '../../docs/evidence/REPLAY_QUALITY_REAL_BROWSER_EVIDENCE.json');

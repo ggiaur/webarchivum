@@ -9,11 +9,14 @@ from crawl_manifest import EdgeEvent, build_manifest
 from qa_gate import ReplayEvidence, evaluate
 from replay_qa import (
     BrokenResource,
+    CaptureRemediationWorkflowResult,
     RemediationEvaluationResult,
+    RemediationWorkflowAttempt,
     TargetedRemediationPlan,
     VisitorReplayQualityResult,
     canonicalize_cdx_index_for_pywb,
     evaluate_targeted_remediation,
+    execute_capture_remediation_workflow,
     generate_targeted_remediation_plan,
     inspect_visitor_replay_dom,
     inspect_visitor_replay_qa_log,
@@ -987,6 +990,61 @@ def test_visitor_replay_dom_detects_chart_and_canvas_data_defects():
     reason_codes = [b.reason for b in result.broken_resources]
     assert "chart_config_missing" in reason_codes or "chart_data_missing" in reason_codes
     assert "interactive data visualization, chart config & data API behavior rules enabled" in result.remediation_suggestion
+
+
+def test_capture_remediation_workflow_lifecycle():
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head><title>Municipal Archives Replay</title></head>
+    <body>
+        <h1>Fejér Archive Document Portal</h1>
+        <img id="logo" src="/assets/logo.png">
+        <img id="photo" src="/photos/historical_1924.jpg">
+        <a id="doc" href="/docs/charter.pdf">Charter Document</a>
+    </body>
+    </html>
+    """
+    page_url = "https://example.org/fejer_archive"
+
+    # Scenario 1: Clean initial capture -> RELEASED_CLEAN (PASS_RELEASE)
+    clean_cdx = {
+        "https://example.org/fejer_archive",
+        "https://example.org/assets/logo.png",
+        "https://example.org/photos/historical_1924.jpg",
+        "https://example.org/docs/charter.pdf",
+    }
+    wf_clean = execute_capture_remediation_workflow(html, page_url, clean_cdx)
+    assert wf_clean.overall_status == "RELEASED_CLEAN"
+    assert wf_clean.final_publication_decision == "PASS_RELEASE"
+    assert wf_clean.total_attempts == 1
+
+    # Scenario 2: Defective initial capture -> retry patch fixes all -> RELEASED_REMEDIATED (PASS_RELEASE)
+    defective_cdx = {
+        "https://example.org/fejer_archive",
+        "https://example.org/assets/logo.png",
+    }
+    patch_attempt_1 = {"https://example.org/photos/historical_1924.jpg", "https://example.org/docs/charter.pdf"}
+    wf_remediated = execute_capture_remediation_workflow(html, page_url, defective_cdx, patch_cdx_attempts=[patch_attempt_1])
+    assert wf_remediated.overall_status == "RELEASED_REMEDIATED"
+    assert wf_remediated.final_publication_decision == "PASS_RELEASE"
+    assert wf_remediated.total_attempts == 2
+    assert wf_remediated.initial_broken_count == 2
+    assert wf_remediated.final_broken_count == 0
+    assert len(wf_remediated.workflow_history) == 2
+
+    # Scenario 3: Defective initial capture -> retry patch fails/exhausted -> HELD_UNRECOVERABLE (HOLD_REJECT)
+    partial_patch = {"https://example.org/photos/historical_1924.jpg"}
+    wf_held = execute_capture_remediation_workflow(html, page_url, defective_cdx, patch_cdx_attempts=[partial_patch], max_attempts=2)
+    assert wf_held.overall_status == "HELD_UNRECOVERABLE"
+    assert wf_held.final_publication_decision == "HOLD_REJECT"
+    assert wf_held.total_attempts == 2
+    assert wf_held.initial_broken_count == 2
+    assert wf_held.final_broken_count == 1
+    assert wf_held.final_remediation_plan is not None
+    assert wf_held.final_remediation_plan.publication_gate_decision == "HOLD_REJECT"
+    assert "https://example.org/docs/charter.pdf" in wf_held.final_remediation_plan.target_urls
+
 
 
 

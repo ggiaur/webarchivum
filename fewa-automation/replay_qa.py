@@ -2155,3 +2155,194 @@ def evaluate_targeted_remediation(
         remediation_plan=plan,
     )
 
+
+@dataclass(frozen=True)
+class RemediationWorkflowAttempt:
+    attempt_index: int
+    patch_cdx_count: int
+    status: str  # 'INITIAL_FAILURE' | 'RETRY_FIXED' | 'RETRY_HELD' | 'UNRECOVERABLE_HOLD'
+    publication_decision: str  # 'PASS_RELEASE' | 'HOLD_REJECT'
+    fixed_urls: Tuple[str, ...]
+    unresolved_urls: Tuple[str, ...]
+    failure_reasons: Tuple[str, ...]
+    remediation_summary: str
+
+
+@dataclass(frozen=True)
+class CaptureRemediationWorkflowResult:
+    page_url: str
+    overall_status: str  # 'RELEASED_CLEAN' | 'RELEASED_REMEDIATED' | 'HELD_UNRECOVERABLE'
+    final_publication_decision: str  # 'PASS_RELEASE' | 'HOLD_REJECT'
+    total_attempts: int
+    initial_broken_count: int
+    final_broken_count: int
+    workflow_history: Tuple[RemediationWorkflowAttempt, ...]
+    final_remediation_plan: Optional[TargetedRemediationPlan]
+    audit_summary: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "page_url": self.page_url,
+            "overall_status": self.overall_status,
+            "final_publication_decision": self.final_publication_decision,
+            "total_attempts": self.total_attempts,
+            "initial_broken_count": self.initial_broken_count,
+            "final_broken_count": self.final_broken_count,
+            "workflow_history": [
+                {
+                    "attempt_index": a.attempt_index,
+                    "patch_cdx_count": a.patch_cdx_count,
+                    "status": a.status,
+                    "publication_decision": a.publication_decision,
+                    "fixed_urls": list(a.fixed_urls),
+                    "unresolved_urls": list(a.unresolved_urls),
+                    "failure_reasons": list(a.failure_reasons),
+                    "remediation_summary": a.remediation_summary,
+                }
+                for a in self.workflow_history
+            ],
+            "final_remediation_plan": self.final_remediation_plan.to_dict() if self.final_remediation_plan else None,
+            "audit_summary": self.audit_summary,
+        }
+
+
+def execute_capture_remediation_workflow(
+    html_content: str,
+    page_url: str,
+    initial_cdx_urls: Set[str],
+    patch_cdx_attempts: Sequence[Set[str]] = (),
+    max_attempts: int = 3,
+) -> CaptureRemediationWorkflowResult:
+    """Execute the multi-stage failed capture -> remediation -> retry -> release/hold workflow.
+
+    Evaluates initial capture. If clean, returns 'RELEASED_CLEAN' ('PASS_RELEASE').
+    If initial capture fails, evaluates each patch CDX retry up to max_attempts.
+    If a patch resolves all defects, transitions to 'RELEASED_REMEDIATED' ('PASS_RELEASE').
+    If attempts exhaust without full resolution, transitions to 'HELD_UNRECOVERABLE' ('HOLD_REJECT')
+    with persisted audit trail and targeted remediation guidance for human curator action.
+    """
+    initial_result = inspect_visitor_replay_dom(html_content, page_url, cdx_index_urls=initial_cdx_urls)
+    if initial_result.passed or not initial_result.broken_resources:
+        return CaptureRemediationWorkflowResult(
+            page_url=page_url,
+            overall_status="RELEASED_CLEAN",
+            final_publication_decision="PASS_RELEASE",
+            total_attempts=1,
+            initial_broken_count=0,
+            final_broken_count=0,
+            workflow_history=(
+                RemediationWorkflowAttempt(
+                    attempt_index=1,
+                    patch_cdx_count=0,
+                    status="RELEASED_CLEAN",
+                    publication_decision="PASS_RELEASE",
+                    fixed_urls=(),
+                    unresolved_urls=(),
+                    failure_reasons=(),
+                    remediation_summary="Initial replay QA passed cleanly with zero broken resources.",
+                ),
+            ),
+            final_remediation_plan=None,
+            audit_summary=f"Page '{page_url}' passed initial replay QA with zero broken resources. Released for publication ('PASS_RELEASE').",
+        )
+
+    initial_broken_urls = {b.url for b in initial_result.broken_resources if b.url}
+    history: List[RemediationWorkflowAttempt] = []
+
+    # Record initial failure attempt
+    initial_plan = generate_targeted_remediation_plan(initial_result)
+    history.append(
+        RemediationWorkflowAttempt(
+            attempt_index=1,
+            patch_cdx_count=0,
+            status="INITIAL_FAILURE",
+            publication_decision="HOLD_REJECT",
+            fixed_urls=(),
+            unresolved_urls=tuple(sorted(initial_broken_urls)),
+            failure_reasons=initial_result.reasons,
+            remediation_summary=initial_plan.remediation_summary,
+        )
+    )
+
+    current_cdx = set(initial_cdx_urls)
+    current_broken_urls = set(initial_broken_urls)
+    attempt_count = 1
+    remediated = False
+    latest_plan = initial_plan
+
+    for patch_set in patch_cdx_attempts:
+        if attempt_count >= max_attempts:
+            break
+        attempt_count += 1
+        current_cdx.update(patch_set)
+
+        eval_res = inspect_visitor_replay_dom(html_content, page_url, cdx_index_urls=current_cdx)
+        eval_broken_urls = {b.url for b in eval_res.broken_resources if b.url}
+        fixed = tuple(sorted(initial_broken_urls - eval_broken_urls))
+        unresolved = tuple(sorted(eval_broken_urls))
+
+        if eval_res.passed or not eval_broken_urls:
+            remediated = True
+            history.append(
+                RemediationWorkflowAttempt(
+                    attempt_index=attempt_count,
+                    patch_cdx_count=len(patch_set),
+                    status="RETRY_FIXED",
+                    publication_decision="PASS_RELEASE",
+                    fixed_urls=fixed,
+                    unresolved_urls=(),
+                    failure_reasons=(),
+                    remediation_summary=f"Remediation attempt {attempt_count} succeeded. All {len(initial_broken_urls)} initial broken resources repaired.",
+                )
+            )
+            break
+        else:
+            latest_plan = generate_targeted_remediation_plan(eval_res)
+            history.append(
+                RemediationWorkflowAttempt(
+                    attempt_index=attempt_count,
+                    patch_cdx_count=len(patch_set),
+                    status="RETRY_HELD",
+                    publication_decision="HOLD_REJECT",
+                    fixed_urls=fixed,
+                    unresolved_urls=unresolved,
+                    failure_reasons=eval_res.reasons,
+                    remediation_summary=f"Remediation attempt {attempt_count} fixed {len(fixed)} resources but {len(unresolved)} remain uncaptured.",
+                )
+            )
+            current_broken_urls = eval_broken_urls
+
+    if remediated:
+        summary = (
+            f"Page '{page_url}' underwent failed capture -> targeted remediation -> successful retry. "
+            f"Repaired {len(initial_broken_urls)} broken resources across {attempt_count} attempts. Released for publication ('PASS_RELEASE')."
+        )
+        return CaptureRemediationWorkflowResult(
+            page_url=page_url,
+            overall_status="RELEASED_REMEDIATED",
+            final_publication_decision="PASS_RELEASE",
+            total_attempts=attempt_count,
+            initial_broken_count=len(initial_broken_urls),
+            final_broken_count=0,
+            workflow_history=tuple(history),
+            final_remediation_plan=None,
+            audit_summary=summary,
+        )
+
+    summary = (
+        f"Page '{page_url}' capture remediation exhausted {attempt_count} retry attempts without full repair. "
+        f"Initial broken: {len(initial_broken_urls)}, Remaining uncaptured: {len(current_broken_urls)}. "
+        f"Publication held as 'HELD_UNRECOVERABLE' ('HOLD_REJECT') for curator review."
+    )
+    return CaptureRemediationWorkflowResult(
+        page_url=page_url,
+        overall_status="HELD_UNRECOVERABLE",
+        final_publication_decision="HOLD_REJECT",
+        total_attempts=attempt_count,
+        initial_broken_count=len(initial_broken_urls),
+        final_broken_count=len(current_broken_urls),
+        workflow_history=tuple(history),
+        final_remediation_plan=latest_plan,
+        audit_summary=summary,
+    )
+
