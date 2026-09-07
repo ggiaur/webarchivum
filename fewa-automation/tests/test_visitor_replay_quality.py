@@ -10,6 +10,7 @@ from qa_gate import ReplayEvidence, evaluate
 from replay_qa import (
     BrokenResource,
     CaptureRemediationWorkflowResult,
+    RealArchivedPageFidelityResult,
     RemediationEvaluationResult,
     RemediationWorkflowAttempt,
     TargetedRemediationPlan,
@@ -20,6 +21,7 @@ from replay_qa import (
     generate_targeted_remediation_plan,
     inspect_visitor_replay_dom,
     inspect_visitor_replay_qa_log,
+    remediate_real_archived_page_fidelity,
     suggest_remediation,
 )
 from wacz_integrity import WaczVerification
@@ -1077,6 +1079,57 @@ def test_operator_replay_boundary_status_exposure():
     assert held_dict["total_attempts"] == 1
     assert "Publication held as 'HELD_UNRECOVERABLE' ('HOLD_REJECT')" in held_dict["audit_summary"]
     assert held_dict["final_remediation_plan"]["publication_gate_decision"] == "HOLD_REJECT"
+
+
+def test_real_archived_page_replay_fidelity_remediation():
+    """Verify real archived page 'https://fejer-archivum.hu/bicske_history_1924.html' fidelity defect reproduction, remediation, and unrecoverable hold enforcement."""
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Fejér Archives - Bicske History 1924</title>
+        <link rel="stylesheet" href="/css/archive_theme_1924.css">
+    </head>
+    <body>
+        <h1>Fejér Megyei Levéltár - Bicskei Helytörténet (1924)</h1>
+        <img id="archival-photo" src="/photos/historical_1924.jpg" alt="Bicske Main Square 1924">
+        <a id="archival-link" href="/docs/bicske_charter_1924.pdf">1924 Town Charter PDF</a>
+    </body>
+    </html>
+    """
+    page_url = "https://fejer-archivum.hu/bicske_history_1924.html"
+
+    initial_cdx = {"https://fejer-archivum.hu/bicske_history_1924.html"}
+    patch_cdx = {
+        "https://fejer-archivum.hu/css/archive_theme_1924.css",
+        "https://fejer-archivum.hu/photos/historical_1924.jpg",
+        "https://fejer-archivum.hu/docs/bicske_charter_1924.pdf",
+    }
+
+    # 1. Successful Remediation Flow
+    res_fixed = remediate_real_archived_page_fidelity(html, page_url, initial_cdx, patch_cdx)
+    assert res_fixed.initial_defective is True
+    assert res_fixed.initial_broken_images == 1
+    assert res_fixed.initial_broken_styles == 1
+    assert res_fixed.initial_broken_links == 1
+    assert res_fixed.initial_publication_decision == "HOLD_REJECT"
+    assert res_fixed.remediated is True
+    assert res_fixed.remediated_broken_images == 0
+    assert res_fixed.remediated_broken_styles == 0
+    assert res_fixed.remediated_broken_links == 0
+    assert res_fixed.final_publication_decision == "PASS_RELEASE"
+    assert res_fixed.unrecoverable_held is False
+    assert res_fixed.unrecoverable_reason is None
+    assert len(res_fixed.audit_trail) >= 3
+
+    # 2. Unrecoverable Hold Flow
+    unrecoverable_asset = "https://fejer-archivum.hu/photos/lost_1924_destroyed.jpg"
+    res_held = remediate_real_archived_page_fidelity(html, page_url, initial_cdx, patch_cdx, unrecoverable_asset=unrecoverable_asset)
+    assert res_held.remediated is False
+    assert res_held.unrecoverable_held is True
+    assert res_held.final_publication_decision == "HOLD_REJECT"
+    assert "Unrecoverable asset 'https://fejer-archivum.hu/photos/lost_1924_destroyed.jpg' is not archived" in res_held.unrecoverable_reason
+
 
 
 

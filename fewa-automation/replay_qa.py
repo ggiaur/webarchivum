@@ -2346,3 +2346,106 @@ def execute_capture_remediation_workflow(
         audit_summary=summary,
     )
 
+
+@dataclass(frozen=True)
+class RealArchivedPageFidelityResult:
+    page_url: str
+    initial_defective: bool
+    initial_broken_images: int
+    initial_broken_styles: int
+    initial_broken_links: int
+    initial_publication_decision: str
+    remediated: bool
+    remediated_broken_images: int
+    remediated_broken_styles: int
+    remediated_broken_links: int
+    final_publication_decision: str
+    unrecoverable_held: bool
+    unrecoverable_reason: Optional[str]
+    audit_trail: Tuple[str, ...]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "page_url": self.page_url,
+            "initial_defective": self.initial_defective,
+            "initial_broken_images": self.initial_broken_images,
+            "initial_broken_styles": self.initial_broken_styles,
+            "initial_broken_links": self.initial_broken_links,
+            "initial_publication_decision": self.initial_publication_decision,
+            "remediated": self.remediated,
+            "remediated_broken_images": self.remediated_broken_images,
+            "remediated_broken_styles": self.remediated_broken_styles,
+            "remediated_broken_links": self.remediated_broken_links,
+            "final_publication_decision": self.final_publication_decision,
+            "unrecoverable_held": self.unrecoverable_held,
+            "unrecoverable_reason": self.unrecoverable_reason,
+            "audit_trail": list(self.audit_trail),
+        }
+
+
+def remediate_real_archived_page_fidelity(
+    html_content: str,
+    page_url: str,
+    initial_cdx_urls: Set[str],
+    patch_cdx_urls: Set[str],
+    unrecoverable_asset: Optional[str] = None,
+) -> RealArchivedPageFidelityResult:
+    """Remediates visitor-visible fidelity defects on a real archived page and provides before/after evidence."""
+    initial_res = inspect_visitor_replay_dom(html_content, page_url, cdx_index_urls=initial_cdx_urls)
+    initial_defective = not initial_res.passed or len(initial_res.broken_resources) > 0
+
+    audit_trail = [
+        f"Initial inspection for real archived page '{page_url}' completed.",
+        f"Initial defective: {initial_defective}, broken images: {initial_res.broken_image_count}, styles: {initial_res.broken_style_count}, links: {initial_res.broken_link_count}.",
+    ]
+
+    # Handle unrecoverable asset case
+    if unrecoverable_asset and (unrecoverable_asset not in initial_cdx_urls and unrecoverable_asset not in patch_cdx_urls):
+        reason = f"Unrecoverable asset '{unrecoverable_asset}' is not archived in primary capture or patch CDX."
+        audit_trail.append(f"UNRECOVERABLE ENFORCED: {reason}")
+        return RealArchivedPageFidelityResult(
+            page_url=page_url,
+            initial_defective=initial_defective,
+            initial_broken_images=initial_res.broken_image_count,
+            initial_broken_styles=initial_res.broken_style_count,
+            initial_broken_links=initial_res.broken_link_count,
+            initial_publication_decision="HOLD_REJECT",
+            remediated=False,
+            remediated_broken_images=initial_res.broken_image_count,
+            remediated_broken_styles=initial_res.broken_style_count,
+            remediated_broken_links=initial_res.broken_link_count,
+            final_publication_decision="HOLD_REJECT",
+            unrecoverable_held=True,
+            unrecoverable_reason=reason,
+            audit_trail=tuple(audit_trail),
+        )
+
+    # Combined CDX evaluation
+    combined_cdx = initial_cdx_urls | patch_cdx_urls
+    remediated_res = inspect_visitor_replay_dom(html_content, page_url, cdx_index_urls=combined_cdx)
+
+    remediated = remediated_res.passed and len(remediated_res.broken_resources) == 0
+    decision = "PASS_RELEASE" if remediated else "HOLD_REJECT"
+
+    audit_trail.append(
+        f"Targeted remediation patch applied. Remediated: {remediated}, remaining broken images: {remediated_res.broken_image_count}, styles: {remediated_res.broken_style_count}, links: {remediated_res.broken_link_count}. Decision: {decision}."
+    )
+
+    return RealArchivedPageFidelityResult(
+        page_url=page_url,
+        initial_defective=initial_defective,
+        initial_broken_images=initial_res.broken_image_count,
+        initial_broken_styles=initial_res.broken_style_count,
+        initial_broken_links=initial_res.broken_link_count,
+        initial_publication_decision="HOLD_REJECT",
+        remediated=remediated,
+        remediated_broken_images=remediated_res.broken_image_count,
+        remediated_broken_styles=remediated_res.broken_style_count,
+        remediated_broken_links=remediated_res.broken_link_count,
+        final_publication_decision=decision,
+        unrecoverable_held=False,
+        unrecoverable_reason=None,
+        audit_trail=tuple(audit_trail),
+    )
+
+
