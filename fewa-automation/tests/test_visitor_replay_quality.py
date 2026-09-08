@@ -10,18 +10,22 @@ from qa_gate import ReplayEvidence, evaluate
 from replay_qa import (
     BrokenResource,
     CaptureRemediationWorkflowResult,
+    MultiPageLinkInfo,
+    MultiPageReplayContinuityResult,
     RealArchivedPageFidelityResult,
     RemediationEvaluationResult,
     RemediationWorkflowAttempt,
     TargetedRemediationPlan,
     VisitorReplayQualityResult,
     canonicalize_cdx_index_for_pywb,
+    evaluate_multipage_replay_continuity,
     evaluate_targeted_remediation,
     execute_capture_remediation_workflow,
     generate_targeted_remediation_plan,
     inspect_visitor_replay_dom,
     inspect_visitor_replay_qa_log,
     remediate_real_archived_page_fidelity,
+    rewrite_multipage_replay_links,
     suggest_remediation,
 )
 from wacz_integrity import WaczVerification
@@ -1129,6 +1133,74 @@ def test_real_archived_page_replay_fidelity_remediation():
     assert res_held.unrecoverable_held is True
     assert res_held.final_publication_decision == "HOLD_REJECT"
     assert "Unrecoverable asset 'https://fejer-archivum.hu/photos/lost_1924_destroyed.jpg' is not archived" in res_held.unrecoverable_reason
+
+
+def test_multipage_replay_continuity_evaluation():
+    """Verify multi-page replay continuity rewriting and unavailable hold enforcement."""
+    origin_html = """
+    <!DOCTYPE html>
+    <html>
+    <head><title>Bicske Archive Main Page</title></head>
+    <body>
+        <h1>Fejér Levéltár - Bicske Főoldal</h1>
+        <a id="link-charter" href="/bicske_charter_details_1924.html">Részletes Oklevél (1924)</a>
+        <a id="link-missing" href="/missing_town_records_1924.html">Hiányzó Városi Jegyyzőkönyvek</a>
+        <a id="link-external" href="https://example.org/external_portal">Külső Portál</a>
+    </body>
+    </html>
+    """
+    origin_url = "https://fejer-archivum.hu/bicske_history_1924.html"
+
+    target_charter_html = """
+    <!DOCTYPE html>
+    <html>
+    <head><title>Bicske Charter Details</title></head>
+    <body>
+        <h1>1924 Városi Oklevél Részletei</h1>
+        <img src="/photos/historical_1924.jpg">
+    </body>
+    </html>
+    """
+
+    cdx_set = {
+        "https://fejer-archivum.hu/bicske_history_1924.html",
+        "https://fejer-archivum.hu/bicske_charter_details_1924.html",
+        "https://fejer-archivum.hu/photos/historical_1924.jpg",
+    }
+
+    # 1. Test link rewriting
+    rewritten_html, link_infos = rewrite_multipage_replay_links(origin_html, origin_url, cdx_set)
+    assert len(link_infos) == 3
+    charter_info = next(l for l in link_infos if "bicske_charter_details" in l.resolved_url)
+    missing_info = next(l for l in link_infos if "missing_town_records" in l.resolved_url)
+    ext_info = next(l for l in link_infos if "external_portal" in l.resolved_url)
+
+    assert charter_info.is_internal is True
+    assert charter_info.is_archived is True
+    assert charter_info.availability_status == "ARCHIVED_AVAILABLE"
+    assert "/replay-loading?target=" in charter_info.rewritten_replay_url
+    assert 'data-replay-status="ARCHIVED_AVAILABLE"' in rewritten_html
+
+    assert missing_info.is_internal is True
+    assert missing_info.is_archived is False
+    assert missing_info.availability_status == "UNAVAILABLE_HELD"
+    assert 'data-replay-status="HOLD_UNAVAILABLE"' in rewritten_html
+    assert 'data-hold-reason=' in rewritten_html
+
+    assert ext_info.is_internal is False
+    assert ext_info.availability_status == "EXTERNAL_LINK"
+
+    # 2. Test multi-page continuity evaluation
+    target_pages = {"https://fejer-archivum.hu/bicske_charter_details_1924.html": target_charter_html}
+    res = evaluate_multipage_replay_continuity(origin_url, origin_html, cdx_set, target_pages_html=target_pages)
+
+    assert res.total_links_found == 3
+    assert res.internal_links_count == 2
+    assert res.archived_links_count == 1
+    assert res.unavailable_links_count == 1
+    assert res.continuity_passed is True
+    assert res.publication_decision == "HOLD_REJECT"  # HOLD_REJECT due to unavailable internal link
+
 
 
 

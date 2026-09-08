@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple
-from urllib.parse import urljoin, urlparse
+from urllib.parse import quote_plus, urljoin, urlparse
 
 # Regular expression to extract url(...) references from inline CSS styles or <style> tags
 CSS_URL_REGEX = re.compile(r'url\(\s*[\'"]?([^\'")\s]+)[\'"]?\s*\)', re.IGNORECASE)
@@ -2447,5 +2447,197 @@ def remediate_real_archived_page_fidelity(
         unrecoverable_reason=None,
         audit_trail=tuple(audit_trail),
     )
+
+
+@dataclass(frozen=True)
+class MultiPageLinkInfo:
+    raw_href: str
+    resolved_url: str
+    is_internal: bool
+    is_archived: bool
+    rewritten_replay_url: str
+    availability_status: str  # 'ARCHIVED_AVAILABLE' | 'UNAVAILABLE_HELD' | 'EXTERNAL_LINK'
+    hold_reason: Optional[str]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "raw_href": self.raw_href,
+            "resolved_url": self.resolved_url,
+            "is_internal": self.is_internal,
+            "is_archived": self.is_archived,
+            "rewritten_replay_url": self.rewritten_replay_url,
+            "availability_status": self.availability_status,
+            "hold_reason": self.hold_reason,
+        }
+
+
+@dataclass(frozen=True)
+class MultiPageReplayContinuityResult:
+    origin_page_url: str
+    total_links_found: int
+    internal_links_count: int
+    archived_links_count: int
+    unavailable_links_count: int
+    continuity_passed: bool
+    publication_decision: str  # 'PASS_RELEASE' | 'HOLD_REJECT'
+    link_details: Tuple[MultiPageLinkInfo, ...]
+    rewritten_html: str
+    audit_summary: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "origin_page_url": self.origin_page_url,
+            "total_links_found": self.total_links_found,
+            "internal_links_count": self.internal_links_count,
+            "archived_links_count": self.archived_links_count,
+            "unavailable_links_count": self.unavailable_links_count,
+            "continuity_passed": self.continuity_passed,
+            "publication_decision": self.publication_decision,
+            "link_details": [l.to_dict() for l in self.link_details],
+            "audit_summary": self.audit_summary,
+        }
+
+
+def rewrite_multipage_replay_links(
+    html_content: str,
+    base_url: str,
+    cdx_index_urls: Set[str],
+    replay_prefix: str = "/replay-loading?target=",
+) -> Tuple[str, List[MultiPageLinkInfo]]:
+    """Rewrites outgoing HTML links on an archived page to preserve replay context continuity.
+
+    Links pointing to archived pages are rewritten to maintain the replay context wrapper (e.g. /replay-loading?target=...).
+    Links pointing to internal unarchived pages are annotated with data-replay-status="HOLD_UNAVAILABLE" and a truthful
+    unavailable hold notice, preventing live-origin escaping or silent 404 failures.
+    """
+    parsed_base = urlparse(base_url)
+    origin_domain = parsed_base.netloc.lower()
+    canonical_cdx_set = canonicalize_cdx_index_for_pywb(cdx_index_urls)
+
+    link_infos: List[MultiPageLinkInfo] = []
+
+    def replace_link(match: re.Match) -> str:
+        full_tag = match.group(0)
+        raw_href = match.group(1) or match.group(2) or match.group(3) or ""
+        raw_href_trimmed = raw_href.strip()
+
+        if not raw_href_trimmed or raw_href_trimmed.startswith(("#", "javascript:", "mailto:", "tel:")):
+            return full_tag
+
+        resolved = resolve_protocol_relative(raw_href_trimmed, base_url)
+        parsed_res = urlparse(resolved)
+        is_internal = (not parsed_res.netloc) or (parsed_res.netloc.lower() == origin_domain)
+
+        if not is_internal:
+            link_info = MultiPageLinkInfo(
+                raw_href=raw_href_trimmed,
+                resolved_url=resolved,
+                is_internal=False,
+                is_archived=False,
+                rewritten_replay_url=resolved,
+                availability_status="EXTERNAL_LINK",
+                hold_reason="External domain link outside Webarchivum archive scope.",
+            )
+            link_infos.append(link_info)
+            return full_tag
+
+        # Check CDX index matching (including scheme canonicalization)
+        is_archived = (resolved in cdx_index_urls) or (resolved in canonical_cdx_set)
+
+        if is_archived:
+            encoded_target = quote_plus(resolved)
+            rewritten_url = f"{replay_prefix}{encoded_target}"
+            link_info = MultiPageLinkInfo(
+                raw_href=raw_href_trimmed,
+                resolved_url=resolved,
+                is_internal=True,
+                is_archived=True,
+                rewritten_replay_url=rewritten_url,
+                availability_status="ARCHIVED_AVAILABLE",
+                hold_reason=None,
+            )
+            link_infos.append(link_info)
+            return re.sub(
+                r'href\s*=\s*(?:["\'][^"\']*["\']|[^\s>]+)',
+                f'href="{rewritten_url}" data-replay-status="ARCHIVED_AVAILABLE" data-original-href="{raw_href_trimmed}"',
+                full_tag,
+                flags=re.IGNORECASE,
+            )
+        else:
+            hold_reason = f"Linked page '{resolved}' was not captured in web archive (missing in CDX)."
+            rewritten_url = f"#unavailable-hold?url={quote_plus(resolved)}"
+            link_info = MultiPageLinkInfo(
+                raw_href=raw_href_trimmed,
+                resolved_url=resolved,
+                is_internal=True,
+                is_archived=False,
+                rewritten_replay_url=rewritten_url,
+                availability_status="UNAVAILABLE_HELD",
+                hold_reason=hold_reason,
+            )
+            link_infos.append(link_info)
+            return re.sub(
+                r'href\s*=\s*(?:["\'][^"\']*["\']|[^\s>]+)',
+                f'href="{rewritten_url}" data-replay-status="HOLD_UNAVAILABLE" data-hold-reason="{hold_reason}" data-original-href="{raw_href_trimmed}"',
+                full_tag,
+                flags=re.IGNORECASE,
+            )
+
+    a_tag_regex = re.compile(
+        r'<a\b[^>]*?\bhref\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s>]+))[^>]*>',
+        re.IGNORECASE,
+    )
+    rewritten_html = a_tag_regex.sub(replace_link, html_content)
+    return rewritten_html, link_infos
+
+
+def evaluate_multipage_replay_continuity(
+    origin_page_url: str,
+    origin_html_content: str,
+    cdx_index_urls: Set[str],
+    target_pages_html: Optional[Dict[str, str]] = None,
+    replay_prefix: str = "/replay-loading?target=",
+) -> MultiPageReplayContinuityResult:
+    """Evaluates multi-page replay continuity across origin page and its linked archived pages."""
+    rewritten_html, link_details = rewrite_multipage_replay_links(
+        origin_html_content, origin_page_url, cdx_index_urls, replay_prefix=replay_prefix
+    )
+
+    total_links = len(link_details)
+    internal_links = [l for l in link_details if l.is_internal]
+    archived_links = [l for l in link_details if l.is_archived]
+    unavailable_links = [l for l in link_details if l.is_internal and not l.is_archived]
+
+    # Verify target pages replay quality if HTML is provided
+    target_defects_found = False
+    if target_pages_html:
+        for target_url, t_html in target_pages_html.items():
+            if target_url in cdx_index_urls:
+                target_qa = inspect_visitor_replay_dom(t_html, target_url, cdx_index_urls=cdx_index_urls)
+                if not target_qa.passed or len(target_qa.broken_resources) > 0:
+                    target_defects_found = True
+
+    continuity_passed = len(archived_links) > 0 and not target_defects_found
+    decision = "PASS_RELEASE" if (continuity_passed and len(unavailable_links) == 0) else "HOLD_REJECT"
+
+    summary = (
+        f"Multi-page replay continuity evaluation for '{origin_page_url}': "
+        f"Total internal links: {len(internal_links)}, Archived & usable: {len(archived_links)}, "
+        f"Unavailable held: {len(unavailable_links)}. Continuity decision: {decision}."
+    )
+
+    return MultiPageReplayContinuityResult(
+        origin_page_url=origin_page_url,
+        total_links_found=total_links,
+        internal_links_count=len(internal_links),
+        archived_links_count=len(archived_links),
+        unavailable_links_count=len(unavailable_links),
+        continuity_passed=continuity_passed,
+        publication_decision=decision,
+        link_details=tuple(link_details),
+        rewritten_html=rewritten_html,
+        audit_summary=summary,
+    )
+
 
 
